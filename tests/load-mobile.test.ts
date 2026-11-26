@@ -292,3 +292,314 @@ describe("progress — BUG-265", () => {
     ).toBe(true);
   });
 });
+
+describe("resume (BUG-368)", () => {
+  // A fake pg client: the staged authorities, the postcode
+  // directory's answers, and the loader_checkpoint row as
+  // arrays, with just enough SQL to run the filer. The merge
+  // UPDATE is modelled as a set-add per postcode, so a
+  // re-run merge can never double-file an answer.
+  type CheckpointRow = {
+    loader: string;
+    edition: string;
+    expected: number | null;
+    next_start_index: number;
+    read_count: number;
+    filed_count: number;
+    state: Record<string, unknown> | null;
+  };
+  type StagedRow = { lauaName: string; lauaNorm: string; seq: number };
+  const EDITION = "2026-03r1";
+  const makeRows = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      laua: `E000000${i}`,
+      lauaName: `Authority ${i}`,
+      answer: { snapshot: EDITION, laua: `E000000${i}`, laua_name: `Authority ${i}`, services: {} },
+    }));
+  function createFakeClient() {
+    let staged: StagedRow[] = [];
+    const checkpoints = new Map<string, CheckpointRow>();
+    // Two postcodes per authority, plus three unmatched
+    // councils with five postcodes each.
+    const postcodes: { council: string; answers: Set<string> }[] = [];
+    const addPostcodes = (council: string, n: number) => {
+      for (let i = 0; i < n; i++) postcodes.push({ council, answers: new Set() });
+    };
+    const rows = makeRows(1200);
+    for (const r of rows) addPostcodes(r.lauaName, 2);
+    for (const u of ["Nowhere 1", "Nowhere 2", "Nowhere 3"]) addPostcodes(u, 5);
+    let insertCalls = 0;
+    let failAfterInserts: number | null = null;
+    let failMergeOnce = false;
+    let mergeCalls = 0;
+    let snapshot: {
+      staged: StagedRow[];
+      checkpoints: Map<string, CheckpointRow>;
+      answers: Set<string>[];
+    } | null = null;
+    const query = async (sql: string, params: unknown[] = []) => {
+      const text = sql.replace(/\s+/g, " ");
+      if (text === "BEGIN") {
+        snapshot = {
+          staged: [...staged],
+          checkpoints: new Map(checkpoints),
+          answers: postcodes.map((p) => new Set(p.answers)),
+        };
+        return { rows: [] };
+      }
+      if (text === "COMMIT") {
+        snapshot = null;
+        return { rows: [] };
+      }
+      if (text === "ROLLBACK") {
+        const snap = snapshot;
+        if (snap) {
+          staged = snap.staged;
+          checkpoints.clear();
+          for (const [k, v] of snap.checkpoints) checkpoints.set(k, v);
+          postcodes.forEach((p, i) => {
+            p.answers = snap.answers[i];
+          });
+        }
+        snapshot = null;
+        return { rows: [] };
+      }
+      if (/CREATE TABLE IF NOT EXISTS mobile_stage/.test(text)) return { rows: [] };
+      if (/INSERT INTO mobile_stage/.test(text)) {
+        insertCalls += 1;
+        if (failAfterInserts !== null && insertCalls > failAfterInserts)
+          throw new Error("simulated kill: the database connection dropped mid-insert");
+        for (let r = 0; r < params.length / 4; r++) {
+          const b = r * 4;
+          staged.push({
+            lauaName: params[b] as string,
+            lauaNorm: params[b + 1] as string,
+            seq: params[b + 3] as number,
+          });
+        }
+        return { rows: [], rowCount: params.length / 4 };
+      }
+      if (
+        /SELECT loader, edition, expected, next_start_index, read_count, filed_count, state, updated_at/.test(
+          text,
+        )
+      ) {
+        const row = checkpoints.get(params[0] as string);
+        return { rows: row ? [row] : [] };
+      }
+      if (/INSERT INTO loader_checkpoint/.test(text)) {
+        checkpoints.set(params[0] as string, {
+          loader: params[0] as string,
+          edition: params[1] as string,
+          expected: params[2] as number | null,
+          next_start_index: params[3] as number,
+          read_count: params[4] as number,
+          filed_count: params[5] as number,
+          state: JSON.parse(params[6] as string) as Record<string, unknown>,
+        });
+        return { rows: [] };
+      }
+      if (/DELETE FROM loader_checkpoint WHERE loader =/.test(text)) {
+        checkpoints.delete(params[0] as string);
+        return { rows: [] };
+      }
+      if (/SELECT count\(\*\)::int AS n, coalesce\(sum\(seq\)/.test(text)) {
+        return {
+          rows: [
+            {
+              n: staged.length,
+              s: staged.reduce((a, r) => a + r.seq, 0),
+              m: staged.length ? Math.max(...staged.map((r) => r.seq)) : 0,
+            },
+          ],
+        };
+      }
+      if (/DELETE FROM mobile_stage WHERE seq >=/.test(text)) {
+        staged = staged.filter((r) => r.seq < (params[0] as number));
+        return { rows: [], rowCount: 0 };
+      }
+      if (/DELETE FROM mobile_stage/.test(text)) {
+        staged = [];
+        return { rows: [] };
+      }
+      if (/SELECT count\(\*\)::int AS n FROM mobile_stage/.test(text))
+        return { rows: [{ n: staged.length }] };
+      if (
+        /UPDATE postcode_cache SET answers = answers \|\| jsonb_build_object\('mobile'/.test(text)
+      ) {
+        mergeCalls += 1;
+        if (failMergeOnce) {
+          failMergeOnce = false;
+          throw new Error("simulated kill: the database connection dropped mid-merge");
+        }
+        const stagedNorms = new Set(staged.map((r) => r.lauaNorm));
+        let updated = 0;
+        for (const p of postcodes) {
+          if (stagedNorms.has(p.council.trim().replace(/\s+/g, " ").toLowerCase())) {
+            p.answers.add("mobile");
+            updated += 1;
+          }
+        }
+        return { rows: [], rowCount: updated };
+      }
+      if (/UPDATE postcode_cache SET answers = answers - 'mobile'/.test(text)) {
+        const stagedNorms = new Set(staged.map((r) => r.lauaNorm));
+        for (const p of postcodes) {
+          if (!stagedNorms.has(p.council.trim().replace(/\s+/g, " ").toLowerCase()))
+            p.answers.delete("mobile");
+        }
+        return { rows: [], rowCount: 0 };
+      }
+      if (/SELECT council, COUNT\(\*\)::int AS n FROM postcode_cache/.test(text)) {
+        const stagedNorms = new Set(staged.map((r) => r.lauaNorm));
+        const unmatched = new Map<string, number>();
+        for (const p of postcodes) {
+          if (!stagedNorms.has(p.council.trim().replace(/\s+/g, " ").toLowerCase()))
+            unmatched.set(p.council, (unmatched.get(p.council) ?? 0) + 1);
+        }
+        return {
+          rows: [...unmatched.entries()]
+            .map(([council, n]) => ({ council, n }))
+            .sort((a, b) => a.council.localeCompare(b.council)),
+        };
+      }
+      throw new Error(`fake client: unhandled SQL: ${sql}`);
+    };
+    return {
+      query,
+      staged: () => staged,
+      checkpoints,
+      postcodes,
+      mergeCalls: () => mergeCalls,
+      setFailAfterInserts: (n: number | null) => {
+        failAfterInserts = n;
+      },
+      setFailMergeOnce: () => {
+        failMergeOnce = true;
+      },
+    };
+  }
+  type FakeClient = ReturnType<typeof createFakeClient>;
+  async function runFiling(
+    fake: FakeClient,
+    rows: ReturnType<typeof makeRows>,
+    { restart = false, lines = null as string[] | null } = {},
+  ) {
+    const captured: string[] = lines ?? [];
+    const progress = createProgressLogger({
+      name: "load-mobile",
+      log: (line: string) => captured.push(line),
+    });
+    const result = await fileMobile(fake as never, rows as never, {
+      progress,
+      resume: { edition: EDITION, restart },
+    });
+    return { result, lines: captured };
+  }
+
+  it("kill mid-staging resumes and merges every authority exactly once", async () => {
+    const fake = createFakeClient();
+    const rows = makeRows(1200);
+    // Kill after two 500-row chunks: 1,000 authorities staged,
+    // the checkpoint at 1,000, the third chunk never landed.
+    const killLines: string[] = [];
+    fake.setFailAfterInserts(2);
+    await expect(runFiling(fake, rows, { lines: killLines })).rejects.toThrow(/simulated kill/);
+    expect(fake.staged().length).toBe(1000);
+    expect(fake.checkpoints.get("load-mobile")?.next_start_index).toBe(1000);
+    expect(
+      killLines.some((l) =>
+        /checkpoint 1,000\/1,200 authorities \(83%\) · staged 1,000 · resume from 1,000/.test(l),
+      ),
+    ).toBe(true);
+    // Nothing merged yet — the kill happened before the merge.
+    expect(fake.postcodes.some((p) => p.answers.has("mobile"))).toBe(false);
+
+    fake.setFailAfterInserts(null);
+    const { result, lines } = await runFiling(fake, rows);
+    expect(
+      lines.some((l) =>
+        /resuming from checkpoint · 1,000 rows staged · edition 2026-03r1 · resume from 1,000/.test(
+          l,
+        ),
+      ),
+    ).toBe(true);
+    // 1,200 authorities × 2 postcodes each merged.
+    expect(result.updated).toBe(2400);
+    expect(result.unmatched.map((u: { council: string }) => u.council)).toEqual([
+      "Nowhere 1",
+      "Nowhere 2",
+      "Nowhere 3",
+    ]);
+    expect(fake.postcodes.filter((p) => p.answers.has("mobile"))).toHaveLength(2400);
+    expect(fake.mergeCalls()).toBe(1);
+    // The merge cleared staging and the checkpoint together.
+    expect(fake.staged().length).toBe(0);
+    expect(fake.checkpoints.get("load-mobile")).toBeUndefined();
+  });
+
+  it("kill during the merge resumes with staging complete and re-runs the merge", async () => {
+    const fake = createFakeClient();
+    const rows = makeRows(1200);
+    fake.setFailMergeOnce();
+    await expect(runFiling(fake, rows)).rejects.toThrow(/simulated kill/);
+    // The merge transaction rolled back: staging and the
+    // checkpoint stand, no postcode holds a mobile answer.
+    expect(fake.staged().length).toBe(1200);
+    expect(fake.checkpoints.get("load-mobile")?.next_start_index).toBe(1200);
+    expect(fake.postcodes.some((p) => p.answers.has("mobile"))).toBe(false);
+
+    const { result, lines } = await runFiling(fake, rows);
+    // The resumed run stages nothing — and its staging tally
+    // must still finish at 3/3 chunks, not one short: the
+    // last chunk was partial (200 of 500), so a floor seed
+    // would have printed 2/3 here.
+    expect(lines.some((l) => /progress · file 3\/3 chunks \(100%\)/.test(l))).toBe(true);
+    expect(result.updated).toBe(2400);
+    expect(fake.postcodes.filter((p) => p.answers.has("mobile"))).toHaveLength(2400);
+    // The merge ran twice in total (once rolled back, once
+    // committed) but each postcode holds one mobile answer —
+    // the merge is idempotent, so the re-run cannot double-file.
+    expect(fake.mergeCalls()).toBe(2);
+    expect(fake.staged().length).toBe(0);
+    expect(fake.checkpoints.get("load-mobile")).toBeUndefined();
+  });
+
+  it("a checkpoint for another edition is discarded and the run starts from zero", async () => {
+    const fake = createFakeClient();
+    const rows = makeRows(1200);
+    fake.setFailAfterInserts(2);
+    await expect(runFiling(fake, rows)).rejects.toThrow(/simulated kill/);
+    expect(fake.staged().length).toBe(1000);
+
+    // The release edition never changes between runs of the
+    // same release, so simulate the new release by editing
+    // the stored checkpoint's edition directly.
+    const cp = fake.checkpoints.get("load-mobile");
+    expect(cp).toBeDefined();
+    if (!cp) throw new Error("expected a checkpoint to exist");
+    fake.checkpoints.set("load-mobile", { ...cp, edition: "2099-01r9" });
+    fake.setFailAfterInserts(null);
+    const { result, lines } = await runFiling(fake, rows);
+    expect(lines.some((l) => /discarding stale checkpoint · edition changed/.test(l))).toBe(true);
+    expect(result.updated).toBe(2400);
+    expect(fake.postcodes.filter((p) => p.answers.has("mobile"))).toHaveLength(2400);
+    expect(fake.staged().length).toBe(0);
+    expect(fake.checkpoints.get("load-mobile")).toBeUndefined();
+  });
+
+  it("--restart discards the checkpoint and starts from zero", async () => {
+    const fake = createFakeClient();
+    const rows = makeRows(1200);
+    fake.setFailAfterInserts(2);
+    await expect(runFiling(fake, rows)).rejects.toThrow(/simulated kill/);
+    expect(fake.staged().length).toBe(1000);
+
+    fake.setFailAfterInserts(null);
+    const { result } = await runFiling(fake, rows, { restart: true });
+    expect(result.updated).toBe(2400);
+    expect(fake.postcodes.filter((p) => p.answers.has("mobile"))).toHaveLength(2400);
+    expect(fake.staged().length).toBe(0);
+    expect(fake.checkpoints.get("load-mobile")).toBeUndefined();
+  });
+});

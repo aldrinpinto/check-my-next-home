@@ -1,6 +1,19 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { createGoldenSift } from "../loaders/flood-stream.mjs";
+import {
+  HOMES as LOADER_HOMES,
+  SERVICES,
+  beginFiling,
+  createFeatureProcessor,
+  createStatutoryProcessor,
+  createWoodlandMerger,
+  readServiceFixtureStream,
+  statutoryRow,
+  woodlandRow,
+} from "../loaders/load-nature-designations.mjs";
+import { createProgressLogger } from "../loaders/progress.mjs";
 
 // Guards the nature designations loader (plan step M5.3): the
 // four statutory registers (SSSI, SAC, SPA, Ramsar) file by site
@@ -319,4 +332,506 @@ describe("progress — BUG-265", () => {
     expect(loader).toContain("progress?.failed");
     expect(loader).toContain("swap started — filing");
   });
+});
+
+describe("resume (BUG-368)", () => {
+  // A fake pg client: the staged rows, the live layer and the
+  // loader_checkpoint rows as arrays, with just enough SQL to
+  // run the filer. The WKT the filer inserts is converted back
+  // to GeoJSON for the staged-golden rebuild, so the sift on a
+  // resumed run filters exactly as it would live.
+  type StagedRow = {
+    layer: string;
+    name: string;
+    wkt: string;
+    reference: string;
+    detail: string;
+    sourceName: string;
+    sourceDate: string;
+    seq: number;
+  };
+  type CheckpointRow = {
+    loader: string;
+    edition: string;
+    expected: number | null;
+    next_start_index: number;
+    read_count: number;
+    filed_count: number;
+    state: Record<string, unknown> | null;
+  };
+  function wktToGeoJson(wkt: string): { type: "MultiPolygon"; coordinates: number[][][][] } {
+    const body = wkt.replace(/^MULTIPOLYGON\s*/, "");
+    let i = 0;
+    const parseGroup = (): unknown[] => {
+      const out: unknown[] = [];
+      i++; // consume "("
+      while (i < body.length) {
+        const ch = body[i];
+        if (ch === "(") out.push(parseGroup());
+        else if (ch === ")") {
+          i++;
+          return out;
+        } else if (ch === ",") i++;
+        else {
+          const m = /^(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)/.exec(body.slice(i));
+          if (!m) {
+            i++;
+            continue;
+          }
+          out.push([parseFloat(m[1]), parseFloat(m[2])]);
+          i += m[0].length;
+        }
+      }
+      return out;
+    };
+    return { type: "MultiPolygon", coordinates: parseGroup() as number[][][][] };
+  }
+  function createFakeClient() {
+    let staged: StagedRow[] = [];
+    let live: StagedRow[] = [];
+    const checkpoints = new Map<string, CheckpointRow>();
+    let insertCalls = 0;
+    let failAfterInserts: number | null = null;
+    let snapshot: {
+      staged: StagedRow[];
+      live: StagedRow[];
+      checkpoints: Map<string, CheckpointRow>;
+    } | null = null;
+    const query = async (sql: string, params: unknown[] = []) => {
+      const text = sql.replace(/\s+/g, " ");
+      if (text === "BEGIN") {
+        snapshot = { staged: [...staged], live: [...live], checkpoints: new Map(checkpoints) };
+        return { rows: [] };
+      }
+      if (text === "COMMIT") {
+        snapshot = null;
+        return { rows: [] };
+      }
+      if (text === "ROLLBACK") {
+        if (snapshot) {
+          staged = snapshot.staged;
+          live = snapshot.live;
+          checkpoints.clear();
+          for (const [k, v] of snapshot.checkpoints) checkpoints.set(k, v);
+        }
+        snapshot = null;
+        return { rows: [] };
+      }
+      if (/CREATE TABLE IF NOT EXISTS nature_stage/.test(text)) return { rows: [] };
+      if (/INSERT INTO nature_stage/.test(text)) {
+        insertCalls += 1;
+        if (failAfterInserts !== null && insertCalls > failAfterInserts)
+          throw new Error("simulated kill: the database connection dropped mid-insert");
+        for (let r = 0; r < params.length / 11; r++) {
+          const b = r * 11;
+          staged.push({
+            layer: params[b] as string,
+            name: params[b + 2] as string,
+            wkt: params[b + 3] as string,
+            reference: params[b + 4] as string,
+            detail: params[b + 7] as string,
+            sourceName: params[b + 8] as string,
+            sourceDate: params[b + 9] as string,
+            seq: params[b + 10] as number,
+          });
+        }
+        return { rows: [], rowCount: params.length / 11 };
+      }
+      if (
+        /SELECT loader, edition, expected, next_start_index, read_count, filed_count, state, updated_at/.test(
+          text,
+        )
+      ) {
+        const row = checkpoints.get(params[0] as string);
+        return { rows: row ? [row] : [] };
+      }
+      if (/INSERT INTO loader_checkpoint/.test(text)) {
+        checkpoints.set(params[0] as string, {
+          loader: params[0] as string,
+          edition: params[1] as string,
+          expected: params[2] as number | null,
+          next_start_index: params[3] as number,
+          read_count: params[4] as number,
+          filed_count: params[5] as number,
+          state: JSON.parse(params[6] as string) as Record<string, unknown>,
+        });
+        return { rows: [] };
+      }
+      if (/DELETE FROM loader_checkpoint WHERE loader =/.test(text)) {
+        checkpoints.delete(params[0] as string);
+        return { rows: [] };
+      }
+      if (/SELECT count\(\*\)::int AS n, coalesce\(sum\(seq\)/.test(text)) {
+        const rows = staged.filter((r) => r.layer === (params[0] as string));
+        return {
+          rows: [
+            {
+              n: rows.length,
+              s: rows.reduce((a, r) => a + r.seq, 0),
+              m: rows.length ? Math.max(...rows.map((r) => r.seq)) : 0,
+            },
+          ],
+        };
+      }
+      if (/DELETE FROM nature_stage WHERE seq >=/.test(text)) {
+        staged = staged.filter(
+          (r) => !(r.layer === (params[1] as string) && r.seq >= (params[0] as number)),
+        );
+        return { rows: [], rowCount: 0 };
+      }
+      if (/DELETE FROM nature_stage WHERE layer =/.test(text)) {
+        staged = staged.filter((r) => r.layer !== (params[0] as string));
+        return { rows: [] };
+      }
+      if (/SELECT count\(\*\)::int AS n FROM nature_stage/.test(text))
+        return { rows: [{ n: staged.length }] };
+      if (/SELECT DISTINCT source_reference FROM nature_stage/.test(text)) {
+        const seen = new Set<string>();
+        for (const r of staged.filter((x) => x.layer === (params[0] as string)))
+          seen.add(r.reference);
+        return { rows: [...seen].map((source_reference) => ({ source_reference })) };
+      }
+      if (/ST_AsGeoJSON\(geom\)/.test(text)) {
+        const rows = staged
+          .filter((r) => r.layer === (params[0] as string))
+          .sort((a, b) => a.seq - b.seq);
+        return {
+          rows: rows.map((r) => ({
+            name: r.name,
+            source_reference: r.reference,
+            detail: r.detail,
+            geojson: JSON.stringify(wktToGeoJson(r.wkt)),
+          })),
+        };
+      }
+      if (/DELETE FROM planning_layers WHERE constraint_type IN/.test(text)) {
+        live = [];
+        return { rows: [] };
+      }
+      if (/INSERT INTO planning_layers/.test(text)) {
+        live = [...staged];
+        return { rows: [] };
+      }
+      if (/SELECT count\(\*\)::int AS n FROM planning_layers/.test(text))
+        return { rows: [{ n: live.length }] };
+      throw new Error(`fake client: unhandled SQL: ${sql}`);
+    };
+    return {
+      query,
+      staged: (layer?: string) => (layer ? staged.filter((r) => r.layer === layer) : staged),
+      live: () => live,
+      liveRefs: () => live.map((r) => r.reference),
+      checkpoints,
+      setFailAfterInserts: (n: number | null) => {
+        failAfterInserts = n;
+      },
+    };
+  }
+  type FakeClient = ReturnType<typeof createFakeClient>;
+  const captured = JSON.parse(readFileSync(join(fixtureDir, "fixture.json"), "utf8"))
+    .captured as string;
+
+  // Drives one statutory layer exactly as main()'s
+  // loadStatutoryLayer does: onHead prepares the layer and
+  // seeds the processor + sift from the staged rows; each
+  // page stages and checkpoints.
+  async function runStatutoryLayer(
+    fake: FakeClient,
+    key: "sssi" | "sac" | "spa" | "ramsar",
+    { restart = false, lines = null as string[] | null } = {},
+  ) {
+    const capturedLines: string[] = lines ?? [];
+    const progress = createProgressLogger({
+      name: "load-nature-designations",
+      log: (line: string) => capturedLines.push(line),
+    });
+    const filer = await beginFiling(progress, { client: fake as never, restart });
+    const spec = SERVICES[key];
+    let processor = createStatutoryProcessor(spec);
+    const sift = createGoldenSift(LOADER_HOMES, 8);
+    const onHead = async ({
+      sourceDate,
+      expected,
+    }: {
+      sourceDate: string;
+      expected: number | null;
+    }) => {
+      const prep = await filer.prepareLayer(key, sourceDate, expected);
+      if (!prep.resumed) return { startOffset: 0, lastObjectId: null };
+      const cp = prep.checkpoint;
+      processor = createStatutoryProcessor(spec, {
+        seed: {
+          read: cp.read_count,
+          filed: cp.filed_count,
+          excluded: cp.state?.excluded ?? 0,
+          geoless: cp.state?.geoless ?? 0,
+          invalid: cp.state?.invalid ?? 0,
+          lastObjectId: cp.state?.lastObjectId ?? null,
+          sites: await filer.stagedSites(key),
+        },
+      });
+      for (const item of await filer.stagedGoldenItems(key)) sift.offer(item);
+      return { startOffset: cp.next_start_index, lastObjectId: cp.state?.lastObjectId ?? null };
+    };
+    await readServiceFixtureStream(
+      SERVICES[key],
+      fixtureDir,
+      captured,
+      async (features, date) => {
+        const filed = processor.processBatch(features);
+        const rows = [];
+        for (const item of filed) {
+          sift.offer(item);
+          rows.push(statutoryRow(item, spec, date));
+        }
+        if (rows.length > 0) await filer.stageRows(key, rows);
+        await filer.checkpointPage(key, {
+          read: processor.readCount(),
+          state: processor.checkpointState(),
+        });
+      },
+      { progress, onHead },
+    );
+    const totals = processor.finish();
+    return { filer, totals, sifted: sift.items, lines: capturedLines };
+  }
+
+  // Drives the woodland pair exactly as main() does: the
+  // revised inventory stages per page, the originals stream
+  // past the merger and stage their survivors per page.
+  async function runWoodland(
+    fake: FakeClient,
+    { restart = false, lines = null as string[] | null } = {},
+  ) {
+    const capturedLines: string[] = lines ?? [];
+    const progress = createProgressLogger({
+      name: "load-nature-designations",
+      log: (line: string) => capturedLines.push(line),
+    });
+    const filer = await beginFiling(progress, { client: fake as never, restart });
+    let revProcessor = createFeatureProcessor(SERVICES.awiRev.label);
+    const revSift = createGoldenSift(LOADER_HOMES, 8);
+    const revItems: Array<{
+      polygons: unknown;
+      bbox: number[];
+      props: Record<string, unknown>;
+      inventory?: string;
+    }> = [];
+    const revOnHead = async ({
+      sourceDate,
+      expected,
+    }: {
+      sourceDate: string;
+      expected: number | null;
+    }) => {
+      const prep = await filer.prepareLayer("awi-rev", sourceDate, expected);
+      if (!prep.resumed) return { startOffset: 0, lastObjectId: null };
+      const cp = prep.checkpoint;
+      const staged = await filer.stagedLayerItems("awi-rev");
+      revItems.push(
+        ...(staged as Array<{
+          polygons: unknown;
+          bbox: number[];
+          props: Record<string, unknown>;
+          inventory?: string;
+        }>),
+      );
+      for (const item of staged) revSift.offer(item);
+      revProcessor = createFeatureProcessor(SERVICES.awiRev.label, {
+        seed: {
+          read: cp.read_count,
+          geoless: cp.state?.geoless ?? 0,
+          invalid: cp.state?.invalid ?? 0,
+          lastObjectId: cp.state?.lastObjectId ?? null,
+        },
+      });
+      return { startOffset: cp.next_start_index, lastObjectId: cp.state?.lastObjectId ?? null };
+    };
+    await readServiceFixtureStream(
+      SERVICES.awiRev,
+      fixtureDir,
+      captured,
+      async (features, date) => {
+        const items = revProcessor.processBatch(features);
+        for (const item of items) {
+          revItems.push(item);
+          revSift.offer(item);
+        }
+        if (items.length > 0)
+          await filer.stageRows(
+            "awi-rev",
+            items.map((item) => woodlandRow({ ...item, inventory: "revised inventory" }, date)),
+          );
+        await filer.checkpointPage("awi-rev", {
+          read: revProcessor.readCount(),
+          state: revProcessor.checkpointState(),
+        });
+      },
+      { progress, onHead: revOnHead },
+    );
+    const revTotals = revProcessor.finish();
+    let origProcessor = createFeatureProcessor(SERVICES.awi.label);
+    const origSift = createGoldenSift(LOADER_HOMES, 8);
+    let origFiled = 0;
+    let merger = createWoodlandMerger(revItems);
+    const origOnHead = async ({
+      sourceDate,
+      expected,
+    }: {
+      sourceDate: string;
+      expected: number | null;
+    }) => {
+      const prep = await filer.prepareLayer("awi", sourceDate, expected);
+      if (!prep.resumed) {
+        merger = createWoodlandMerger(revItems);
+        return { startOffset: 0, lastObjectId: null };
+      }
+      const cp = prep.checkpoint;
+      merger = createWoodlandMerger(revItems, { replaced: cp.state?.replaced ?? 0 });
+      origFiled = cp.filed_count;
+      origProcessor = createFeatureProcessor(SERVICES.awi.label, {
+        seed: {
+          read: cp.read_count,
+          geoless: cp.state?.geoless ?? 0,
+          invalid: cp.state?.invalid ?? 0,
+          lastObjectId: cp.state?.lastObjectId ?? null,
+        },
+      });
+      for (const item of await filer.stagedGoldenItems("awi")) origSift.offer(item);
+      return { startOffset: cp.next_start_index, lastObjectId: cp.state?.lastObjectId ?? null };
+    };
+    await readServiceFixtureStream(
+      SERVICES.awi,
+      fixtureDir,
+      captured,
+      async (features, date) => {
+        const items = origProcessor.processBatch(features);
+        const rows = [];
+        for (const item of items) {
+          origSift.offer(item);
+          const kept = merger.offer(item);
+          if (kept) {
+            origFiled += 1;
+            rows.push(woodlandRow(kept, date));
+          }
+        }
+        if (rows.length > 0) await filer.stageRows("awi", rows);
+        await filer.checkpointPage("awi", {
+          read: origProcessor.readCount(),
+          state: { ...origProcessor.checkpointState(), replaced: merger.replaced() },
+        });
+      },
+      { progress, onHead: origOnHead },
+    );
+    const origTotals = origProcessor.finish();
+    return {
+      filer,
+      revItems,
+      revTotals,
+      origTotals,
+      origFiled,
+      replaced: merger.replaced(),
+      lines: capturedLines,
+    };
+  }
+
+  it(
+    "kill mid-SSSI resumes and files every feature exactly once",
+    { timeout: 60_000 },
+    async () => {
+      const fake = createFakeClient();
+      // SSSI parts: 7 then 22 features. Page 1 stages 7 and
+      // checkpoints at 7; page 2 stages two 10-row chunks and
+      // dies flushing its 2-row tail (insert 4) — 27 staged,
+      // the checkpoint still at 7.
+      const killLines: string[] = [];
+      fake.setFailAfterInserts(3);
+      await expect(runStatutoryLayer(fake, "sssi", { lines: killLines })).rejects.toThrow(
+        /simulated kill/,
+      );
+      expect(fake.staged("sssi").length).toBe(27);
+      expect(fake.checkpoints.get("load-nature-designations-sssi")?.next_start_index).toBe(7);
+      expect(
+        killLines.some((l) => /checkpoint 7 features · staged 7 · resume from 7/.test(l)),
+      ).toBe(true);
+
+      fake.setFailAfterInserts(null);
+      const { filer, totals, lines } = await runStatutoryLayer(fake, "sssi");
+      expect(totals.read).toBe(29);
+      expect(totals.filed).toBe(29);
+      expect(
+        lines.some((l) =>
+          /resuming from checkpoint · 7 rows staged · edition 2026-11-12 · resume from 7/.test(l),
+        ),
+      ).toBe(true);
+      await filer.finishFiling(29);
+      const expectedRefs = loadFixture("sssi").map((f) =>
+        String(f.properties[SERVICES.sssi.codeField] ?? ""),
+      );
+      expect(fake.liveRefs().sort()).toEqual(expectedRefs.sort());
+      expect(fake.staged().length).toBe(0);
+      expect(fake.checkpoints.get("load-nature-designations-sssi")).toBeUndefined();
+      expect(filer.resumeNote()).toBe("the start (nothing staged yet)");
+    },
+  );
+
+  it(
+    "an edition change discards the staged rows and starts from zero",
+    { timeout: 60_000 },
+    async () => {
+      const fake = createFakeClient();
+      fake.setFailAfterInserts(3);
+      await expect(runStatutoryLayer(fake, "sssi")).rejects.toThrow(/simulated kill/);
+      expect(fake.staged("sssi").length).toBe(27);
+
+      const progress = createProgressLogger({ name: "load-nature-designations" });
+      const filer = await beginFiling(progress, { client: fake as never });
+      const prep = await filer.prepareLayer("sssi", "2099-01-01", null);
+      expect(prep.resumed).toBe(false);
+      expect(fake.staged("sssi").length).toBe(0);
+      expect(fake.checkpoints.get("load-nature-designations-sssi")).toBeUndefined();
+    },
+  );
+
+  it("--restart discards the checkpoint and starts from zero", { timeout: 60_000 }, async () => {
+    const fake = createFakeClient();
+    fake.setFailAfterInserts(3);
+    await expect(runStatutoryLayer(fake, "sssi")).rejects.toThrow(/simulated kill/);
+    expect(fake.staged("sssi").length).toBe(27);
+
+    fake.setFailAfterInserts(null);
+    const { totals } = await runStatutoryLayer(fake, "sssi", { restart: true });
+    expect(totals.read).toBe(29);
+    expect(totals.filed).toBe(29);
+  });
+
+  it(
+    "kill mid-woodland resumes from the staged substrate and the merge still replaces 167",
+    { timeout: 120_000 },
+    async () => {
+      const fake = createFakeClient();
+      // Revised parts: 260 then 280. Page 1 stages 260 in
+      // 26 chunks and checkpoints at 260; page 2 dies on
+      // its third chunk (insert 29) — 280 staged, the
+      // checkpoint still at 260.
+      fake.setFailAfterInserts(28);
+      await expect(runWoodland(fake)).rejects.toThrow(/simulated kill/);
+      expect(fake.staged("awi-rev").length).toBe(280);
+      expect(fake.checkpoints.get("load-nature-designations-awi-rev")?.next_start_index).toBe(260);
+
+      fake.setFailAfterInserts(null);
+      const { filer, revItems, revTotals, origTotals, origFiled, replaced } =
+        await runWoodland(fake);
+      expect(revTotals.read).toBe(540);
+      expect(revItems.length).toBe(540);
+      expect(origTotals.read).toBe(498);
+      expect(replaced).toBe(167);
+      expect(origFiled).toBe(498 - 167);
+      await filer.finishFiling(540 + origFiled);
+      expect(fake.liveRefs().length).toBe(540 + origFiled);
+      expect(new Set(fake.liveRefs()).size).toBe(540 + origFiled);
+      expect(fake.staged().length).toBe(0);
+      expect(fake.checkpoints.size).toBe(0);
+    },
+  );
 });

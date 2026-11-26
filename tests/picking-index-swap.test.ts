@@ -200,11 +200,17 @@ describe("the union rebuild — build under a fresh name, swap by rename", () =>
     // carries no count (never a crash, never a guess).
     const markers = lines.filter((l) => l.includes(" progress · "));
     expect(markers.map((l) => l.split(" progress · ")[1])).toEqual([
+      // BUG-368: the run's one staged chunk earns its
+      // checkpoint line first, and the swap's staging
+      // cleanup earns the last — both are progress lines
+      // on the same logger as the rebuild's markers.
+      "checkpoint 40 transactions · staged 40 · resume from 40",
       "building union from the sales + EPC extracts",
       "union built",
       "indexing the built union",
       "swapping the built union in",
       "rebuilding the streets and places tables",
+      "staging cleared · checkpoint removed",
     ]);
     // The summary lines are exactly as the pass without a
     // logger produces them — and the swap shape is intact.

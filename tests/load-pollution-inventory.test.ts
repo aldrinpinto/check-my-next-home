@@ -322,27 +322,39 @@ describe("Pollution Inventory filing — the transaction", () => {
     ],
   };
 
-  it("stages inside one transaction, swaps, asserts counts, commits (statement order)", async () => {
+  it("stages, swaps, asserts counts, commits (statement order)", async () => {
     const client = fakeClient(1, 1);
     await filePollutionInventory(client as never, filing as never);
     const texts = client.calls.map((c) => c.text);
-    expect(texts[0]).toBe("BEGIN");
-    const beginAt = 0;
-    const stageAt = texts.findIndex((t) => t.includes("CREATE TEMP TABLE industrial_sites_stage"));
+    // BUG-368: the stages are persistent now — their
+    // CREATEs come first, and the swap's BEGIN comes only
+    // after both stagings are complete and verified.
+    expect(texts[0]).toContain("CREATE TABLE IF NOT EXISTS industrial_sites_stage");
+    const beginAt = texts.findIndex((t) => t === "BEGIN");
+    const stageAt = texts.findIndex((t) =>
+      t.includes("CREATE TABLE IF NOT EXISTS industrial_sites_stage"),
+    );
     const deleteAt = texts.findIndex((t) => t === "DELETE FROM industrial_sites");
-    expect(stageAt).toBeGreaterThan(beginAt);
+    expect(stageAt).toBeGreaterThan(-1);
+    expect(beginAt).toBeGreaterThan(stageAt);
     expect(deleteAt).toBeGreaterThan(stageAt);
     expect(texts.some((t) => t.includes("ST_SetSRID(ST_MakePoint"))).toBe(true);
     expect(texts.at(-1)).toBe("COMMIT");
     expect(texts.some((t) => t === "ROLLBACK")).toBe(false);
   });
 
-  it("a short filing rolls the whole swap back", async () => {
+  it("a short staging is caught by the staged-count check, before any swap", async () => {
     const client = fakeClient(0, 1);
     await expect(filePollutionInventory(client as never, filing as never)).rejects.toThrow(
-      /the swap filed 0 sites/,
+      /the staged site count \(0\) or release count \(1\) does not match/,
     );
-    expect(client.calls.at(-1)?.text).toBe("ROLLBACK");
+    // BUG-368: the shortfall is caught before the swap
+    // transaction opens, so there is no ROLLBACK to run —
+    // and the staged rows stay for the next run to resume
+    // from.
+    const texts = client.calls.map((c) => c.text);
+    expect(texts.some((t) => t === "ROLLBACK")).toBe(false);
+    expect(texts.some((t) => t === "COMMIT")).toBe(false);
   });
 
   it("the deletion path exists and empties releases before sites, in one transaction (D60/D62)", async () => {
@@ -456,10 +468,10 @@ describe("progress logging (BUG-265)", () => {
     const { lines, progress } = collect();
     await expect(
       filePollutionInventory(fakeClient(0, 2) as never, filing as never, { progress }),
-    ).rejects.toThrow(/the swap filed 0 sites/);
+    ).rejects.toThrow(/the staged site count \(0\) or release count \(2\) does not match/);
     expect(
       lines.some((l) =>
-        /failed · filing · filed 4 of 4 · the swap filed 0 sites and 2 releases, expected 2 and 2 · resume from re-run from scratch/.test(
+        /failed · filing · filed 4 of 4 · the staged site count \(0\) or release count \(2\) does not match — rolling back · resume from the swap — the staged read stands checkpointed \(edition pi-2024\)/.test(
           l,
         ),
       ),
@@ -477,10 +489,321 @@ describe("progress logging (BUG-265)", () => {
     ).rejects.toThrow(/forced failure/);
     expect(
       lines.some((l) =>
-        /failed · filing · filed 0 of 4 · forced failure: INSERT INTO industrial_sites_stage · resume from re-run from scratch/.test(
+        /failed · filing · filed 0 of 4 · forced failure: INSERT INTO industrial_sites_stage · resume from the start \(nothing staged yet\)/.test(
           l,
         ),
       ),
     ).toBe(true);
+  });
+});
+
+describe("resume (BUG-368)", () => {
+  type StatRow = Record<string, unknown>;
+  type CheckpointRow = {
+    loader: string;
+    edition: string;
+    expected: number | null;
+    next_start_index: number;
+    read_count: number;
+    filed_count: number;
+    state: Record<string, unknown> | null;
+  };
+  function statefulClient() {
+    let liveSites: StatRow[] = [];
+    let liveReleases: StatRow[] = [];
+    let stageSites: StatRow[] = [];
+    let stageReleases: StatRow[] = [];
+    const checkpoints = new Map<string, CheckpointRow>();
+    let snapshot: { sites: StatRow[]; releases: StatRow[] } | null = null;
+    let siteInserts = 0;
+    let releaseInserts = 0;
+    let failAfterSiteInserts: number | null = null;
+    let failAfterReleaseInserts: number | null = null;
+    const stats = (rows: StatRow[]) => ({
+      n: rows.length,
+      s: rows.reduce((a, r) => a + (r.seq as number), 0),
+      m: rows.length ? Math.max(...rows.map((r) => r.seq as number)) : 0,
+    });
+    const client = {
+      calls: [] as { text: string; params?: unknown[] }[],
+      async query(text: string, params: unknown[] = []) {
+        const head = text.trim().replace(/\s+/g, " ");
+        this.calls.push({ text: head, params: [...params] });
+        if (head === "BEGIN") {
+          snapshot = { sites: structuredClone(liveSites), releases: structuredClone(liveReleases) };
+          return { rows: [] };
+        }
+        if (head === "COMMIT") {
+          snapshot = null;
+          return { rows: [] };
+        }
+        if (head === "ROLLBACK") {
+          if (snapshot) {
+            liveSites = snapshot.sites;
+            liveReleases = snapshot.releases;
+          }
+          snapshot = null;
+          return { rows: [] };
+        }
+        if (head.startsWith("CREATE TABLE IF NOT EXISTS industrial_sites_stage"))
+          return { rows: [] };
+        if (head.startsWith("CREATE TABLE IF NOT EXISTS industrial_site_releases_stage"))
+          return { rows: [] };
+        if (head.startsWith("INSERT INTO industrial_sites_stage")) {
+          siteInserts += 1;
+          if (failAfterSiteInserts !== null && siteInserts > failAfterSiteInserts)
+            throw new Error("simulated kill: the database connection dropped mid-insert");
+          for (let at = 0; at < params.length; at += 15)
+            stageSites.push({
+              permit_id: params[at],
+              operator: params[at + 1],
+              site_address: params[at + 2],
+              site_postcode: params[at + 3],
+              activity_description: params[at + 4],
+              sector: params[at + 5],
+              sub_sector: params[at + 6],
+              easting: params[at + 7],
+              northing: params[at + 8],
+              latitude: params[at + 9],
+              longitude: params[at + 10],
+              data_year: params[at + 11],
+              source_name: params[at + 12],
+              source_date: params[at + 13],
+              seq: params[at + 14],
+            });
+          return { rows: [], rowCount: params.length / 15 };
+        }
+        if (head.startsWith("INSERT INTO industrial_site_releases_stage")) {
+          releaseInserts += 1;
+          if (failAfterReleaseInserts !== null && releaseInserts > failAfterReleaseInserts)
+            throw new Error("simulated kill: the database connection dropped mid-insert");
+          for (let at = 0; at < params.length; at += 7)
+            stageReleases.push({
+              permit_id: params[at],
+              substance: params[at + 1],
+              threshold_kg: params[at + 2],
+              quantity_kg: params[at + 3],
+              below_threshold: params[at + 4],
+              data_year: params[at + 5],
+              seq: params[at + 6],
+            });
+          return { rows: [], rowCount: params.length / 7 };
+        }
+        // The _stage count branches must come before the
+        // live ones: "industrial_sites_stage" starts with
+        // "industrial_sites".
+        if (head.startsWith("SELECT count(*)::int AS n FROM industrial_sites_stage"))
+          return { rows: [{ n: stageSites.length }], rowCount: 1 };
+        if (head.startsWith("SELECT count(*)::int AS n FROM industrial_site_releases_stage"))
+          return { rows: [{ n: stageReleases.length }], rowCount: 1 };
+        if (head.startsWith("SELECT count(*)::int AS n FROM industrial_sites"))
+          return { rows: [{ n: liveSites.length }], rowCount: 1 };
+        if (head.startsWith("SELECT count(*)::int AS n FROM industrial_site_releases"))
+          return { rows: [{ n: liveReleases.length }], rowCount: 1 };
+        if (head.startsWith("SELECT count(*)::int AS n, coalesce(sum(seq)")) {
+          if (head.includes("FROM industrial_sites_stage")) return { rows: [stats(stageSites)] };
+          if (head.includes("FROM industrial_site_releases_stage"))
+            return { rows: [stats(stageReleases)] };
+          throw new Error(`fake client: unhandled staging-count SQL: ${text}`);
+        }
+        if (head.startsWith("DELETE FROM industrial_sites_stage WHERE seq >=")) {
+          stageSites = stageSites.filter((r) => !((r.seq as number) >= (params[0] as number)));
+          return { rows: [], rowCount: 0 };
+        }
+        if (head.startsWith("DELETE FROM industrial_site_releases_stage WHERE seq >=")) {
+          stageReleases = stageReleases.filter(
+            (r) => !((r.seq as number) >= (params[0] as number)),
+          );
+          return { rows: [], rowCount: 0 };
+        }
+        if (head.startsWith("DELETE FROM industrial_sites_stage")) {
+          stageSites = [];
+          return { rows: [], rowCount: 0 };
+        }
+        if (head.startsWith("DELETE FROM industrial_site_releases_stage")) {
+          stageReleases = [];
+          return { rows: [], rowCount: 0 };
+        }
+        if (head.startsWith("SELECT loader, edition, expected")) {
+          const row = checkpoints.get(params[0] as string);
+          return { rows: row ? [row] : [], rowCount: 0 };
+        }
+        if (head.startsWith("INSERT INTO loader_checkpoint")) {
+          checkpoints.set(params[0] as string, {
+            loader: params[0] as string,
+            edition: params[1] as string,
+            expected: params[2] as number | null,
+            next_start_index: params[3] as number,
+            read_count: params[4] as number,
+            filed_count: params[5] as number,
+            state: JSON.parse(params[6] as string) as Record<string, unknown>,
+          });
+          return { rows: [], rowCount: 0 };
+        }
+        if (head.startsWith("DELETE FROM loader_checkpoint")) {
+          checkpoints.delete(params[0] as string);
+          return { rows: [], rowCount: 0 };
+        }
+        if (head.startsWith("DELETE FROM industrial_site_releases")) {
+          liveReleases = [];
+          return { rows: [], rowCount: 0 };
+        }
+        if (head.startsWith("DELETE FROM industrial_sites")) {
+          liveSites = [];
+          return { rows: [], rowCount: 0 };
+        }
+        if (head.startsWith("INSERT INTO industrial_sites")) {
+          liveSites = stageSites.map((r) => ({ ...r }));
+          return { rows: [], rowCount: 0 };
+        }
+        if (head.startsWith("INSERT INTO industrial_site_releases")) {
+          liveReleases = stageReleases.map((r) => ({ ...r }));
+          return { rows: [], rowCount: 0 };
+        }
+        throw new Error(`fake client: unhandled SQL: ${text}`);
+      },
+    };
+    return {
+      client,
+      liveSites: () => liveSites,
+      liveReleases: () => liveReleases,
+      stageSites: () => stageSites,
+      stageReleases: () => stageReleases,
+      checkpoints,
+      setFailAfterSiteInserts: (n: number | null) => {
+        siteInserts = 0;
+        failAfterSiteInserts = n;
+      },
+      setFailAfterReleaseInserts: (n: number | null) => {
+        releaseInserts = 0;
+        failAfterReleaseInserts = n;
+      },
+    };
+  }
+  // 1,200 sites and 1,200 releases: three 500-row chunks
+  // per table.
+  function bigFiling(year = 2024) {
+    const sites = [];
+    const releases = [];
+    for (let k = 0; k < 1200; k++) {
+      sites.push({
+        permitId: `P${String(k).padStart(7, "0")}`,
+        operator: `Operator ${k}`,
+        siteAddress: `${k} Industrial Way`,
+        sitePostcode: "CM9 6QS",
+        activityDescription: "INTENSIVE FARMING",
+        sector: "Agriculture",
+        subSector: "Intensive Farming",
+        easting: 579908,
+        northing: 208753,
+        latitude: 51.757,
+        longitude: 0.609,
+      });
+      releases.push({
+        permitId: `P${String(k).padStart(7, "0")}`,
+        substance: "Ammonia",
+        thresholdKg: 1000,
+        quantityKg: 3128,
+        belowThreshold: false,
+      });
+    }
+    return {
+      year,
+      sourceDate: "2025-11-20",
+      counts: { sites: 1200, airSites: 1200, airRows: 1200, brtAir: 0 },
+      sites,
+      releases,
+    };
+  }
+
+  it("kill mid-sites resumes both tables and files everything exactly once", async () => {
+    const fake = statefulClient();
+    const filing = bigFiling();
+    fake.setFailAfterSiteInserts(1);
+    await expect(filePollutionInventory(fake.client as never, filing as never)).rejects.toThrow(
+      /simulated kill/,
+    );
+    expect(fake.stageSites()).toHaveLength(500);
+    expect(fake.stageReleases()).toHaveLength(0);
+    expect(fake.checkpoints.get("load-pollution-inventory:sites")?.next_start_index).toBe(500);
+    expect(fake.checkpoints.get("load-pollution-inventory:releases")).toBeUndefined();
+
+    fake.setFailAfterSiteInserts(null);
+    await filePollutionInventory(fake.client as never, filing as never);
+    expect(fake.liveSites()).toHaveLength(1200);
+    expect(fake.liveReleases()).toHaveLength(1200);
+    expect(new Set(fake.liveSites().map((r) => r.permit_id)).size).toBe(1200);
+    expect(new Set(fake.liveReleases().map((r) => `${r.permit_id}|${r.substance}`)).size).toBe(
+      1200,
+    );
+    expect(fake.stageSites()).toHaveLength(0);
+    expect(fake.stageReleases()).toHaveLength(0);
+    expect(fake.checkpoints.size).toBe(0);
+  });
+
+  it("kill mid-releases resumes with the sites already fully staged", async () => {
+    const fake = statefulClient();
+    const filing = bigFiling();
+    fake.setFailAfterReleaseInserts(1);
+    await expect(filePollutionInventory(fake.client as never, filing as never)).rejects.toThrow(
+      /simulated kill/,
+    );
+    expect(fake.stageSites()).toHaveLength(1200);
+    expect(fake.stageReleases()).toHaveLength(500);
+    expect(fake.checkpoints.get("load-pollution-inventory:sites")?.next_start_index).toBe(1200);
+    expect(fake.checkpoints.get("load-pollution-inventory:releases")?.next_start_index).toBe(500);
+
+    fake.setFailAfterReleaseInserts(null);
+    await filePollutionInventory(fake.client as never, filing as never);
+    expect(fake.liveSites()).toHaveLength(1200);
+    expect(fake.liveReleases()).toHaveLength(1200);
+    expect(new Set(fake.liveSites().map((r) => r.permit_id)).size).toBe(1200);
+    expect(new Set(fake.liveReleases().map((r) => `${r.permit_id}|${r.substance}`)).size).toBe(
+      1200,
+    );
+    expect(fake.stageSites()).toHaveLength(0);
+    expect(fake.stageReleases()).toHaveLength(0);
+    expect(fake.checkpoints.size).toBe(0);
+  });
+
+  it("a year change discards both staged tables and starts from zero", async () => {
+    const fake = statefulClient();
+    const filing = bigFiling();
+    fake.setFailAfterReleaseInserts(1);
+    await expect(filePollutionInventory(fake.client as never, filing as never)).rejects.toThrow(
+      /simulated kill/,
+    );
+    expect(fake.stageSites()).toHaveLength(1200);
+    expect(fake.stageReleases()).toHaveLength(500);
+    fake.setFailAfterReleaseInserts(null);
+    await filePollutionInventory(fake.client as never, bigFiling(2025) as never);
+    expect(fake.liveSites()).toHaveLength(1200);
+    expect(fake.liveReleases()).toHaveLength(1200);
+    expect(fake.liveSites().every((r) => r.data_year === 2025)).toBe(true);
+    expect(fake.stageSites()).toHaveLength(0);
+    expect(fake.stageReleases()).toHaveLength(0);
+    expect(fake.checkpoints.size).toBe(0);
+  });
+
+  it("--restart discards both checkpoints and starts from zero", async () => {
+    const fake = statefulClient();
+    const filing = bigFiling();
+    fake.setFailAfterReleaseInserts(1);
+    await expect(filePollutionInventory(fake.client as never, filing as never)).rejects.toThrow(
+      /simulated kill/,
+    );
+    expect(fake.stageSites()).toHaveLength(1200);
+    expect(fake.stageReleases()).toHaveLength(500);
+    fake.setFailAfterReleaseInserts(null);
+    await filePollutionInventory(fake.client as never, filing as never, { restart: true });
+    expect(fake.liveSites()).toHaveLength(1200);
+    expect(fake.liveReleases()).toHaveLength(1200);
+    expect(new Set(fake.liveSites().map((r) => r.permit_id)).size).toBe(1200);
+    expect(new Set(fake.liveReleases().map((r) => `${r.permit_id}|${r.substance}`)).size).toBe(
+      1200,
+    );
+    expect(fake.stageSites()).toHaveLength(0);
+    expect(fake.stageReleases()).toHaveLength(0);
+    expect(fake.checkpoints.size).toBe(0);
   });
 });

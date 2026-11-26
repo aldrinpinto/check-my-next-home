@@ -176,6 +176,7 @@ import {
   formatCount,
   formatDuration,
 } from "./progress.mjs";
+import { createLoaderResume } from "./loader-resume.mjs";
 
 const { Pool } = pg;
 
@@ -680,12 +681,28 @@ function rowValues(row) {
 // corrected decision lands and a withdrawn one cannot
 // linger. Idempotent: a second pass files the same
 // rows to the same state.
+//
+// Filing with resume support (BUG-368): the stage is a
+// PERSISTENT table now (migration 0048, columns spelled
+// out — the old TEMP used LIKE ... INCLUDING ALL, which
+// must not be copied to a persistent table) and a
+// loader_checkpoint row records the last fully staged
+// chunk, so a killed run resumes staging from the
+// checkpoint instead of re-staging the whole slice. The
+// enumeration (GOV.UK pages + PDF downloads) still
+// re-runs — only the staging is saved. The edition is
+// the newest decision date; a new decision publishing
+// between a kill and its resume changes the edition and
+// the checkpoint is discarded, which is the safe
+// behaviour. The swap stays atomic, and a successful
+// swap clears staging + checkpoint together (BUG-248
+// unchanged).
 /**
  * @param {any} pool
  * @param {any[]} rows
- * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, restart?: boolean }} [options]
  */
-export async function fileCases(pool, rows, { progress = null } = {}) {
+export async function fileCases(pool, rows, { progress = null, restart = false } = {}) {
   // BUG-265: the staging is the filing phase — a tally over
   // the stage chunks, a slow-chunk warning and a heartbeat,
   // so the log moves while the cases file.
@@ -698,28 +715,42 @@ export async function fileCases(pool, rows, { progress = null } = {}) {
     unit: "chunks",
   });
   const stageWatch = createBatchWatch();
-  let chunksDone = 0;
-  let stagedRows = 0;
+  const maxDate = rows.reduce((m, r) => (r.decisionDate > m ? r.decisionDate : m), "");
+  const edition = `tribunal-${maxDate || "none"}`;
+  const expected = rows.length;
   const client = await pool.connect();
+  await client.query(`CREATE TABLE IF NOT EXISTS tribunal_building_safety_stage (
+      case_ref text, decision_date date, order_kind text, property_text text,
+      postcode text, building_key text, is_single_flat boolean,
+      source_url text, source_name text, source_date date,
+      seq bigint NOT NULL, UNIQUE (seq)
+    )`);
+  const resume = createLoaderResume(client, {
+    loader: "load-tribunal-building-safety",
+    stageTable: "tribunal_building_safety_stage",
+    progress,
+    restart,
+  });
+  const resumePrep = await resume.prepare({ edition, expected });
+  const startAt = resumePrep.resumed ? resumePrep.checkpoint.next_start_index : 0;
+  let chunksDone = Math.floor(startAt / 100);
+  let stagedRows = resumePrep.resumed ? resumePrep.checkpoint.filed_count : 0;
   try {
-    await client.query("BEGIN");
-    await client.query(
-      "CREATE TEMP TABLE stg_tribunal_building_safety_decisions (LIKE tribunal_building_safety_decisions INCLUDING ALL) ON COMMIT DROP",
-    );
-    for (let at = 0; at < rows.length; at += 100) {
+    for (let at = startAt; at < rows.length; at += 100) {
       const chunk = rows.slice(at, at + 100);
       const started = Date.now();
       const tuples = [];
       const values = [];
+      const base = resume.takeSeq(chunk.length);
       chunk.forEach((row, index) => {
-        const base = index * 10;
+        const b = index * 11;
         tuples.push(
-          `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10})`,
+          `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7}, $${b + 8}, $${b + 9}, $${b + 10}, $${b + 11})`,
         );
-        values.push(...rowValues(row));
+        values.push(...rowValues(row), base + index);
       });
       await client.query(
-        `INSERT INTO stg_tribunal_building_safety_decisions (case_ref, decision_date, order_kind, property_text, postcode, building_key, is_single_flat, source_url, source_name, source_date) VALUES ${tuples.join(", ")}`,
+        `INSERT INTO tribunal_building_safety_stage (case_ref, decision_date, order_kind, property_text, postcode, building_key, is_single_flat, source_url, source_name, source_date, seq) VALUES ${tuples.join(", ")}`,
         values,
       );
       stagedRows += chunk.length;
@@ -734,30 +765,66 @@ export async function fileCases(pool, rows, { progress = null } = {}) {
           threshold: `3x recent average ${formatDuration(averageMs)}`,
         });
       }
+      // BUG-368: one checkpoint line per committed chunk —
+      // the save is visible in the logs, and a kill after
+      // this line loses at most the chunk in flight.
+      await resume.checkpoint({
+        edition,
+        expected,
+        nextStartIndex: at + chunk.length,
+        read: at + chunk.length,
+        filed: stagedRows,
+        unit: "rows",
+      });
     }
     stageTally?.finish(chunksDone, `${formatCount(rows.length)} cases staged`);
-    progress?.stage("swap started — replacing the filed tribunal cases");
-    await client.query("DELETE FROM tribunal_building_safety_decisions");
-    await client.query(
-      `INSERT INTO tribunal_building_safety_decisions (case_ref, decision_date, order_kind, property_text, postcode, building_key, is_single_flat, source_url, source_name, source_date) SELECT case_ref, decision_date, order_kind, property_text, postcode, building_key, is_single_flat, source_url, source_name, source_date FROM stg_tribunal_building_safety_decisions`,
-    );
-    await client.query("COMMIT");
   } catch (error) {
-    // BUG-265: the failure line names the filing stage and
-    // how many cases were staged — the swap rolled back, so
-    // the live table is untouched and a re-run starts over.
+    // BUG-368: the staging is durable per chunk — no
+    // transaction to roll back, and the staged rows +
+    // checkpoint STAY for the next run to resume from.
     progress?.failed({
       stage: "filing",
       filed: stagedRows,
       total: rows.length,
       error,
-      resume: "re-run from scratch (the swap rolled back, the live table is untouched)",
+      resume: resume.resumeNote(),
     });
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
     client.release();
+    throw error;
   }
+  try {
+    const stagedRes = await client.query(
+      "SELECT count(*)::int AS n FROM tribunal_building_safety_stage",
+    );
+    if (stagedRes.rows[0].n !== expected)
+      throw new Error("the staged case count does not match — rolling back");
+    progress?.stage("swap started — replacing the filed tribunal cases");
+    await client.query("BEGIN");
+    try {
+      await client.query("DELETE FROM tribunal_building_safety_decisions");
+      await client.query(
+        `INSERT INTO tribunal_building_safety_decisions (case_ref, decision_date, order_kind, property_text, postcode, building_key, is_single_flat, source_url, source_name, source_date) SELECT case_ref, decision_date, order_kind, property_text, postcode, building_key, is_single_flat, source_url, source_name, source_date FROM tribunal_building_safety_stage`,
+      );
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    }
+    // The run is complete: staging + checkpoint go together,
+    // so nothing is left behind for the next enumeration.
+    await resume.clear();
+  } catch (error) {
+    progress?.failed({
+      stage: "filing",
+      filed: stagedRows,
+      total: rows.length,
+      error,
+      resume: resume.resumeNote(),
+    });
+    client.release();
+    throw error;
+  }
+  client.release();
 }
 
 // The previous recorded run's parse-failure count, read
@@ -929,6 +996,7 @@ async function main() {
   const args = {
     fileDir: fileAt === -1 ? null : argv[fileAt + 1],
     verifyOnly: argv.includes("--verify-only"),
+    restart: argv.includes("--restart"),
   };
   if (fileAt !== -1 && !args.fileDir) throw new Error("--file needs a directory");
 
@@ -999,7 +1067,7 @@ async function main() {
   const pool = new Pool({ connectionString });
   try {
     const previous = args.fileDir ? null : await previousFailureCount(pool);
-    await fileCases(pool, rows, { progress });
+    await fileCases(pool, rows, { progress, restart: args.restart });
     console.log(`${summary}.`);
     if (previous !== null && failures.length > previous)
       throw new Error(

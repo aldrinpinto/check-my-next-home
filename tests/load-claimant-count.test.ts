@@ -171,12 +171,18 @@ describe("filing — statement order and the schema contract", () => {
     const statements: string[] = [];
     const calls: { sql: string; params: unknown[] }[] = [];
     let released = false;
+    let staged = 0;
     const client = {
       async query(sql: string, params: unknown[] = []) {
         const head = sql.trim().replace(/\s+/g, " ");
         statements.push(head);
         calls.push({ sql: head, params: [...params] });
         if (failOn && head.startsWith(failOn)) throw new Error(`forced failure: ${failOn}`);
+        // BUG-368: the filer verifies the staged count
+        // before the swap, so the fake answers it.
+        if (head.startsWith("SELECT count(*)::int AS n FROM benefits_stage"))
+          return { rows: [{ n: staged }], rowCount: 1 };
+        if (head.startsWith("INSERT INTO benefits_stage")) staged += params.length / 6;
         return { rows: [], rowCount: 0 };
       },
       release() {
@@ -191,11 +197,14 @@ describe("filing — statement order and the schema contract", () => {
     const rec = recordingPool();
     await fileClaimant(rec.pool as never, rows, "2026-11-13T00:00:00.000Z");
     const at = (prefix: string) => rec.statements.findIndex((s) => s.startsWith(prefix));
-    expect(rec.statements[0]).toBe("BEGIN");
-    expect(at("CREATE TEMP TABLE benefits_stage")).toBeGreaterThan(0);
-    expect(at("INSERT INTO benefits_stage")).toBeGreaterThan(
-      at("CREATE TEMP TABLE benefits_stage"),
+    // BUG-368: the stage is persistent now — its CREATE
+    // is the first statement, and the swap's BEGIN comes
+    // only after the staging is complete and verified.
+    expect(rec.statements[0]).toBe(
+      "CREATE TABLE IF NOT EXISTS benefits_stage ( lsoa_code text, lsoa_name text, reference_month date, count integer, pct numeric, seq bigint NOT NULL, UNIQUE (seq) )",
     );
+    expect(at("INSERT INTO benefits_stage")).toBeGreaterThan(0);
+    expect(at("BEGIN")).toBeGreaterThan(at("INSERT INTO benefits_stage"));
     // One delete+insert pair per filed month, then the
     // 13-month prune for this series only, then COMMIT.
     const deletes = rec.calls.filter((c) =>
@@ -218,13 +227,15 @@ describe("filing — statement order and the schema contract", () => {
     expect(rec.released()).toBe(true);
   });
 
-  it("a failure mid-filing rolls back and still releases the client", async () => {
+  it("a failure mid-staging leaves the staged rows for the next run and still releases the client", async () => {
     const rows = await fixtureRows();
     const rec = recordingPool("INSERT INTO benefits_stage");
     await expect(fileClaimant(rec.pool as never, rows, "2026-11-13T00:00:00.000Z")).rejects.toThrow(
       "forced failure",
     );
-    expect(rec.statements).toContain("ROLLBACK");
+    // BUG-368: the staging is durable per chunk — no
+    // transaction to roll back, and no COMMIT either.
+    expect(rec.statements).not.toContain("ROLLBACK");
     expect(rec.statements).not.toContain("COMMIT");
     expect(rec.released()).toBe(true);
   });
@@ -343,7 +354,7 @@ describe("BUG-265 progress logging", () => {
     expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
   });
 
-  it("reports a filing failure with the file stage and the staged count, then still rolls back", async () => {
+  it("reports a filing failure with the file stage and the staged count, and names the resume point", async () => {
     const rows = await fixtureRows();
     const statements: string[] = [];
     const client = {
@@ -365,8 +376,207 @@ describe("BUG-265 progress logging", () => {
     expect(lines).toHaveLength(2);
     expect(lines[0]).toMatch(/load-claimant-count progress · filing 6 area-months$/);
     expect(lines[1]).toMatch(
-      /load-claimant-count failed · file · filed 0 of 6 · forced failure: INSERT INTO benefits_stage · resume from re-run from scratch \(the filing transaction rolls back\)$/,
+      /load-claimant-count failed · file · filed 0 of 6 · forced failure: INSERT INTO benefits_stage · resume from the start \(nothing staged yet\)$/,
     );
-    expect(statements).toContain("ROLLBACK");
+    // BUG-368: the staging is durable per chunk — a
+    // staging failure leaves the staged rows, so there is
+    // no ROLLBACK to run.
+    expect(statements).not.toContain("ROLLBACK");
+  });
+});
+
+describe("resume (BUG-368)", () => {
+  type StatRow = Record<string, unknown>;
+  type CheckpointRow = {
+    loader: string;
+    edition: string;
+    expected: number | null;
+    next_start_index: number;
+    read_count: number;
+    filed_count: number;
+    state: Record<string, unknown> | null;
+  };
+  function statefulPool() {
+    let live: StatRow[] = [];
+    let stage: StatRow[] = [];
+    const checkpoints = new Map<string, CheckpointRow>();
+    let snapshot: StatRow[] | null = null;
+    let insertCalls = 0;
+    let failAfterInserts: number | null = null;
+    const client = {
+      async query(sql: string, params: unknown[] = []) {
+        const head = sql.trim().replace(/\s+/g, " ");
+        if (head === "BEGIN") {
+          snapshot = structuredClone(live);
+          return { rows: [] };
+        }
+        if (head === "COMMIT") {
+          snapshot = null;
+          return { rows: [] };
+        }
+        if (head === "ROLLBACK") {
+          if (snapshot) live = snapshot;
+          snapshot = null;
+          return { rows: [] };
+        }
+        if (head.startsWith("CREATE TABLE IF NOT EXISTS benefits_stage")) return { rows: [] };
+        if (head.startsWith("INSERT INTO benefits_stage")) {
+          insertCalls += 1;
+          if (failAfterInserts !== null && insertCalls > failAfterInserts)
+            throw new Error("simulated kill: the database connection dropped mid-insert");
+          for (let at = 0; at < params.length; at += 6)
+            stage.push({
+              lsoa_code: params[at],
+              lsoa_name: params[at + 1],
+              reference_month: params[at + 2],
+              count: params[at + 3],
+              pct: params[at + 4],
+              seq: params[at + 5],
+            });
+          return { rows: [], rowCount: params.length / 6 };
+        }
+        if (head.startsWith("SELECT count(*)::int AS n FROM benefits_stage"))
+          return { rows: [{ n: stage.length }], rowCount: 1 };
+        if (head.startsWith("SELECT count(*)::int AS n, coalesce(sum(seq)")) {
+          return {
+            rows: [
+              {
+                n: stage.length,
+                s: stage.reduce((a, r) => a + (r.seq as number), 0),
+                m: stage.length ? Math.max(...stage.map((r) => r.seq as number)) : 0,
+              },
+            ],
+            rowCount: 1,
+          };
+        }
+        if (head.startsWith("DELETE FROM benefits_stage WHERE seq >=")) {
+          stage = stage.filter((r) => !((r.seq as number) >= (params[0] as number)));
+          return { rows: [], rowCount: 0 };
+        }
+        if (head.startsWith("DELETE FROM benefits_stage")) {
+          stage = [];
+          return { rows: [], rowCount: 0 };
+        }
+        if (head.startsWith("SELECT loader, edition, expected")) {
+          const row = checkpoints.get(params[0] as string);
+          return { rows: row ? [row] : [], rowCount: 0 };
+        }
+        if (head.startsWith("INSERT INTO loader_checkpoint")) {
+          checkpoints.set(params[0] as string, {
+            loader: params[0] as string,
+            edition: params[1] as string,
+            expected: params[2] as number | null,
+            next_start_index: params[3] as number,
+            read_count: params[4] as number,
+            filed_count: params[5] as number,
+            state: JSON.parse(params[6] as string) as Record<string, unknown>,
+          });
+          return { rows: [], rowCount: 0 };
+        }
+        if (head.startsWith("DELETE FROM loader_checkpoint")) {
+          checkpoints.delete(params[0] as string);
+          return { rows: [], rowCount: 0 };
+        }
+        if (
+          head.startsWith("DELETE FROM benefits_stats WHERE series = $1 AND reference_month = $2")
+        ) {
+          live = live.filter((r) => !(r.series === params[0] && r.reference_month === params[1]));
+          return { rows: [], rowCount: 0 };
+        }
+        if (head.startsWith("INSERT INTO benefits_stats")) {
+          for (const row of stage.filter((r) => r.reference_month === params[3]))
+            live.push({
+              ...row,
+              series: params[0],
+              source_name: params[1],
+              loaded_at: params[2],
+            });
+          return { rows: [], rowCount: 0 };
+        }
+        if (
+          head.startsWith("DELETE FROM benefits_stats WHERE series = $1 AND reference_month NOT IN")
+        ) {
+          return { rows: [], rowCount: 0 };
+        }
+        throw new Error(`fake client: unhandled SQL: ${sql}`);
+      },
+      release() {},
+    };
+    return {
+      pool: { connect: async () => client },
+      live: () => live,
+      stage: () => stage,
+      checkpoints,
+      setFailAfterInserts: (n: number | null) => {
+        insertCalls = 0;
+        failAfterInserts = n;
+      },
+    };
+  }
+  // 1,200 rows: the 6 fixture rows repeated with distinct
+  // LSOA codes, so the filer flushes three 500-row chunks.
+  async function bigRows() {
+    const base = await fixtureRows();
+    const rows: ClaimantRow[] = [];
+    for (let k = 0; k < 200; k++)
+      for (const r of base)
+        rows.push({ ...r, lsoaCode: `E01${String(rows.length).padStart(6, "0")}` });
+    return rows;
+  }
+
+  it("kill mid-staging resumes and files every row exactly once", async () => {
+    const fake = statefulPool();
+    const rows = await bigRows();
+    fake.setFailAfterInserts(1);
+    await expect(
+      fileClaimant(fake.pool as never, rows, "2026-11-13T00:00:00.000Z"),
+    ).rejects.toThrow(/simulated kill/);
+    expect(fake.stage()).toHaveLength(500);
+    expect(fake.checkpoints.get("load-claimant-count")?.next_start_index).toBe(500);
+
+    fake.setFailAfterInserts(null);
+    await fileClaimant(fake.pool as never, rows, "2026-11-13T00:00:00.000Z");
+    expect(fake.live()).toHaveLength(1200);
+    const keys = fake.live().map((r) => `${r.lsoa_code}|${r.reference_month}`);
+    expect(new Set(keys).size).toBe(1200);
+    expect(fake.stage()).toHaveLength(0);
+    expect(fake.checkpoints.size).toBe(0);
+  });
+
+  it("a months change discards the staged rows and starts from zero", async () => {
+    const fake = statefulPool();
+    const rows = await bigRows();
+    fake.setFailAfterInserts(1);
+    await expect(
+      fileClaimant(fake.pool as never, rows, "2026-11-13T00:00:00.000Z"),
+    ).rejects.toThrow(/simulated kill/);
+    expect(fake.stage()).toHaveLength(500);
+    fake.setFailAfterInserts(null);
+    const moved = rows.map((r) => ({
+      ...r,
+      month: `${Number(r.month.slice(0, 4)) + 1}${r.month.slice(4)}`,
+    }));
+    await fileClaimant(fake.pool as never, moved, "2026-11-13T00:00:00.000Z");
+    expect(fake.live()).toHaveLength(1200);
+    expect(fake.live().every((r) => String(r.reference_month).startsWith("2027"))).toBe(true);
+    expect(fake.stage()).toHaveLength(0);
+    expect(fake.checkpoints.size).toBe(0);
+  });
+
+  it("--restart discards the checkpoints and starts from zero", async () => {
+    const fake = statefulPool();
+    const rows = await bigRows();
+    fake.setFailAfterInserts(1);
+    await expect(
+      fileClaimant(fake.pool as never, rows, "2026-11-13T00:00:00.000Z"),
+    ).rejects.toThrow(/simulated kill/);
+    expect(fake.stage()).toHaveLength(500);
+    fake.setFailAfterInserts(null);
+    await fileClaimant(fake.pool as never, rows, "2026-11-13T00:00:00.000Z", { restart: true });
+    expect(fake.live()).toHaveLength(1200);
+    const keys = fake.live().map((r) => `${r.lsoa_code}|${r.reference_month}`);
+    expect(new Set(keys).size).toBe(1200);
+    expect(fake.stage()).toHaveLength(0);
+    expect(fake.checkpoints.size).toBe(0);
   });
 });

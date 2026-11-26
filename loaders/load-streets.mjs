@@ -121,6 +121,12 @@ import { gunzipSync } from "node:zlib";
 import pg from "pg";
 
 import {
+  createLoaderResume,
+  clearCheckpoint,
+  readCheckpoint,
+  writeCheckpoint,
+} from "./loader-resume.mjs";
+import {
   createBatchWatch,
   createProgressLogger,
   formatCount,
@@ -299,25 +305,39 @@ const STREAM_BATCH = 5000;
 const SCOPED_ON_CONFLICT =
   "ON CONFLICT (osm_id) DO UPDATE SET name = EXCLUDED.name, highway = EXCLUDED.highway, geom = EXCLUDED.geom, source_name = EXCLUDED.source_name, source_date = EXCLUDED.source_date, loaded_at = now()";
 
-async function insertRows(client, table, rows, sourceDate, { onConflict }) {
+async function insertRows(client, table, rows, sourceDate, { onConflict, seqBase = null }) {
   const values = [];
   const params = [];
+  // BUG-368: a staged row's seq is its ordinal in the staged
+  // set (takeSeq-assigned by the caller), so the resume proof
+  // can read the staged rows as a contiguous prefix. Live
+  // tables carry no seq — the column is only ever written
+  // for the stage table.
+  const columns =
+    seqBase === null
+      ? "(osm_id, name, highway, geom, source_name, source_date)"
+      : "(osm_id, name, highway, geom, source_name, source_date, seq)";
   const flush = async () => {
     if (values.length === 0) return;
     await client.query(
-      `INSERT INTO ${table} (osm_id, name, highway, geom, source_name, source_date)
+      `INSERT INTO ${table} ${columns}
        VALUES ${values.join(", ")} ${onConflict}`,
       params,
     );
     values.length = 0;
     params.length = 0;
   };
+  let rowIndex = 0;
   for (const row of rows) {
     const base = params.length;
-    values.push(
-      `($${base + 1}, $${base + 2}, $${base + 3}, ST_GeomFromText($${base + 4}, 4326), $${base + 5}, $${base + 6})`,
-    );
+    const placeholders = [`$${base + 1}`, `$${base + 2}`, `$${base + 3}`];
+    placeholders.push(`ST_GeomFromText($${base + 4}, 4326)`);
+    placeholders.push(`$${base + 5}`, `$${base + 6}`);
+    if (seqBase !== null) placeholders.push(`$${base + 7}`);
+    values.push(`(${placeholders.join(", ")})`);
     params.push(row.osmId, row.name, row.highway, wktOf(row.points), SOURCE_NAME, sourceDate);
+    if (seqBase !== null) params.push(seqBase + rowIndex);
+    rowIndex += 1;
     if (values.length >= INSERT_BATCH) await flush();
   }
   await flush();
@@ -391,28 +411,314 @@ async function fileStreetsScopedStream(pool, extracts, bbox, sourceDate) {
 }
 
 // The national stage: a persistent stage table the
-// national flow fills country by country. Reset at the
-// start of a run (a previous interrupted run's stage is
-// discarded, never merged), appended per country, and
-// swapped by swapStagedStreets only when every country
-// has staged.
-export async function resetStreetStage(pool) {
+// national flow fills country by country. Created (with its
+// resume seq — see below) at the start of a run; the clearing
+// is prepareResume's job, not this function's: a resumed run
+// keeps the staged rows, a fresh start clears them (BUG-368).
+// A table left by a pre-resume run has no seq column — the
+// ALTER adds it, and the stale rows it carries are discarded
+// by the next run's prepare(), whose prefix proof cannot read
+// seq-less rows.
+export async function ensureStreetStage(pool) {
   await pool.query(`CREATE TABLE IF NOT EXISTS street_lines_stage (
     osm_id bigint PRIMARY KEY, name text, highway text NOT NULL, geom geometry(LineString, 4326) NOT NULL,
     source_name text NOT NULL, source_date date
   )`);
-  await pool.query("TRUNCATE street_lines_stage");
+  await pool.query("ALTER TABLE street_lines_stage ADD COLUMN IF NOT EXISTS seq bigint");
 }
 
-export async function stageStreets(pool, rows, sourceDate) {
+export async function stageStreets(pool, rows, sourceDate, { seqBase = null } = {}) {
   const client = await pool.connect();
   try {
     await insertRows(client, "street_lines_stage", rows, sourceDate, {
       onConflict: "ON CONFLICT (osm_id) DO NOTHING",
+      seqBase,
     });
   } finally {
     client.release();
   }
+}
+
+// A LINESTRING's points back out of its WKT — the staged
+// golden rebuild's parse (the stage stores geometry, and
+// ST_AsText is the round-trip the fake and the live table
+// both speak).
+/**
+ * @param {string} wkt
+ * @returns {[number, number][]}
+ */
+export function wktLineToPoints(wkt) {
+  const body = wkt.replace(/^LINESTRING\s*\(/i, "").replace(/\)\s*$/, "");
+  if (body.trim() === "") return [];
+  return body.split(",").map((pair) => {
+    const [lon, lat] = pair.trim().split(/\s+/).map(Number);
+    return [lat, lon];
+  });
+}
+
+// The staged portion's golden candidates, for rebuilding the
+// golden set after a resume — the envelope test mirrors the
+// golden check's 0.6-mile basis with room to spare (2 miles),
+// so the rebuilt set is exactly what the live stream would
+// have retained for that portion.
+/**
+ * @param {any} pool
+ * @returns {Promise<{ osmId: number, name: string, highway: string, points: [number, number][] }[]>}
+ */
+async function stagedGoldenCandidates(pool) {
+  if (!pool) return [];
+  const homes = Object.values(HOMES);
+  const conditions = [];
+  const params = [];
+  homes.forEach((home, i) => {
+    const base = 2 + i * 2;
+    conditions.push(
+      `ST_DWithin(geom::geography, ST_SetSRID(ST_MakePoint($${base}, $${base + 1}), 4326)::geography, $${2 + homes.length * 2})`,
+    );
+    params.push(home.lon, home.lat);
+  });
+  params.push(GOLDEN_WINDOW_MILES * 1609.344);
+  const { rows } = await pool.query(
+    `SELECT osm_id, name, highway, ST_AsText(geom) AS wkt FROM street_lines_stage WHERE name = ANY($1) AND (${conditions.join(" OR ")})`,
+    [[...GOLDEN_STREET_NAMES], ...params],
+  );
+  return rows.map((r) => ({
+    osmId: Number(r.osm_id),
+    name: r.name,
+    highway: r.highway,
+    points: wktLineToPoints(r.wkt),
+  }));
+}
+
+// The golden checks only ever read rows carrying a golden
+// street's name — goldenChecks skips every other row it is
+// handed — so a streamed run collects just those candidate
+// rows as it passes and runs the same checks over them:
+// identical verdicts, a handful of rows held.
+const GOLDEN_WINDOW_MILES = 2;
+
+// --- national staging with resume (BUG-368) --------------------------
+
+// Stage, floor, swap — with resume support (BUG-368): the
+// national flow streams each country's cut into the PERSISTENT
+// street_lines_stage table (migration 0048 — the parent adds
+// the table at merge time; beginNationalStaging still creates
+// it, so the loader works on a database the migration has not
+// yet reached), and a loader_checkpoint row records the last
+// fully staged chunk, so a killed run resumes mid-country
+// instead of re-staging the whole extract.
+//
+// THE RESUME UNITS. The edition is the extracts' data dates
+// (country@date, joined): a Geofabrik republication changes a
+// date and invalidates the checkpoint, so a resumed run never
+// stages rows from two different extracts. The checkpoint's
+// next_start_index is the TOTAL staged rows; its state carries
+// the country in progress, the completed countries' staged
+// counts, and the in-progress country's staged count — the
+// resumed run skips the completed countries entirely and
+// re-reads the in-progress country's cut, skipping exactly
+// the staged rows. The staged rows are keyed on osm_id and
+// staged with ON CONFLICT DO NOTHING, so the re-read's
+// re-stage of the uncheckpointed tail is a no-op in effect,
+// and prepare() trims that tail first (the AQMA shape). The
+// checkpoint lands every 100,000 staged rows per country and
+// at each country's end — one line per checkpointed chunk,
+// never per row — so a kill loses at most 100,000 rows of
+// re-staging (a re-read of the cut, seconds against the
+// hours-long run). The floor and golden verdicts are reached
+// as the country's stream ends, over the country's whole
+// filed-class count (the stream reads the whole cut either
+// way) and the merged golden candidates (streamed + staged),
+// and still gate the swap. The swap itself is unchanged: the
+// live table is replaced from the stage inside one
+// transaction, and the stage is dropped — a crash anywhere
+// before the commit leaves the last good table serving.
+// BUG-248 atomicity unchanged: the live table changes only
+// at the swap.
+//
+// THE DOWNLOAD-AND-CUT CAVEAT. The checkpoint covers the
+// staging stream, not the download + cut that precedes it: a
+// kill before staging restarts the pass, re-downloading and
+// re-cutting (unless CMNH_STREETS_REUSE_DIR holds the
+// completed cuts, which the run then picks up again). The
+// staging resume saves the long stream, not the cut.
+/**
+ * @param {any} pool
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, restart?: boolean }} [options]
+ */
+export async function beginNationalStaging(pool, { progress = null, restart = false } = {}) {
+  if (pool) await ensureStreetStage(pool);
+  const resume = pool
+    ? createLoaderResume(pool, {
+        loader: "load-streets",
+        stageTable: "street_lines_stage",
+        progress,
+        restart,
+      })
+    : null;
+  let edition = null;
+  /** @type {{ resumed: boolean, reason?: string, checkpoint?: any, prefix?: boolean }} */
+  let resumePrep = { resumed: false };
+  let resumeState = {};
+  // The staged counts: the global total, the completed
+  // countries' totals, and the in-progress country's staged
+  // count (the skip for its re-read).
+  let totalStaged = 0;
+  let perCountry = {};
+  let currentCountry = null;
+  let stagedInCountry = 0;
+  return {
+    resumePrep: () => resumePrep,
+    resumeNote: () => (resume ? resume.resumeNote() : "the start (nothing staged yet)"),
+    stagedCount: () => totalStaged,
+    // Decide, from the extracts' edition and the staged rows,
+    // whether this run resumes or starts from zero. Called
+    // once the extracts are resolved and before the first
+    // country streams.
+    async prepareResume(ed) {
+      edition = ed;
+      if (!resume) return resumePrep;
+      resumePrep = await resume.prepare({ edition, expected: null });
+      if (resumePrep.resumed) {
+        const cp = resumePrep.checkpoint;
+        totalStaged = cp.filed_count;
+        resumeState = cp.state ?? {};
+        perCountry = { ...(resumeState.perCountry ?? {}) };
+        currentCountry = resumeState.country ?? null;
+        stagedInCountry = resumeState.stagedInCountry ?? 0;
+      }
+      return resumePrep;
+    },
+    // The completed countries, by name — the caller's loop
+    // skips them outright on a resume.
+    completedCountries: () => ({ ...perCountry }),
+    // Stream one country's cut into the stage, checkpointing
+    // every 100,000 staged rows and at the country's end.
+    // Returns the country's whole filed-class count (the
+    // stream reads the whole cut either way, so the floor
+    // reads the country, not the resumed portion) and the
+    // golden candidates the resumed portion streamed.
+    async stageCountry(country, ndjsonPath, sourceDate) {
+      const skipFiled = resumePrep.resumed && currentCountry === country ? stagedInCountry : 0;
+      let skipped = 0;
+      let stagedBefore = stagedInCountry;
+      if (currentCountry !== country) {
+        currentCountry = country;
+        stagedInCountry = 0;
+        stagedBefore = 0;
+      }
+      const candidates = goldenCandidates();
+      let batch = [];
+      // BUG-204: England stages ~3M rows — a line every
+      // 100,000 staged, so the country's long stream is
+      // visible. (The per-country summary line below stays
+      // the closing line; the tally has no finish.)
+      const stageTally = progress?.tally({
+        label: `${country} staging`,
+        every: 100000,
+        unit: "street lines",
+      });
+      // BUG-248: the 5,000-row staging flushes get a
+      // slow-batch watch; the heartbeat fires every
+      // 1,000,000 staged rows or 15 minutes.
+      const flushWatch = createBatchWatch();
+      let lastCheckpointedInCountry = stagedInCountry;
+      const checkpoint = async () => {
+        if (!resume) return;
+        await resume.checkpoint({
+          edition,
+          expected: null,
+          nextStartIndex: totalStaged,
+          read: totalStaged,
+          filed: totalStaged,
+          state: { country, perCountry: { ...perCountry }, stagedInCountry },
+          unit: "street lines",
+        });
+        lastCheckpointedInCountry = stagedInCountry;
+      };
+      const flush = async () => {
+        if (batch.length === 0) return;
+        const started = Date.now();
+        if (pool) {
+          const seqBase = resume ? resume.takeSeq(batch.length) : null;
+          await stageStreets(pool, batch, sourceDate, { seqBase });
+        }
+        const { tookMs, averageMs, slow } = flushWatch.observe(Date.now() - started);
+        totalStaged += batch.length;
+        stagedInCountry += batch.length;
+        stageTally?.tick(stagedInCountry);
+        progress?.heartbeat({
+          stage: `${country} staging`,
+          done: stagedInCountry,
+          every: 1_000_000,
+        });
+        if (slow) {
+          progress?.warning({
+            what: `${country} staging flush duration`,
+            value: `flush of ${formatCount(batch.length)} rows took ${formatDuration(tookMs)}`,
+            threshold: `3x recent average ${formatDuration(averageMs)}`,
+          });
+        }
+        batch = [];
+        if (stagedInCountry - lastCheckpointedInCountry >= 100000) await checkpoint();
+      };
+      const part = await streamCutRows(ndjsonPath, async (row) => {
+        if (skipped < skipFiled) {
+          skipped += 1;
+          return;
+        }
+        candidates.take(row);
+        batch.push(row);
+        if (batch.length >= STREAM_BATCH) await flush();
+      });
+      await flush();
+      // The country's end is checkpointed even when the
+      // 100,000-row cadence did not just fire: the completed
+      // country's count is what the next country resumes
+      // past, and a kill before it would re-stage the tail.
+      if (pool) {
+        perCountry[country] = stagedBefore + (part.rowsFiled - skipFiled);
+        await checkpoint();
+      }
+      return {
+        waysRead: part.waysRead,
+        rowsFiled: part.rowsFiled,
+        candidates: candidates.rows,
+      };
+    },
+    // The staged portion's golden candidates, merged by the
+    // caller with the streamed ones before the golden checks.
+    async stagedGoldenCandidates() {
+      return stagedGoldenCandidates(pool);
+    },
+    // The swap, then the checkpoint alone is cleared — the
+    // swap already dropped the stage table, so the handle's
+    // clear() (which deletes from the stage) cannot run.
+    // The cleanup is best-effort and never fails the run:
+    // the swap has already committed, and a leftover
+    // checkpoint is discarded by the next run's prepare()
+    // (its ensure recreates the dropped stage table first,
+    // so the prefix proof reads an empty stage and discards).
+    async finishStaging() {
+      const filed = await swapStagedStreets(pool);
+      if (pool) {
+        try {
+          await clearCheckpoint(pool, "load-streets");
+          progress?.stage("staging cleared · checkpoint removed");
+        } catch (error) {
+          progress?.stage(
+            "checkpoint cleanup failed — left for the next run to discard · " +
+              String(error?.message ?? error ?? "").split(/\r?\n/)[0],
+          );
+        }
+      }
+      return filed;
+    },
+    async abortStaging() {
+      // The staging + checkpoint STAY: they are the next run's
+      // resume point.
+    },
+  };
 }
 
 // The swap: the live table is replaced from the stage
@@ -642,12 +948,171 @@ async function reusedCut(country, reuseDir) {
   return { path, dataDate: dated ? extractDataDate(dated) : null };
 }
 
+// The extracts' edition, for the resume checkpoints — the
+// countries' data dates, joined. A Geofabrik republication
+// changes a date and invalidates any checkpoint, so a resumed
+// run never mixes rows from two different extracts. An undated
+// cut (a reused cut with no dated sibling) stamps the run's
+// retrieval date instead, the fallback the area mode already
+// uses for an undated read.
+export function extractsEdition(extracts, retrievedOn) {
+  return extracts.map((e) => `${e.country}@${e.dataDate ?? retrievedOn}`).join(",");
+}
+
+// The area run's resume note — the phrase after "resume from".
+// Areas commit one by one, so the note names the next area to
+// run, or the start when nothing has filed yet.
+export function areaResumeNote(checkpoint, edition) {
+  if (!checkpoint) return "the start (no area filed yet)";
+  return `checkpoint ${formatCount(checkpoint.next_start_index)} (edition ${edition})`;
+}
+
+// Area cuts, with resume support (BUG-368): each area files in
+// its own transaction, so a kill loses at most the area in
+// flight — and a checkpoint row (loader "load-streets-areas",
+// edition = the extracts' edition) records the completed
+// areas, so the next run skips them instead of re-reading
+// their cuts. The checkpoint is the resume state alone: areas
+// commit straight to the live table, so there is no staging
+// table for this mode, and the checkpoint is written with the
+// module's own primitives (readCheckpoint / writeCheckpoint /
+// clearCheckpoint), not the staging handle. A run that
+// completes clears its checkpoint; a run after a republication
+// discards it and starts from the first area.
+/**
+ * @param {any} pool
+ * @param {any} extracts
+ * @param {any} bboxes
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, restart?: boolean, verifyOnly?: boolean, retrievedOn: string, edition: string }} options
+ */
+export async function runAreaCuts(
+  pool,
+  extracts,
+  bboxes,
+  { progress = null, restart = false, verifyOnly = false, retrievedOn, edition },
+) {
+  // Area cuts: each area files in its own transaction, in
+  // argument order. Each area makes two streamed passes over
+  // the extracts' cuts — the first counts the area's rows and
+  // collects its golden candidates for the checks, the second
+  // (fileStreetsScopedStream) files them in batches inside
+  // the area's transaction — so an area run holds a handful
+  // of candidate rows and one insert batch, never a country's
+  // read. (The first smoke run held the whole England read
+  // and died before filing a single area.)
+  let checkpoint = null;
+  if (pool) {
+    checkpoint = await readCheckpoint(pool, "load-streets-areas");
+    if (restart) {
+      await clearCheckpoint(pool, "load-streets-areas");
+      checkpoint = null;
+      progress?.stage("restart requested — discarding checkpoint · starting from the first area");
+    } else if (checkpoint && checkpoint.edition !== edition) {
+      progress?.stage(
+        `discarding stale checkpoint · edition changed (${checkpoint.edition} → ${edition}) · starting from the first area`,
+      );
+      await clearCheckpoint(pool, "load-streets-areas");
+      checkpoint = null;
+    } else if (checkpoint) {
+      progress?.stage(
+        `resuming from checkpoint · ${formatCount(checkpoint.filed_count)} rows filed in ${formatCount(checkpoint.next_start_index)} areas · edition ${checkpoint.edition}`,
+      );
+    }
+  }
+  // BUG-248: areas file one by one, each in its own
+  // transaction — the failure line names the area it
+  // died in and how many rows earlier areas filed.
+  let areasDone = checkpoint?.next_start_index ?? 0;
+  let areasFiled = checkpoint?.filed_count ?? 0;
+  const startAt = areasDone;
+  for (let i = startAt; i < bboxes.length; i += 1) {
+    const bbox = bboxes[i];
+    try {
+      let rows = 0;
+      let waysRead = 0;
+      let sourceDate = null;
+      const candidates = goldenCandidates();
+      for (const ex of extracts) {
+        const part = await streamCutRows(ex.ndjsonPath, (row) => {
+          candidates.take(row);
+          if (wayMeetsBbox(row.points, bbox)) rows++;
+        });
+        waysRead += part.waysRead;
+        sourceDate = ex.dataDate;
+      }
+      const inScope = (key) => {
+        const home = HOMES[key];
+        return (
+          home.lon >= bbox.west &&
+          home.lon <= bbox.east &&
+          home.lat >= bbox.south &&
+          home.lat <= bbox.north
+        );
+      };
+      const golden = goldenChecks(candidates.rows, inScope);
+      if (golden.length > 0) throw new Error(`golden checks failed: ${golden.join("; ")}`);
+      areasDone += 1;
+      progress?.heartbeat({ stage: "areas", done: areasDone, total: bboxes.length, every: 1 });
+      if (verifyOnly) {
+        console.log(
+          `load-streets · would file ${formatCount(rows)} street lines for area ${bbox.west},${bbox.south},${bbox.east},${bbox.north} (${formatCount(waysRead)} highway ways read) — golden homes OK (verify-only: nothing filed)`,
+        );
+        continue;
+      }
+      await fileStreetsScopedStream(pool, extracts, bbox, sourceDate ?? retrievedOn);
+      console.log(
+        `load-streets · ${formatCount(rows)} street lines filed for area ${bbox.west},${bbox.south},${bbox.east},${bbox.north} (${formatCount(waysRead)} highway ways read) — golden homes OK`,
+      );
+      areasFiled += rows;
+      if (pool) {
+        // One line per committed area — the visible save.
+        const row = {
+          loader: "load-streets-areas",
+          edition,
+          expected: bboxes.length,
+          nextStartIndex: areasDone,
+          read: areasDone,
+          filed: areasFiled,
+          state: {},
+        };
+        await writeCheckpoint(pool, row);
+        progress?.count({
+          label: "checkpoint",
+          done: areasDone,
+          total: bboxes.length,
+          unit: "areas",
+          extra: `filed ${formatCount(areasFiled)} · resume from ${formatCount(areasDone)}`,
+        });
+        checkpoint = {
+          ...row,
+          next_start_index: row.nextStartIndex,
+          read_count: row.read,
+          filed_count: row.filed,
+        };
+      }
+    } catch (err) {
+      progress?.failed({
+        stage: `area ${bbox.west},${bbox.south},${bbox.east},${bbox.north}`,
+        filed: areasFiled,
+        error: err,
+        resume: areaResumeNote(checkpoint, edition),
+      });
+      throw err;
+    }
+  }
+  if (pool) await clearCheckpoint(pool, "load-streets-areas");
+  return { areasDone, areasFiled };
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const fileIdx = args.indexOf("--file");
   const fileArg = fileIdx >= 0 ? args[fileIdx + 1] : null;
   const fixtureMode = args.includes("--fixture") || fileArg !== null;
   const verifyOnly = args.includes("--verify-only");
+  // BUG-368: resume from the last checkpoint instead of
+  // restarting; with no checkpoint this is a fresh start.
+  const restart = args.includes("--restart");
   const pbfDirIdx = args.indexOf("--pbf-dir");
   const pbfDir = pbfDirIdx >= 0 ? args[pbfDirIdx + 1] : null;
   const bboxIdx = args.indexOf("--bbox");
@@ -779,72 +1244,18 @@ async function main() {
     if (extracts.length === 0) throw new Error("no country extracts were read");
 
     if (bboxes) {
-      // Area cuts: each area files in its own
-      // transaction, in argument order. Each area makes
-      // two streamed passes over the extracts' cuts —
-      // the first counts the area's rows and collects
-      // its golden candidates for the checks, the second
-      // (fileStreetsScopedStream) files them in batches
-      // inside the area's transaction — so an area run
-      // holds a handful of candidate rows and one insert
-      // batch, never a country's read. (The first smoke
-      // run held the whole England read and died before
-      // filing a single area.)
+      // Area cuts (see runAreaCuts): each area files in its
+      // own transaction, and a checkpoint records the
+      // completed areas so a killed pass resumes past them.
       const pool = verifyOnly ? null : new Pool({ connectionString: process.env.DATABASE_URL });
       try {
-        // BUG-248: areas file one by one, each in its own
-        // transaction — the failure line names the area it
-        // died in and how many rows earlier areas filed.
-        let areasDone = 0;
-        let areasFiled = 0;
-        for (const bbox of bboxes) {
-          try {
-            let rows = 0;
-            let waysRead = 0;
-            let sourceDate = null;
-            const candidates = goldenCandidates();
-            for (const ex of extracts) {
-              const part = await streamCutRows(ex.ndjsonPath, (row) => {
-                candidates.take(row);
-                if (wayMeetsBbox(row.points, bbox)) rows++;
-              });
-              waysRead += part.waysRead;
-              sourceDate = ex.dataDate;
-            }
-            const inScope = (key) => {
-              const home = HOMES[key];
-              return (
-                home.lon >= bbox.west &&
-                home.lon <= bbox.east &&
-                home.lat >= bbox.south &&
-                home.lat <= bbox.north
-              );
-            };
-            const golden = goldenChecks(candidates.rows, inScope);
-            if (golden.length > 0) throw new Error(`golden checks failed: ${golden.join("; ")}`);
-            areasDone += 1;
-            progress.heartbeat({ stage: "areas", done: areasDone, total: bboxes.length, every: 1 });
-            if (verifyOnly) {
-              console.log(
-                `load-streets · would file ${formatCount(rows)} street lines for area ${bbox.west},${bbox.south},${bbox.east},${bbox.north} (${formatCount(waysRead)} highway ways read) — golden homes OK (verify-only: nothing filed)`,
-              );
-              continue;
-            }
-            await fileStreetsScopedStream(pool, extracts, bbox, sourceDate ?? retrievedOn);
-            console.log(
-              `load-streets · ${formatCount(rows)} street lines filed for area ${bbox.west},${bbox.south},${bbox.east},${bbox.north} (${formatCount(waysRead)} highway ways read) — golden homes OK`,
-            );
-            areasFiled += rows;
-          } catch (err) {
-            progress.failed({
-              stage: `area ${bbox.west},${bbox.south},${bbox.east},${bbox.north}`,
-              filed: areasFiled,
-              error: err,
-              resume: "re-run the pass from the start (each area files in its own transaction)",
-            });
-            throw err;
-          }
-        }
+        await runAreaCuts(pool, extracts, bboxes, {
+          progress,
+          restart,
+          verifyOnly,
+          retrievedOn,
+          edition: extractsEdition(extracts, retrievedOn),
+        });
       } finally {
         if (pool) await pool.end();
       }
@@ -857,68 +1268,45 @@ async function main() {
     // candidates are the only rows held, and only
     // England's checks read them. The floor and golden
     // verdicts are reached as the country's stream ends
-    // and still gate the swap: the stage is scratch by
-    // design (the next run's start resets it), so a
-    // refused country leaves staged rows that never
-    // serve — the live table changes only at the swap.
+    // and still gate the swap: the stage is persistent by
+    // design (a refused country leaves staged rows that
+    // never serve — the live table changes only at the
+    // swap), and a killed run resumes mid-country from
+    // the checkpoint (BUG-368; see beginNationalStaging).
     const pool = verifyOnly ? null : new Pool({ connectionString: process.env.DATABASE_URL });
     try {
-      if (pool) await resetStreetStage(pool);
+      const staging = await beginNationalStaging(pool, { progress, restart });
+      await staging.prepareResume(extractsEdition(extracts, retrievedOn));
+      const completed = staging.completedCountries();
       let totalStaged = 0;
       for (const ex of extracts) {
+        if (completed[ex.country] !== undefined) {
+          // Resumed: this country already staged whole in
+          // an earlier run — its floor and golden verdicts
+          // were reached then, and the checkpoint stands
+          // for them.
+          console.log(
+            `load-streets · ${ex.country}: ${formatCount(completed[ex.country])} street lines already staged — resuming past it`,
+          );
+          totalStaged += completed[ex.country];
+          continue;
+        }
         // BUG-248: a country's staging fails before anything
-        // serves — the stage is reset at the next run's
-        // start, and the swap is the only point that files.
+        // serves — the stage is persistent, and the swap is
+        // the only point that files.
         try {
-          const candidates = goldenCandidates();
-          let batch = [];
-          // BUG-204: England stages ~3M rows — a line every
-          // 100,000 staged, so the country's long stream is
-          // visible. (The per-country summary line below
-          // stays the closing line; the tally has no finish.)
-          const stageTally = progress.tally({
-            label: `${ex.country} staging`,
-            every: 100000,
-            unit: "street lines",
-          });
-          let stagedThisCountry = 0;
-          // BUG-248: the 5,000-row staging flushes get a
-          // slow-batch watch; the heartbeat fires every
-          // 1,000,000 staged rows or 15 minutes.
-          const flushWatch = createBatchWatch();
-          const flush = async () => {
-            if (batch.length === 0) return;
-            const started = Date.now();
-            if (pool) await stageStreets(pool, batch, ex.dataDate ?? retrievedOn);
-            const { tookMs, averageMs, slow } = flushWatch.observe(Date.now() - started);
-            stagedThisCountry += batch.length;
-            stageTally.tick(stagedThisCountry);
-            progress.heartbeat({
-              stage: `${ex.country} staging`,
-              done: stagedThisCountry,
-              every: 1_000_000,
-            });
-            if (slow) {
-              progress.warning({
-                what: `${ex.country} staging flush duration`,
-                value: `flush of ${formatCount(batch.length)} rows took ${formatDuration(tookMs)}`,
-                threshold: `3x recent average ${formatDuration(averageMs)}`,
-              });
-            }
-            batch = [];
-          };
-          const part = await streamCutRows(ex.ndjsonPath, async (row) => {
-            candidates.take(row);
-            batch.push(row);
-            if (batch.length >= STREAM_BATCH) await flush();
-          });
-          await flush();
+          const part = await staging.stageCountry(
+            ex.country,
+            ex.ndjsonPath,
+            ex.dataDate ?? retrievedOn,
+          );
           if (part.rowsFiled < EXTRACT_FLOORS[ex.country])
             throw new Error(
               `${ex.country}: staged ${part.rowsFiled} street lines but the floor is ${EXTRACT_FLOORS[ex.country]} — the read does not reconcile`,
             );
           if (ex.country === "england") {
-            const golden = goldenChecks(candidates.rows, () => true);
+            const staged = await staging.stagedGoldenCandidates();
+            const golden = goldenChecks([...part.candidates, ...staged], () => true);
             if (golden.length > 0) throw new Error(`golden checks failed: ${golden.join("; ")}`);
           }
           console.log(
@@ -930,8 +1318,7 @@ async function main() {
             stage: `${ex.country} staging`,
             filed: totalStaged,
             error: err,
-            resume:
-              "re-run the pass from the start (the stage is reset at the next run's start, nothing serves until the swap)",
+            resume: staging.resumeNote(),
           });
           throw err;
         }
@@ -947,7 +1334,7 @@ async function main() {
       );
       let filed;
       try {
-        filed = await swapStagedStreets(pool);
+        filed = await staging.finishStaging();
       } catch (err) {
         // BUG-248: the swap is atomic — on a failure the
         // live table is untouched.
@@ -956,8 +1343,7 @@ async function main() {
           filed: 0,
           total: totalStaged,
           error: err,
-          resume:
-            "re-run the pass from the start (the swap is atomic, the live table is untouched)",
+          resume: staging.resumeNote(),
         });
         throw err;
       }

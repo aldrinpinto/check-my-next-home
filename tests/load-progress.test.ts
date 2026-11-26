@@ -1395,9 +1395,22 @@ describe("BUG-265 group B — progress logging on the loader CLIs", () => {
 function recordingPool() {
   const statements: string[] = [];
   let released = false;
+  // BUG-368: the resume filers verify the staged count
+  // before the swap, so the fake answers the count query
+  // per stage table (rows counted from the VALUES tuples
+  // of that table's inserts).
+  const stagedByTable = new Map<string, number>();
   const client = {
-    async query(sql: string) {
+    async query(sql: string, params: unknown[] = []) {
       statements.push(sql.trim().replace(/\s+/g, " "));
+      const head = sql.trim().replace(/\s+/g, " ");
+      const stageInsert = head.match(/^INSERT INTO\s+(\w+_stage)\s*\(/);
+      if (stageInsert) {
+        const rows = (sql.match(/\(\$/g) || []).length;
+        stagedByTable.set(stageInsert[1], (stagedByTable.get(stageInsert[1]) ?? 0) + rows);
+      }
+      const countQuery = head.match(/^SELECT count\(\*\)::int AS n FROM (\w+)/);
+      if (countQuery) return { rows: [{ n: stagedByTable.get(countQuery[1]) ?? 0 }], rowCount: 1 };
       return { rows: [], rowCount: 0 };
     },
     release() {
@@ -1490,7 +1503,19 @@ describe("group C — the filing seams log while they work", () => {
   it("load-noise logs its filing chunks", async () => {
     const { lines, log } = collect();
     const progress = createProgressLogger({ name: "load-noise", log });
-    const client = { query: async () => ({ rows: [], rowCount: 0 }) };
+    // BUG-368: fileNoise verifies the staged count before
+    // the swap, so the fake answers it (7 parameters per
+    // staged row).
+    let staged = 0;
+    const client = {
+      async query(sql: string, params: unknown[] = []) {
+        const head = sql.trim().replace(/\s+/g, " ");
+        if (head.startsWith("INSERT INTO noise_stage")) staged += params.length / 7;
+        if (head.startsWith("SELECT count(*)::int AS n FROM noise_stage"))
+          return { rows: [{ n: staged }], rowCount: 1 };
+        return { rows: [], rowCount: 0 };
+      },
+    };
     await fileNoise(
       client as never,
       [
@@ -1556,9 +1581,14 @@ describe("group C — the filing seams log while they work", () => {
     const { lines, log } = collect();
     const progress = createProgressLogger({ name: "load-osm-places", log });
     let stageInserts = 0;
+    // BUG-368: filePlaces verifies the staged count before
+    // the swap, so the fake answers it (9 parameters per
+    // staged row).
+    let staged = 0;
     const client = {
-      async query(sql: string) {
+      async query(sql: string, params: unknown[] = []) {
         if (/INSERT INTO osm_places_stage/.test(sql)) {
+          staged += params.length / 9;
           stageInserts += 1;
           // The first flush takes ~2 ms and the second ~300 ms:
           // slow by any measure, and the first flush can
@@ -1571,6 +1601,8 @@ describe("group C — the filing seams log while they work", () => {
           if (stageInserts === 1) await new Promise((r) => setTimeout(r, 2));
           if (stageInserts === 2) await new Promise((r) => setTimeout(r, 300));
         }
+        if (/SELECT count\(\*\)::int AS n FROM osm_places_stage/.test(sql))
+          return { rows: [{ n: staged }], rowCount: 1 };
         return { rows: [], rowCount: 0 };
       },
       release() {},

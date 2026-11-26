@@ -105,6 +105,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { createLoaderResume } from "./loader-resume.mjs";
 import { createGoldenSift } from "./flood-stream.mjs";
 import {
   createBatchWatch,
@@ -116,13 +117,13 @@ import {
 const NE_BASE = "https://services.arcgis.com/JJzESW51TqeY9uat/arcgis/rest/services";
 const ORGANISATION = "Natural England";
 
-const HOMES = {
+export const HOMES = {
   "CM3 2JT": { lat: 51.776176, lng: 0.60387 },
   "E16 1GN": { lat: 51.515224, lng: 0.021177 },
   "KT17 1FH": { lat: 51.344571, lng: -0.247104 },
 };
 
-const SERVICES = {
+export const SERVICES = {
   sssi: {
     service: "SSSI_England",
     file: "sssi.geojson",
@@ -512,9 +513,24 @@ async function fetchServicePage(
 // source date) as it lands — the page is released before
 // the next is fetched, so the read never holds the service
 // whole.
+/**
+ * @param {any} spec
+ * @param {{ delaysMs?: number[], onFeatures?: ((features: any[], captured: string) => Promise<void>) | null, progress?: import("./progress.mjs").ProgressLogger | null, onHead?: ((head: { sourceDate: string, expected: number | null }) => Promise<{ startOffset: number, lastObjectId: number | null }>) | null, resumeNote?: (() => string) | null }} [options]
+ */
 export async function readServiceLiveStream(
   spec,
-  { delaysMs = RETRY_DELAYS_MS, onFeatures = null, progress = null } = {},
+  {
+    delaysMs = RETRY_DELAYS_MS,
+    onFeatures = null,
+    progress = null,
+    // BUG-368: onHead fires the resume decision once the
+    // edition and the count are known — it returns the
+    // input offset the read starts from (and the OBJECTID
+    // order check's seed). resumeNote names the point a
+    // failed read resumes from.
+    onHead = null,
+    resumeNote = null,
+  } = {},
 ) {
   const layerUrl = `${NE_BASE}/${spec.service}/FeatureServer/0`;
   const meta = await fetchJson(`${layerUrl}?f=json`, `the ${spec.service} layer metadata`);
@@ -536,6 +552,12 @@ export async function readServiceLiveStream(
   const expected = countBody.count;
   if (!Number.isInteger(expected) || expected < 0)
     throw new Error(`contract failure: the ${spec.service} count response carries no count`);
+  // BUG-368: the edition + count fire the resume decision —
+  // the read starts at the checkpoint's input position.
+  const head = (await onHead?.({ sourceDate, expected })) ?? {
+    startOffset: 0,
+    lastObjectId: null,
+  };
   // BUG-265: the paged read is the run's long phase — the
   // service's own count is the total, so the log carries a
   // real percentage, a line every twentieth of the read, a
@@ -549,9 +571,9 @@ export async function readServiceLiveStream(
   });
   const readWatch = createBatchWatch();
   const heartbeatEvery = Math.max(1, Math.ceil(expected / 2));
-  let read = 0;
-  let offset = 0;
-  let lastObjectId = null;
+  let read = head.startOffset;
+  let offset = head.startOffset;
+  let lastObjectId = head.lastObjectId ?? null;
   try {
     while (offset < expected) {
       const started = Date.now();
@@ -590,7 +612,7 @@ export async function readServiceLiveStream(
       filed: read,
       total: expected,
       error: err,
-      resume: "re-run from scratch (reads stream into a staging transaction that rolls back)",
+      resume: resumeNote?.() ?? "re-run from scratch (nothing is filed until the swap)",
     });
     // Mark the error so main()'s catch does not print a
     // second failure line for the same read.
@@ -657,16 +679,23 @@ async function streamFixtureFeatures(fixtureDir, fileName, onFeatures, progress 
  * @param {string} fixtureDir
  * @param {string} captured
  * @param {((features: any[], captured: string) => Promise<void>) | null} onFeatures
- * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, onHead?: ((head: { sourceDate: string, expected: number | null }) => Promise<{ startOffset: number, lastObjectId: number | null }>) | null }} [options]
  */
 export async function readServiceFixtureStream(
   spec,
   fixtureDir,
   captured,
   onFeatures,
-  { progress = null } = {},
+  { progress = null, onHead = null } = {},
 ) {
   let fieldChecked = false;
+  // BUG-368: the edition fires the resume decision before
+  // the first part streams; the read skips the features
+  // the checkpoint covers.
+  const head = (await onHead?.({ sourceDate: captured, expected: null })) ?? {
+    startOffset: 0,
+  };
+  let skipped = 0;
   const expected = await streamFixtureFeatures(
     fixtureDir,
     spec.file,
@@ -680,7 +709,10 @@ export async function readServiceFixtureStream(
             );
         }
       }
-      if (onFeatures) await onFeatures(features, captured);
+      const fresh =
+        head.startOffset > 0 ? features.slice(Math.max(0, head.startOffset - skipped)) : features;
+      skipped += features.length;
+      if (fresh.length > 0 && onFeatures) await onFeatures(fresh, captured);
     },
     progress,
   );
@@ -694,15 +726,29 @@ export async function readServiceFixtureStream(
 // filed; malformed geometry is counted across the whole
 // read and judged at finish() — the same total, the same
 // message, nothing filed.
-export function createFeatureProcessor(label) {
-  let geoless = 0;
-  let invalid = 0;
-  let read = 0;
+//
+// BUG-368: seed resumes the counters from a checkpoint
+// (read, geoless, invalid) and lastObjectId from the last
+// feature the killed run consumed, so the resumed run's
+// totals and the OBJECTID order check cover the whole read.
+/**
+ * @param {string} label
+ * @param {{ seed?: any }} [options]
+ */
+export function createFeatureProcessor(label, { seed = null } = {}) {
+  let geoless = seed?.geoless ?? 0;
+  let invalid = seed?.invalid ?? 0;
+  let read = seed?.read ?? 0;
+  let lastObjectId = seed?.lastObjectId ?? null;
   return {
+    readCount: () => read,
+    checkpointState: () => ({ geoless, invalid, lastObjectId }),
     processBatch(raw) {
       read += raw.length;
       const items = [];
       for (const feature of raw) {
+        const objectId = feature?.properties?.OBJECTID;
+        if (Number.isFinite(objectId)) lastObjectId = objectId;
         let polygons = null;
         try {
           polygons = geojsonPolygons(feature.geometry);
@@ -714,6 +760,7 @@ export function createFeatureProcessor(label) {
           geoless += 1;
           continue;
         }
+        /** @type {Record<string, unknown>} */
         const props = {};
         for (const [k, v] of Object.entries(feature.properties ?? {}))
           props[k] = typeof v === "string" ? v.trim() : v;
@@ -743,12 +790,31 @@ function processFeatures(raw, label) {
 // Statutory layers, per batch: the status filter is what
 // "current" means (L3); sites are counted by site code,
 // never by rows (L2) — the site set holds codes only.
-export function createStatutoryProcessor(spec) {
-  const processor = createFeatureProcessor(spec.label);
-  let excluded = 0;
-  let filedCount = 0;
-  const sites = new Set();
+//
+// BUG-368: seed resumes the counters and the site set from
+// a checkpoint (the sites rebuild from the staged rows,
+// which carry the site code as the reference).
+/**
+ * @param {any} spec
+ * @param {{ seed?: any }} [options]
+ */
+export function createStatutoryProcessor(spec, { seed = null } = {}) {
+  const processor = createFeatureProcessor(spec.label, {
+    seed: seed
+      ? {
+          read: seed.read,
+          geoless: seed.geoless,
+          invalid: seed.invalid,
+          lastObjectId: seed.lastObjectId,
+        }
+      : null,
+  });
+  let excluded = seed?.excluded ?? 0;
+  let filedCount = seed?.filed ?? 0;
+  const sites = new Set(seed?.sites ?? []);
   return {
+    readCount: () => processor.readCount(),
+    checkpointState: () => ({ excluded, ...processor.checkpointState() }),
     processBatch(raw) {
       const items = processor.processBatch(raw);
       const filed = [];
@@ -799,7 +865,11 @@ function processStatutory(raw, spec) {
 // revision replaces it, counting the replaced as it goes.
 // mergeWoodland below is the collecting form over it, so
 // the intersection judgement lives in exactly one place.
-export function createWoodlandMerger(revItems) {
+//
+// BUG-368: seed resumes the replaced count from a
+// checkpoint, so a resumed originals read counts the
+// replacements the killed run already made.
+export function createWoodlandMerger(revItems, { replaced: seedReplaced = 0 } = {}) {
   const CELL = 0.05;
   const grid = new Map();
   const cellKeys = (bbox) => {
@@ -815,7 +885,7 @@ export function createWoodlandMerger(revItems) {
       grid.get(key).push(idx);
     }
   });
-  let replaced = 0;
+  let replaced = seedReplaced;
   return {
     replaced: () => replaced,
     revisedFiled: revItems.map((item) => ({ ...item, inventory: "revised inventory" })),
@@ -987,44 +1057,139 @@ function checkGolden(layers) {
 
 // --- filing ------------------------------------------------------------
 
-// Stage, count, swap — one transaction, fed as a stream
-// (BUG-195, the flood shape). beginFiling opens the
-// transaction and the staging table; stageRows inserts
-// the filing rows the caller builds per item as it
-// streams, in the house chunks of 10 rows; finishFiling
+// Stage, count, swap — streamed (BUG-195, the flood shape),
+// with resume support (BUG-368): staging is a PERSISTENT
+// table now (migration 0048), and one loader_checkpoint row
+// per layer records the last fully staged page, so a killed
+// run resumes instead of restarting. beginFiling opens the
+// staging table and one resume handle per layer; stageRows
+// inserts the filing rows the caller builds per item as it
+// streams, in the house chunks of 10 rows; checkpointPage
+// flushes the page's tail and checkpoints it; finishFiling
 // runs the counts and the swap exactly as the one-shot
-// filer did.
-async function beginFiling() {
-  const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
-  await client.connect();
+// filer did, in its own transaction. The single-edition
+// swap's atomicity is unchanged: staging rides outside the
+// swap transaction now, and a failed run leaves the last
+// good filing serving untouched.
+//
+// THE RESUME UNITS. Each of the six reads is its own layer
+// (sssi, sac, spa, ramsar, awi-rev, awi) with its own
+// edition (the service's data-edit date, or the fixture's
+// captured date) and its own expected count (the service's
+// own count, live; unknown in fixture mode). The resume
+// point is the count of features consumed whose staging
+// has committed — a checkpoint is written per page, after
+// its rows stage, so the interrupted page is simply
+// re-read. The checkpoint's state carries the layer's
+// scalars (status-excluded, geometry-less, invalid, the
+// last OBJECTID consumed; the woodland merge's replaced
+// count for the originals layer), so a resumed run's
+// counts cover the whole read; the site-code sets rebuild
+// from the staged rows (stagedSites), and the golden sift
+// rebuilds from the staged rows near the golden homes
+// (stagedGoldenItems). The revised woodland inventory —
+// the merge substrate — rebuilds from its staged rows
+// (stagedLayerItems), never from a re-read of the service.
+const LAYER_KEYS = ["sssi", "sac", "spa", "ramsar", "awi-rev", "awi"];
+
+// A staged row, rebuilt as a sift/merge item: the columns
+// the filing carries are exactly the ones the golden
+// checks and the merger read (name, site code, status or
+// hyperlink detail, inventory for woodland).
+function stagedRowToItem(row, key) {
+  const polygons = geojsonPolygons(JSON.parse(row.geojson));
+  const item = { polygons, bbox: bboxOf(polygons) };
+  if (key === "awi" || key === "awi-rev") {
+    const parts = (row.detail ?? "").split(" · ");
+    const objectId = Number((row.source_reference ?? "").replace(/^AWI-R?-/, ""));
+    // The inventory is the reference prefix, not a detail
+    // segment: a blank theme drops out of the joined detail
+    // and would shift the segments.
+    item.inventory = (row.source_reference ?? "").startsWith("AWI-R-")
+      ? "revised inventory"
+      : "original inventory";
+    item.props = {
+      NAME: row.name,
+      OBJECTID: objectId,
+      STATUS: parts[0] ?? null,
+      THEME: parts[1] ?? null,
+    };
+    return item;
+  }
+  const spec = SERVICES[key];
+  item.props = {
+    [spec.nameField]: row.name,
+    [spec.codeField]: row.source_reference,
+    [spec.detailField]: row.detail,
+  };
+  return item;
+}
+
+/**
+ * @param {import("./progress.mjs").ProgressLogger | null} [progress]
+ * @param {{ restart?: boolean, client?: any }} [options]
+ */
+export async function beginFiling(
+  progress = null,
+  { restart = false, client: injectedClient = null } = {},
+) {
+  // The client is injectable so the resume tests can file
+  // against a fake database; production passes none and a
+  // real client is opened as before (BUG-366).
+  const client = injectedClient ?? new pg.Client({ connectionString: process.env.DATABASE_URL });
+  const ownsClient = !injectedClient;
+  if (ownsClient) await client.connect();
   try {
-    await client.query("BEGIN");
     await client.query(
-      `CREATE TEMP TABLE planning_stage (
+      `CREATE TABLE IF NOT EXISTS nature_stage (
+         layer text NOT NULL,
          constraint_type text, name text, geom geometry(MultiPolygon, 4326),
          source_reference text, organisation text, quality text, detail text,
          source_name text, source_date date,
-         loaded_at timestamptz NOT NULL DEFAULT now()
-       ) ON COMMIT DROP`,
+         loaded_at timestamptz NOT NULL DEFAULT now(),
+         seq bigint NOT NULL, UNIQUE (layer, seq)
+       )`,
     );
   } catch (error) {
-    await client.query("ROLLBACK").catch(() => {});
-    await client.end().catch(() => {});
+    if (ownsClient) await client.end().catch(() => {});
     throw error;
+  }
+  const handles = {};
+  for (const key of LAYER_KEYS) {
+    handles[key] = createLoaderResume(client, {
+      loader: `load-nature-designations-${key}`,
+      stageTable: "nature_stage",
+      layerColumn: "layer",
+      layerValue: key,
+      progress,
+      restart,
+    });
   }
   const CHUNK = 10;
   const pending = [];
+  const editions = {};
+  const expecteds = {};
+  const staged = Object.fromEntries(LAYER_KEYS.map((key) => [key, 0]));
+  /** @type {Record<string, { resumed: boolean, reason?: string, checkpoint?: any, prefix?: boolean }>} */
+  const resumePreps = {};
+  // The failure line's resume note: the last checkpoint
+  // written by any layer (prepare seeds it with the
+  // resumed checkpoint, checkpointPage advances it).
+  let lastNote = "the start (nothing staged yet)";
   async function flushPending(flushTail = false) {
     while (pending.length >= CHUNK || (flushTail && pending.length > 0)) {
       const chunk = pending.splice(0, Math.min(CHUNK, pending.length));
+      const key = chunk[0].layer;
       const values = [];
       const params = [];
+      const base = handles[key].takeSeq(chunk.length);
       chunk.forEach((row, i) => {
-        const base = i * 9;
+        const b = i * 11;
         values.push(
-          `($${base + 1},$${base + 2},ST_Multi(ST_GeomFromText($${base + 3}, 4326)),$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8},$${base + 9})`,
+          `($${b + 1},$${b + 2},$${b + 3},ST_Multi(ST_GeomFromText($${b + 4}, 4326)),$${b + 5},$${b + 6},$${b + 7},$${b + 8},$${b + 9},$${b + 10},$${b + 11})`,
         );
         params.push(
+          key,
           row.constraintType,
           row.name,
           row.wkt,
@@ -1034,49 +1199,149 @@ async function beginFiling() {
           row.detail,
           row.sourceName,
           row.sourceDate,
+          base + i,
         );
       });
       await client.query(
-        `INSERT INTO planning_stage (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date)
+        `INSERT INTO nature_stage (layer, constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, seq)
          VALUES ${values.join(",")}`,
         params,
       );
+      staged[key] += chunk.length;
     }
   }
   return {
-    async stageRows(rows) {
-      pending.push(...rows);
+    stagedCount: (key) => staged[key],
+    resumePrep: (key) => resumePreps[key] ?? { resumed: false },
+    resumeNote: () => lastNote,
+    // Decide, from the layer's edition and the staged rows,
+    // whether this layer's read resumes or starts from zero.
+    // Called by the layer's onHead once the read has
+    // resolved the edition (and the count, live), before
+    // its first page is staged.
+    /**
+     * @param {string} key
+     * @param {string} ed
+     * @param {number | null} [exp]
+     */
+    async prepareLayer(key, ed, exp = null) {
+      editions[key] = ed;
+      expecteds[key] = exp;
+      const prep = await handles[key].prepare({ edition: ed, expected: exp });
+      resumePreps[key] = prep;
+      if (prep.resumed) {
+        staged[key] = prep.checkpoint.filed_count;
+        lastNote = handles[key].resumeNote();
+      }
+      return prep;
+    },
+    // The staged portion's golden candidates, for rebuilding
+    // the sift after a resume — the envelope test mirrors
+    // the sift's bbox test, so the rebuilt set is exactly
+    // what the live sift would have retained for that
+    // portion. Called after prepareLayer, which has already
+    // trimmed the staged tail past the checkpoint.
+    async stagedGoldenItems(key) {
+      const homes = Object.values(HOMES);
+      const windowParam = 3 + homes.length * 2;
+      const conditions = [];
+      const params = [key];
+      homes.forEach((home, i) => {
+        const base = 3 + i * 2;
+        conditions.push(
+          `ST_DWithin(ST_Envelope(geom)::geography, ST_SetSRID(ST_MakePoint($${base}, $${base + 1}), 4326)::geography, $${windowParam})`,
+        );
+        params.push(home.lng, home.lat);
+      });
+      params.push(GOLDEN_WINDOW_MILES * 1609.344);
+      const { rows } = await client.query(
+        `SELECT name, source_reference, detail, ST_AsGeoJSON(geom) AS geojson FROM nature_stage WHERE layer = $1 AND (${conditions.join(" OR ")})`,
+        params,
+      );
+      return rows.map((r) => stagedRowToItem(r, key));
+    },
+    // Every staged row of a layer, in staged order — the
+    // merge substrate a resumed woodland read rebuilds
+    // from, instead of re-reading the revised service.
+    async stagedLayerItems(key) {
+      const { rows } = await client.query(
+        `SELECT name, source_reference, detail, ST_AsGeoJSON(geom) AS geojson FROM nature_stage WHERE layer = $1 ORDER BY seq`,
+        [key],
+      );
+      return rows.map((r) => stagedRowToItem(r, key));
+    },
+    // The distinct site codes a layer staged — the site
+    // set a resumed statutory read rebuilds from.
+    async stagedSites(key) {
+      const { rows } = await client.query(
+        `SELECT DISTINCT source_reference FROM nature_stage WHERE layer = $1`,
+        [key],
+      );
+      return rows.map((r) => r.source_reference).filter((v) => v !== "" && v != null);
+    },
+    async stageRows(key, rows) {
+      // A chunk never spans layers: a layer's checkpoint
+      // flushes its tail before the next layer stages.
+      if (pending.length > 0 && pending[0].layer !== key) await flushPending(true);
+      for (const row of rows) pending.push({ ...row, layer: key });
       if (pending.length >= CHUNK) await flushPending();
+    },
+    // Flush the page's tail and checkpoint it: the resume
+    // point advances to the features this page consumed.
+    // One BUG-204 line per committed page, never per row.
+    async checkpointPage(key, { read, state = {} }) {
+      await flushPending(true);
+      await handles[key].checkpoint({
+        edition: editions[key],
+        expected: expecteds[key] ?? null,
+        nextStartIndex: read,
+        read,
+        filed: staged[key],
+        state,
+        unit: "features",
+      });
+      lastNote = handles[key].resumeNote();
     },
     async finishFiling(expectedCount) {
       try {
         await flushPending(true);
-        const staged = await client.query("SELECT count(*)::int AS n FROM planning_stage");
-        if (staged.rows[0].n !== expectedCount)
+        const stagedRes = await client.query("SELECT count(*)::int AS n FROM nature_stage");
+        if (stagedRes.rows[0].n !== expectedCount)
           throw new Error("the staged layer count does not match — rolling back");
-        await client.query(
-          "DELETE FROM planning_layers WHERE constraint_type IN ('sssi', 'sac', 'spa', 'ramsar', 'ancient_woodland')",
-        );
-        await client.query(
-          `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
-           SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM planning_stage`,
-        );
-        const filedCount = await client.query(
-          "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type IN ('sssi', 'sac', 'spa', 'ramsar', 'ancient_woodland')",
-        );
-        if (filedCount.rows[0].n !== expectedCount)
-          throw new Error("the filed layer count does not match — rolling back");
-        await client.query("COMMIT");
-      } catch (error) {
-        await client.query("ROLLBACK").catch(() => {});
-        throw error;
+        await client.query("BEGIN");
+        try {
+          await client.query(
+            "DELETE FROM planning_layers WHERE constraint_type IN ('sssi', 'sac', 'spa', 'ramsar', 'ancient_woodland')",
+          );
+          await client.query(
+            `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
+             SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM nature_stage`,
+          );
+          const filedCount = await client.query(
+            "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type IN ('sssi', 'sac', 'spa', 'ramsar', 'ancient_woodland')",
+          );
+          if (filedCount.rows[0].n !== expectedCount)
+            throw new Error("the filed layer count does not match — rolling back");
+          await client.query("COMMIT");
+        } catch (error) {
+          await client.query("ROLLBACK").catch(() => {});
+          throw error;
+        }
+        // The run is complete: staging + checkpoints go
+        // together, so nothing is left behind for the next
+        // edition — and the failure note resets with them.
+        for (const key of LAYER_KEYS) await handles[key].clear();
+        lastNote = "the start (nothing staged yet)";
       } finally {
-        await client.end();
+        if (ownsClient) await client.end().catch(() => {});
       }
     },
     async abortFiling() {
-      await client.query("ROLLBACK").catch(() => {});
-      await client.end().catch(() => {});
+      // The staging + checkpoints STAY: they are the next
+      // run's resume point. A run that never prepared a
+      // layer leaves whatever a previous run left, and the
+      // next run's prepare() validates or discards it.
+      if (ownsClient) await client.end().catch(() => {});
     },
   };
 }
@@ -1089,10 +1354,42 @@ async function beginFiling() {
 // set.
 const GOLDEN_WINDOW_MILES = 8;
 
+export const statutoryRow = (item, spec, sourceDate) => ({
+  constraintType: spec.constraintType,
+  name: item.props[spec.nameField] || null,
+  wkt: polygonsToWkt(item.polygons),
+  reference: item.props[spec.codeField] || null,
+  detail: item.props[spec.detailField] || null,
+  sourceName: spec.sourceName,
+  sourceDate,
+});
+
+export const woodlandRow = (item, sourceDate) => {
+  const spec = item.inventory === "revised inventory" ? SERVICES.awiRev : SERVICES.awi;
+  const detailParts = [item.props.STATUS, item.props[spec.themeField], item.inventory].filter(
+    (p) => p !== "" && p != null,
+  );
+  return {
+    constraintType: "ancient_woodland",
+    name: item.props.NAME || null,
+    wkt: polygonsToWkt(item.polygons),
+    reference: `${item.inventory === "revised inventory" ? "AWI-R" : "AWI"}-${item.props.OBJECTID}`,
+    detail: detailParts.join(" · "),
+    sourceName:
+      item.inventory === "revised inventory"
+        ? "Natural England — Ancient Woodland Inventory, Revised (England)"
+        : "Natural England — Ancient Woodland Inventory (England)",
+    sourceDate,
+  };
+};
+
 async function main() {
   const startedAt = Date.now();
   const args = process.argv.slice(2);
   const verifyOnly = args.includes("--verify-only");
+  // BUG-368: resume from the last checkpointed page instead of
+  // restarting; with no checkpoint this is a fresh start.
+  const restart = args.includes("--restart");
   const fileAt = args.indexOf("--file");
   const fixtureMode = fileAt !== -1;
   const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
@@ -1107,51 +1404,31 @@ async function main() {
   let currentLayer = "read";
   let filedSoFar = 0;
 
-  // A filing run streams the reads into the staging
-  // transaction as they land (BUG-195), so the database
-  // check moves ahead of the reads: without DATABASE_URL a
-  // filing run now fails before fetching instead of after
-  // it. Verify-only never opens the database.
+  // A filing run streams the reads into persistent staging
+  // as they land (BUG-368), so the database check moves
+  // ahead of the reads: without DATABASE_URL a filing run
+  // now fails before fetching instead of after it.
+  // Verify-only never opens the database.
   let filer = null;
   if (!verifyOnly) {
     if (!process.env.DATABASE_URL)
       throw new Error("DATABASE_URL is not set — filing requires a database");
-    filer = await beginFiling();
+    filer = await beginFiling(progress, { restart });
   }
 
-  const readStream = (key, onFeatures) =>
+  const readStream = (key, onFeatures, onHead = null) =>
     fixtureMode
-      ? readServiceFixtureStream(SERVICES[key], fixtureDir, captured, onFeatures, { progress })
-      : readServiceLiveStream(SERVICES[key], { onFeatures, progress });
-
-  const statutoryRow = (item, spec, sourceDate) => ({
-    constraintType: spec.constraintType,
-    name: item.props[spec.nameField] || null,
-    wkt: polygonsToWkt(item.polygons),
-    reference: item.props[spec.codeField] || null,
-    detail: item.props[spec.detailField] || null,
-    sourceName: spec.sourceName,
-    sourceDate,
-  });
-
-  const woodlandRow = (item, sourceDate) => {
-    const spec = item.inventory === "revised inventory" ? SERVICES.awiRev : SERVICES.awi;
-    const detailParts = [item.props.STATUS, item.props[spec.themeField], item.inventory].filter(
-      (p) => p !== "" && p != null,
-    );
-    return {
-      constraintType: "ancient_woodland",
-      name: item.props.NAME || null,
-      wkt: polygonsToWkt(item.polygons),
-      reference: `${item.inventory === "revised inventory" ? "AWI-R" : "AWI"}-${item.props.OBJECTID}`,
-      detail: detailParts.join(" · "),
-      sourceName:
-        item.inventory === "revised inventory"
-          ? "Natural England — Ancient Woodland Inventory, Revised (England)"
-          : "Natural England — Ancient Woodland Inventory (England)",
-      sourceDate,
-    };
-  };
+      ? readServiceFixtureStream(SERVICES[key], fixtureDir, captured, onFeatures, {
+          progress,
+          onHead,
+        })
+      : readServiceLiveStream(SERVICES[key], {
+          onFeatures,
+          progress,
+          onHead,
+          resumeNote: () =>
+            filer?.resumeNote() ?? "re-run the loader from the start (nothing is filed)",
+        });
 
   let sssi, sac, spa, ramsar, awi;
   try {
@@ -1159,17 +1436,49 @@ async function main() {
       const spec = SERVICES[key];
       currentLayer = spec.label;
       progress.stage(`reading ${spec.label}...`);
-      const processor = createStatutoryProcessor(spec);
+      let processor = createStatutoryProcessor(spec);
       const sift = createGoldenSift(HOMES, GOLDEN_WINDOW_MILES);
-      const { sourceDate } = await readStream(key, async (features, date) => {
-        const filed = processor.processBatch(features);
-        const rows = [];
-        for (const item of filed) {
-          sift.offer(item);
-          if (filer) rows.push(statutoryRow(item, spec, date));
-        }
-        if (filer && rows.length > 0) await filer.stageRows(rows);
-      });
+      // BUG-368: the edition fires the layer's resume
+      // decision — the processor and the sift seed from the
+      // staged rows, and the read starts at the checkpoint.
+      const onHead = async ({ sourceDate, expected }) => {
+        if (!filer) return { startOffset: 0, lastObjectId: null };
+        const prep = await filer.prepareLayer(key, sourceDate, expected);
+        if (!prep.resumed) return { startOffset: 0, lastObjectId: null };
+        const cp = prep.checkpoint;
+        processor = createStatutoryProcessor(spec, {
+          seed: {
+            read: cp.read_count,
+            filed: cp.filed_count,
+            excluded: cp.state?.excluded ?? 0,
+            geoless: cp.state?.geoless ?? 0,
+            invalid: cp.state?.invalid ?? 0,
+            lastObjectId: cp.state?.lastObjectId ?? null,
+            sites: await filer.stagedSites(key),
+          },
+        });
+        for (const item of await filer.stagedGoldenItems(key)) sift.offer(item);
+        return { startOffset: cp.next_start_index, lastObjectId: cp.state?.lastObjectId ?? null };
+      };
+      const { sourceDate } = await readStream(
+        key,
+        async (features, date) => {
+          const filed = processor.processBatch(features);
+          const rows = [];
+          for (const item of filed) {
+            sift.offer(item);
+            if (filer) rows.push(statutoryRow(item, spec, date));
+          }
+          if (filer) {
+            if (rows.length > 0) await filer.stageRows(key, rows);
+            await filer.checkpointPage(key, {
+              read: processor.readCount(),
+              state: processor.checkpointState(),
+            });
+          }
+        },
+        onHead,
+      );
       const totals = processor.finish();
       filedSoFar += totals.filed;
       return { ...totals, sourceDate, sifted: sift.items };
@@ -1187,44 +1496,118 @@ async function main() {
     // inventories with the same merger the collecting form
     // uses; the replaced count the checks judge is the
     // full merge's, accumulated as a scalar.
-    const revProcessor = createFeatureProcessor(SERVICES.awiRev.label);
+    //
+    // BUG-368: on a resume the revised substrate rebuilds
+    // from the staged rows (never a re-read of the
+    // service), and only the newly read revised items
+    // stage — the staged ones already carry their seqs.
+    let revProcessor = createFeatureProcessor(SERVICES.awiRev.label);
     const revSift = createGoldenSift(HOMES, GOLDEN_WINDOW_MILES);
     const revItems = [];
-    let revSourceDate = null;
     currentLayer = SERVICES.awiRev.label;
     progress.stage(`reading ${SERVICES.awiRev.label}...`);
-    await readStream("awiRev", async (features, date) => {
-      revSourceDate = date;
-      const items = revProcessor.processBatch(features);
-      for (const item of items) {
-        revItems.push(item);
-        revSift.offer(item);
-      }
-    });
+    const revOnHead = async ({ sourceDate, expected }) => {
+      if (!filer) return { startOffset: 0, lastObjectId: null };
+      const prep = await filer.prepareLayer("awi-rev", sourceDate, expected);
+      if (!prep.resumed) return { startOffset: 0, lastObjectId: null };
+      const cp = prep.checkpoint;
+      const staged = await filer.stagedLayerItems("awi-rev");
+      revItems.push(...staged);
+      for (const item of staged) revSift.offer(item);
+      revProcessor = createFeatureProcessor(SERVICES.awiRev.label, {
+        seed: {
+          read: cp.read_count,
+          geoless: cp.state?.geoless ?? 0,
+          invalid: cp.state?.invalid ?? 0,
+          lastObjectId: cp.state?.lastObjectId ?? null,
+        },
+      });
+      return { startOffset: cp.next_start_index, lastObjectId: cp.state?.lastObjectId ?? null };
+    };
+    await readStream(
+      "awiRev",
+      async (features, date) => {
+        const items = revProcessor.processBatch(features);
+        for (const item of items) {
+          revItems.push(item);
+          revSift.offer(item);
+        }
+        // The revised rows do not depend on the merger, so
+        // they stage per page like the statutory layers —
+        // a kill mid-read resumes from the last page, not
+        // from the start of the inventory.
+        if (filer) {
+          if (items.length > 0)
+            await filer.stageRows(
+              "awi-rev",
+              items.map((item) => woodlandRow({ ...item, inventory: "revised inventory" }, date)),
+            );
+          await filer.checkpointPage("awi-rev", {
+            read: revProcessor.readCount(),
+            state: revProcessor.checkpointState(),
+          });
+        }
+      },
+      revOnHead,
+    );
     const revTotals = revProcessor.finish();
     filedSoFar += revItems.length;
-    const merger = createWoodlandMerger(revItems);
-    if (filer) {
-      await filer.stageRows(merger.revisedFiled.map((item) => woodlandRow(item, revSourceDate)));
-    }
-    const origProcessor = createFeatureProcessor(SERVICES.awi.label);
+    let origProcessor = createFeatureProcessor(SERVICES.awi.label);
     const origSift = createGoldenSift(HOMES, GOLDEN_WINDOW_MILES);
     let origFiled = 0;
+    // BUG-368: the merger is built in the originals
+    // layer's onHead, once the resume decision has seeded
+    // its replaced count.
+    let merger = null;
     currentLayer = SERVICES.awi.label;
     progress.stage(`reading ${SERVICES.awi.label}...`);
-    await readStream("awi", async (features, date) => {
-      const items = origProcessor.processBatch(features);
-      const rows = [];
-      for (const item of items) {
-        origSift.offer(item);
-        const kept = merger.offer(item);
-        if (kept) {
-          origFiled += 1;
-          if (filer) rows.push(woodlandRow(kept, date));
-        }
+    const origOnHead = async ({ sourceDate, expected }) => {
+      if (!filer) {
+        merger = createWoodlandMerger(revItems);
+        return { startOffset: 0, lastObjectId: null };
       }
-      if (filer && rows.length > 0) await filer.stageRows(rows);
-    });
+      const prep = await filer.prepareLayer("awi", sourceDate, expected);
+      if (!prep.resumed) {
+        merger = createWoodlandMerger(revItems);
+        return { startOffset: 0, lastObjectId: null };
+      }
+      const cp = prep.checkpoint;
+      merger = createWoodlandMerger(revItems, { replaced: cp.state?.replaced ?? 0 });
+      origFiled = cp.filed_count;
+      origProcessor = createFeatureProcessor(SERVICES.awi.label, {
+        seed: {
+          read: cp.read_count,
+          geoless: cp.state?.geoless ?? 0,
+          invalid: cp.state?.invalid ?? 0,
+          lastObjectId: cp.state?.lastObjectId ?? null,
+        },
+      });
+      for (const item of await filer.stagedGoldenItems("awi")) origSift.offer(item);
+      return { startOffset: cp.next_start_index, lastObjectId: cp.state?.lastObjectId ?? null };
+    };
+    await readStream(
+      "awi",
+      async (features, date) => {
+        const items = origProcessor.processBatch(features);
+        const rows = [];
+        for (const item of items) {
+          origSift.offer(item);
+          const kept = merger.offer(item);
+          if (kept) {
+            origFiled += 1;
+            if (filer) rows.push(woodlandRow(kept, date));
+          }
+        }
+        if (filer) {
+          if (rows.length > 0) await filer.stageRows("awi", rows);
+          await filer.checkpointPage("awi", {
+            read: origProcessor.readCount(),
+            state: { ...origProcessor.checkpointState(), replaced: merger.replaced() },
+          });
+        }
+      },
+      origOnHead,
+    );
     const origTotals = origProcessor.finish();
     filedSoFar += origFiled;
     awi = {
@@ -1266,13 +1649,17 @@ async function main() {
     // A live-read failure already carries its own line from
     // readServiceLiveStream (marked on the error); anything
     // else — a fixture read, a sanity band, a golden check —
-    // names the layer being read here.
+    // names the layer being read here. BUG-368: the line
+    // carries the resume note, so a failure names the point
+    // the next run resumes from.
     if (!error.progressFailed) {
       progress.failed({
         stage: `read ${currentLayer}`,
         filed: filedSoFar,
         error,
-        resume: "re-run from scratch (reads stream into a staging transaction that rolls back)",
+        resume: filer
+          ? filer.resumeNote()
+          : "re-run the loader from the start (nothing is filed until the swap)",
       });
     }
     if (filer) await filer.abortFiling();

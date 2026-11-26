@@ -91,6 +91,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import pg from "pg";
 import proj4 from "proj4";
+import { createLoaderResume } from "./loader-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -481,10 +482,188 @@ async function fixturePaths(fixtureDir) {
   return parts.map((p) => join(fixtureDir, p));
 }
 
+// --- filing ------------------------------------------------------------
+//
+// Stage, count, swap — with resume support (BUG-368): staging is
+// a PERSISTENT table now (migration 0048), and a loader_checkpoint
+// row records the last fully staged chunk, so a killed run resumes
+// instead of restarting. beginTransportFiling opens the staging
+// table; stageRows inserts in the house chunks of 1,000,
+// checkpointing after each chunk; finishFiling runs the counts
+// and the swap exactly as the one-shot filer did, in its own
+// transaction. The single-edition swap: the whole transport_stops
+// table is replaced in this transaction, so a failed run leaves
+// the last good filing serving untouched.
+//
+// THE RESUME UNITS. The filed array is the read's whole output,
+// held in memory as before, so the resume point is the count of
+// rows staged (staged) — a resumed run re-reads the file (the
+// parse is the cheap half here; the staging of ~380k rows is the
+// long phase) and stages only the rows past the checkpoint, with
+// the same seqs. The edition is the file's date (sourceDate).
+/**
+ * Open the filing run's database client and resume handle
+ * (BUG-368). The client is injectable so the resume tests
+ * can file against a fake database; production passes none
+ * and a real client is opened as before.
+ *
+ * @param {import("./progress.mjs").ProgressLogger | null} [progress]
+ * @param {{ restart?: boolean, client?: any }} [options]
+ */
+export async function beginTransportFiling(
+  progress = null,
+  { restart = false, client: injectedClient = null } = {},
+) {
+  const client = injectedClient ?? new pg.Client({ connectionString: process.env.DATABASE_URL });
+  const ownsClient = !injectedClient;
+  if (ownsClient) await client.connect();
+  try {
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS transport_stage (
+         atco_code text, name text, stop_type text,
+         latitude double precision, longitude double precision,
+         source_name text, source_date date,
+         loaded_at timestamptz NOT NULL DEFAULT now(),
+         seq bigint NOT NULL, UNIQUE (seq)
+       )`,
+    );
+  } catch (error) {
+    if (ownsClient) await client.end().catch(() => {});
+    throw error;
+  }
+  const resume = createLoaderResume(client, {
+    loader: "load-transport",
+    stageTable: "transport_stage",
+    progress,
+    restart,
+  });
+  const CHUNK = 1000;
+  let staged = 0;
+  let edition = null;
+  /** @type {{ resumed: boolean, reason?: string, checkpoint?: any, prefix?: boolean }} */
+  let resumePrep = { resumed: false };
+  const stageWatch = createBatchWatch();
+  return {
+    stagedCount: () => staged,
+    resumePrep: () => resumePrep,
+    resumeNote: () => resume.resumeNote(),
+    // Decide, from the file's date and the staged rows, whether
+    // this run resumes or starts from zero. Called once the read
+    // has resolved the edition, before the first row is staged.
+    async prepareResume(ed, expected) {
+      edition = ed;
+      resumePrep = await resume.prepare({ edition, expected });
+      if (resumePrep.resumed) staged = resumePrep.checkpoint.filed_count;
+      return resumePrep;
+    },
+    async stageRows(filed) {
+      const totalChunks = Math.ceil(filed.length / CHUNK);
+      const stageTally = progress?.tally({
+        label: "staging",
+        total: totalChunks,
+        every: Math.max(1, Math.ceil(totalChunks / 10)),
+        unit: "chunks",
+      });
+      // The tally counts absolute chunks, so a resumed run's
+      // first tick lands at its true position — no catch-up
+      // lines for chunks a previous run staged.
+      // Ceil, not floor: the last chunk may be partial, and a
+      // fully staged resume must finish at total/total, not
+      // one short (a kill during the swap resumes here).
+      let chunksDone = Math.ceil(staged / CHUNK);
+      for (let at = staged; at < filed.length; at += CHUNK) {
+        const chunk = filed.slice(at, at + CHUNK);
+        const started = Date.now();
+        const values = [];
+        const params = [];
+        const base = resume.takeSeq(chunk.length);
+        chunk.forEach((stop, i) => {
+          const b = i * 8;
+          values.push(
+            `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8})`,
+          );
+          params.push(
+            stop.atco,
+            stop.name,
+            stop.type,
+            stop.lat,
+            stop.lng,
+            SOURCE_TRANSPORT,
+            edition,
+            base + i,
+          );
+        });
+        await client.query(
+          `INSERT INTO transport_stage (atco_code, name, stop_type, latitude, longitude, source_name, source_date, seq)
+           VALUES ${values.join(",")}`,
+          params,
+        );
+        staged += chunk.length;
+        chunksDone += 1;
+        const { tookMs, averageMs, slow } = stageWatch.observe(Date.now() - started);
+        stageTally?.tick(chunksDone);
+        progress?.heartbeat({ stage: "staging", done: chunksDone, total: totalChunks });
+        if (slow) {
+          progress?.warning({
+            what: "stage chunk duration",
+            value: `chunk ${chunksDone} took ${formatDuration(tookMs)}`,
+            threshold: `3x recent average ${formatDuration(averageMs)}`,
+          });
+        }
+        await resume.checkpoint({
+          edition,
+          expected: filed.length,
+          nextStartIndex: staged,
+          read: staged,
+          filed: staged,
+          unit: "stops",
+        });
+      }
+      stageTally?.finish(chunksDone, `${formatCount(filed.length)} stops staged`);
+    },
+    async finishFiling(expectedCount) {
+      try {
+        progress?.stage("swap started — replacing the filed transport stops");
+        const stagedRes = await client.query("SELECT count(*)::int AS n FROM transport_stage");
+        if (stagedRes.rows[0].n !== expectedCount)
+          throw new Error("the staged transport count does not match — rolling back");
+        await client.query("BEGIN");
+        try {
+          await client.query("DELETE FROM transport_stops");
+          await client.query(
+            `INSERT INTO transport_stops (atco_code, name, stop_type, latitude, longitude, source_name, source_date, loaded_at)
+             SELECT atco_code, name, stop_type, latitude, longitude, source_name, source_date, loaded_at FROM transport_stage`,
+          );
+          const filedCount = await client.query("SELECT count(*)::int AS n FROM transport_stops");
+          if (filedCount.rows[0].n !== expectedCount)
+            throw new Error("the filed transport count does not match — rolling back");
+          await client.query("COMMIT");
+        } catch (error) {
+          await client.query("ROLLBACK").catch(() => {});
+          throw error;
+        }
+        // The run is complete: staging + checkpoint go together,
+        // so nothing is left behind for the next edition.
+        await resume.clear();
+      } finally {
+        if (ownsClient) await client.end().catch(() => {});
+      }
+    },
+    async abortFiling() {
+      // The staging + checkpoint STAY: they are the next run's
+      // resume point.
+      if (ownsClient) await client.end().catch(() => {});
+    },
+  };
+}
+
 async function main() {
   const startedAt = Date.now();
   const args = process.argv.slice(2);
   const verifyOnly = args.includes("--verify-only");
+  // BUG-368: resume from the last checkpointed chunk instead of
+  // restarting; with no checkpoint this is a fresh start.
+  const restart = args.includes("--restart");
   const fileAt = args.indexOf("--file");
   const fixtureMode = fileAt !== -1;
   const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
@@ -493,29 +672,23 @@ async function main() {
   let sourceDate;
   let tmpPath = null;
   // BUG-265: one logger for the run — the read count lives
-  // in processFiles, the staging tally in the filing block
-  // below, and the failure line in the catch.
+  // in processFiles, the staging tally in the filer, and the
+  // failure lines at each phase.
   const progress = createProgressLogger({ name: "load-transport" });
-  // BUG-265: the phase the failure line names — reading
-  // until the filing starts, filing after that. The counts
-  // are the failure line's filed figures.
-  let phase = "reading";
-  let filedLength = 0;
-  let stagedRows = 0;
-  if (fixtureMode) {
-    paths = await fixturePaths(fixtureDir);
-    sourceDate = JSON.parse(await readFile(join(fixtureDir, "fixture.json"), "utf8")).captured;
-  } else {
-    tmpPath = join(tmpdir(), `naptan-${process.pid}.csv`);
-    await downloadNational(tmpPath);
-    paths = [tmpPath];
-    sourceDate = new Date().toISOString().slice(0, 10);
-  }
-
+  let stats;
+  let filed;
   try {
+    if (fixtureMode) {
+      paths = await fixturePaths(fixtureDir);
+      sourceDate = JSON.parse(await readFile(join(fixtureDir, "fixture.json"), "utf8")).captured;
+    } else {
+      tmpPath = join(tmpdir(), `naptan-${process.pid}.csv`);
+      await downloadNational(tmpPath);
+      paths = [tmpPath];
+      sourceDate = new Date().toISOString().slice(0, 10);
+    }
     progress.stage("reading the NaPTAN file");
-    const { stats, filed } = await processFiles(paths, { progress });
-    filedLength = filed.length;
+    ({ stats, filed } = await processFiles(paths, { progress }));
     if (!fixtureMode) {
       if (stats.total < 400000 || stats.total > 475000)
         throw new Error(
@@ -531,136 +704,64 @@ async function main() {
         "contract failure: no row needed grid conversion — the Easting/Northing columns have moved or emptied",
       );
     checkGolden(filed);
-
-    const familyLine = FILE_FAMILIES.map((f) => `${f} ${formatCount(stats.perFamily[f])}`).join(
-      " · ",
-    );
-    const summary = () =>
-      `load-transport · ${SOURCE_TRANSPORT} · file of ${sourceDate} · ` +
-      `${formatCount(stats.total)} rows read · ${formatCount(stats.active)} active · ` +
-      `${formatCount(filed.length)} transport stops filed (${familyLine}) · ` +
-      `${formatCount(stats.converted)} grid references converted · ` +
-      `${formatCount(stats.excludedStatus)} inactive or pending excluded · ` +
-      `${formatCount(stats.outOfScope)} active sub-point or out-of-scope rows set aside · ` +
-      `${formatCount(stats.noPosition)} without a position counted · ` +
-      `${formatCount(stats.duplicates)} duplicate ATCO codes dropped`;
-
-    if (verifyOnly) {
-      console.log(`${summary()} · golden homes OK (verify only, nothing filed)`);
-      return;
-    }
-    if (!process.env.DATABASE_URL)
-      throw new Error("DATABASE_URL is not set — filing requires a database");
-
-    phase = "filing";
-    const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
-    await client.connect();
-    try {
-      await client.query("BEGIN");
-      // The stage table is spelled out rather than copied with
-      // LIKE (M4.7's lesson). transport_stops' geom is a
-      // generated column and is never inserted.
-      await client.query(
-        `CREATE TEMP TABLE transport_stage (
-           atco_code text, name text, stop_type text,
-           latitude double precision, longitude double precision,
-           source_name text, source_date date,
-           loaded_at timestamptz NOT NULL DEFAULT now()
-         ) ON COMMIT DROP`,
-      );
-      // BUG-265: the staging is the filing phase — a tally
-      // over the stage chunks, a slow-chunk warning and a
-      // heartbeat, so the log moves while the stops file.
-      progress.stage(`staging ${formatCount(filed.length)} transport stops`);
-      const chunks = Math.ceil(filed.length / 1000);
-      const stageTally = progress.tally({
-        label: "staging",
-        total: chunks,
-        every: Math.max(1, Math.ceil(chunks / 10)),
-        unit: "chunks",
-      });
-      const stageWatch = createBatchWatch();
-      let chunksDone = 0;
-      const CHUNK = 1000;
-      for (let at = 0; at < filed.length; at += CHUNK) {
-        const chunk = filed.slice(at, at + CHUNK);
-        const started = Date.now();
-        const values = [];
-        const params = [];
-        chunk.forEach((stop, i) => {
-          const base = i * 7;
-          values.push(
-            `($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6},$${base + 7})`,
-          );
-          params.push(
-            stop.atco,
-            stop.name,
-            stop.type,
-            stop.lat,
-            stop.lng,
-            SOURCE_TRANSPORT,
-            sourceDate,
-          );
-        });
-        await client.query(
-          `INSERT INTO transport_stage (atco_code, name, stop_type, latitude, longitude, source_name, source_date)
-           VALUES ${values.join(",")}`,
-          params,
-        );
-        stagedRows += chunk.length;
-        chunksDone += 1;
-        const { tookMs, averageMs, slow } = stageWatch.observe(Date.now() - started);
-        stageTally.tick(chunksDone);
-        progress.heartbeat({ stage: "staging", done: chunksDone, total: chunks });
-        if (slow) {
-          progress.warning({
-            what: "stage chunk duration",
-            value: `chunk ${chunksDone} took ${formatDuration(tookMs)}`,
-            threshold: `3x recent average ${formatDuration(averageMs)}`,
-          });
-        }
-      }
-      stageTally.finish(chunksDone, `${formatCount(filed.length)} stops staged`);
-      progress.stage("swap started — replacing the filed transport stops");
-      const staged = await client.query("SELECT count(*)::int AS n FROM transport_stage");
-      if (staged.rows[0].n !== filed.length)
-        throw new Error("the staged transport count does not match — rolling back");
-      await client.query("DELETE FROM transport_stops");
-      await client.query(
-        `INSERT INTO transport_stops (atco_code, name, stop_type, latitude, longitude, source_name, source_date, loaded_at)
-         SELECT atco_code, name, stop_type, latitude, longitude, source_name, source_date, loaded_at FROM transport_stage`,
-      );
-      const filedCount = await client.query("SELECT count(*)::int AS n FROM transport_stops");
-      if (filedCount.rows[0].n !== filed.length)
-        throw new Error("the filed transport count does not match — rolling back");
-      await client.query("COMMIT");
-    } catch (error) {
-      await client.query("ROLLBACK").catch(() => {});
-      throw error;
-    } finally {
-      await client.end();
-    }
-    console.log(`${summary()} · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`);
   } catch (error) {
-    // BUG-265: the failure line names the phase and how far
-    // the read or filing got — the swap is still atomic, so
-    // a re-run starts over and the live table is untouched.
-    // (The filing block's own catch rolls back and rethrows
-    // into this one, so the line is emitted exactly once.)
+    // BUG-265: the failure line names the read and how far it
+    // got — nothing is filed until the swap.
     progress.failed({
-      stage: phase,
-      filed: phase === "filing" ? stagedRows : 0,
-      total: phase === "filing" ? filedLength : null,
+      stage: "reading",
+      filed: 0,
       error,
-      resume:
-        phase === "filing"
-          ? "re-run from scratch (the swap rolled back, the live table is untouched)"
-          : "re-run from scratch (nothing is filed until the swap)",
+      resume: "re-run from scratch (nothing is filed until the swap)",
     });
     throw error;
   } finally {
     if (tmpPath) await rm(tmpPath, { force: true }).catch(() => {});
   }
+
+  const familyLine = FILE_FAMILIES.map((f) => `${f} ${formatCount(stats.perFamily[f])}`).join(
+    " · ",
+  );
+  const summary = () =>
+    `load-transport · ${SOURCE_TRANSPORT} · file of ${sourceDate} · ` +
+    `${formatCount(stats.total)} rows read · ${formatCount(stats.active)} active · ` +
+    `${formatCount(filed.length)} transport stops filed (${familyLine}) · ` +
+    `${formatCount(stats.converted)} grid references converted · ` +
+    `${formatCount(stats.excludedStatus)} inactive or pending excluded · ` +
+    `${formatCount(stats.outOfScope)} active sub-point or out-of-scope rows set aside · ` +
+    `${formatCount(stats.noPosition)} without a position counted · ` +
+    `${formatCount(stats.duplicates)} duplicate ATCO codes dropped`;
+
+  if (verifyOnly) {
+    console.log(`${summary()} · golden homes OK (verify only, nothing filed)`);
+    return;
+  }
+  if (!process.env.DATABASE_URL)
+    throw new Error("DATABASE_URL is not set — filing requires a database");
+
+  // BUG-265: the staging is the filing phase — the filer's
+  // tally, slow-chunk warning and heartbeat log while the
+  // stops file; the failure line below names the filing
+  // stage and the resume point.
+  progress.stage(`staging ${formatCount(filed.length)} transport stops`);
+  const filer = await beginTransportFiling(progress, { restart });
+  try {
+    await filer.prepareResume(sourceDate, filed.length);
+    await filer.stageRows(filed);
+    await filer.finishFiling(filed.length);
+  } catch (error) {
+    progress.failed({
+      stage: "filing",
+      filed: filer.stagedCount(),
+      total: filed.length,
+      error,
+      // BUG-368: a swap failure leaves the staged read
+      // checkpointed, so the next run resumes at the swap.
+      resume: filer.resumeNote(),
+    });
+    await filer.abortFiling();
+    throw error;
+  }
+  console.log(`${summary()} · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`);
 }
 
 main().catch((error) => {

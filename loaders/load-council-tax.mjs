@@ -97,7 +97,13 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import pg from "pg";
 import yauzl from "yauzl";
-import { createProgressLogger, formatCount } from "./progress.mjs";
+import { createLoaderResume } from "./loader-resume.mjs";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 const { Pool } = pg;
 
@@ -1061,56 +1067,138 @@ export async function fileSeedRows(pool, rows, taxYear, { progress = null } = {}
  * @param {any} pool
  * @param {any[]} rows
  * @param {string} taxYear
- * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, resume?: { restart?: boolean } | null }} [options]
  */
-export async function fileAllRows(pool, rows, taxYear, { progress = null } = {}) {
+export async function fileAllRows(
+  pool,
+  rows,
+  taxYear,
+  { progress = null, resume: resumeOpts = null } = {},
+) {
   const client = await pool.connect();
   // BUG-265: the full filing stages in chunks of 100 — a
   // line per chunk, with the genuine total and percentage.
+  // BUG-368: with the resume option the stage is a PERSISTENT
+  // table (migration 0048) and a loader_checkpoint row records
+  // the last fully staged chunk, so a killed run resumes
+  // instead of restarting. Without it the filing is exactly
+  // the one-shot transaction below (a TEMP stage inside one
+  // BEGIN…COMMIT). The edition is the tax year — a checkpoint
+  // only ever belongs to the year it staged. The seed filer
+  // is deliberately untouched: its upserts are already atomic
+  // and idempotent, and a staging+swap would change its
+  // semantics (a seed re-run must never delete a fuller
+  // pass's rows).
   const fileTally = progress?.tally({
     label: "file",
     total: rows.length,
     every: 100,
     unit: "authorities",
   });
+  const fileWatch = createBatchWatch();
+  let staged = 0;
+  let resume = null;
   try {
-    await client.query("BEGIN");
-    await client.query(
-      "CREATE TEMP TABLE stg_council_tax_charges (LIKE council_tax_charges INCLUDING ALL) ON COMMIT DROP",
-    );
-    for (let at = 0; at < rows.length; at += 100) {
+    if (resumeOpts) {
+      await client.query(
+        `CREATE TABLE IF NOT EXISTS council_tax_charges_stage (LIKE council_tax_charges INCLUDING ALL, seq bigint NOT NULL, UNIQUE (seq))`,
+      );
+      resume = createLoaderResume(client, {
+        loader: "load-council-tax",
+        stageTable: "council_tax_charges_stage",
+        progress,
+        restart: resumeOpts.restart ?? false,
+      });
+      const prep = await resume.prepare({ edition: taxYear, expected: rows.length });
+      if (prep.resumed) staged = prep.checkpoint.filed_count;
+    } else {
+      await client.query("BEGIN");
+      await client.query(
+        "CREATE TEMP TABLE stg_council_tax_charges (LIKE council_tax_charges INCLUDING ALL) ON COMMIT DROP",
+      );
+    }
+    const stageTable = resume ? "council_tax_charges_stage" : "stg_council_tax_charges";
+    for (let at = staged; at < rows.length; at += 100) {
+      const started = Date.now();
       const chunk = rows.slice(at, at + 100);
       const tuples = [];
       const values = [];
+      const base = resume ? resume.takeSeq(chunk.length) : 0;
       chunk.forEach((row, index) => {
-        const base = index * 14;
+        const b = resume ? index * 15 : index * 14;
         tuples.push(
-          `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11}, $${base + 12}, $${base + 13}, $${base + 14})`,
+          resume
+            ? `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7}, $${b + 8}, $${b + 9}, $${b + 10}, $${b + 11}, $${b + 12}, $${b + 13}, $${b + 14}, $${b + 15})`
+            : `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7}, $${b + 8}, $${b + 9}, $${b + 10}, $${b + 11}, $${b + 12}, $${b + 13}, $${b + 14})`,
         );
         values.push(...rowValues(row, taxYear));
+        if (resume) values.push(base + index);
       });
       await client.query(
-        `INSERT INTO stg_council_tax_charges (billing_authority_ons_code, authority_name, nation, tax_year, band_d_area_average_pence, parish_averaged, billing_authority_component_pence, county_component_pence, police_component_pence, fire_component_pence, gla_component_pence, combined_authority_component_pence, source_name, source_date) VALUES ${tuples.join(", ")}`,
+        `INSERT INTO ${stageTable} (billing_authority_ons_code, authority_name, nation, tax_year, band_d_area_average_pence, parish_averaged, billing_authority_component_pence, county_component_pence, police_component_pence, fire_component_pence, gla_component_pence, combined_authority_component_pence, source_name, source_date${resume ? ", seq" : ""}) VALUES ${tuples.join(", ")}`,
         values,
       );
+      staged += chunk.length;
+      // The tally counts absolute rows, so a resumed run's
+      // first tick lands at its true position.
       fileTally?.tick(at + chunk.length);
       progress?.heartbeat({ stage: "file", done: at + chunk.length, total: rows.length });
+      const { tookMs, averageMs, slow } = fileWatch.observe(Date.now() - started);
+      if (slow) {
+        progress?.warning({
+          what: "file chunk duration",
+          value: `chunk at ${at} took ${formatDuration(tookMs)}`,
+          threshold: `3x recent average ${formatDuration(averageMs)}`,
+        });
+      }
+      if (resume) {
+        await resume.checkpoint({
+          edition: taxYear,
+          expected: rows.length,
+          nextStartIndex: staged,
+          read: staged,
+          filed: staged,
+          unit: "authorities",
+        });
+      }
     }
-    await client.query("DELETE FROM council_tax_charges WHERE tax_year = $1", [taxYear]);
-    await client.query(
-      `INSERT INTO council_tax_charges (billing_authority_ons_code, authority_name, nation, tax_year, band_d_area_average_pence, parish_averaged, billing_authority_component_pence, county_component_pence, police_component_pence, fire_component_pence, gla_component_pence, combined_authority_component_pence, source_name, source_date) SELECT billing_authority_ons_code, authority_name, nation, tax_year, band_d_area_average_pence, parish_averaged, billing_authority_component_pence, county_component_pence, police_component_pence, fire_component_pence, gla_component_pence, combined_authority_component_pence, source_name, source_date FROM stg_council_tax_charges`,
-    );
-    await client.query("COMMIT");
     fileTally?.finish(rows.length);
+    if (resume) {
+      // The staged row count must match before the year's
+      // rows are swapped in.
+      const stagedRes = await client.query(
+        "SELECT count(*)::int AS n FROM council_tax_charges_stage",
+      );
+      if (stagedRes.rows[0].n !== rows.length)
+        throw new Error("the staged authority count does not match — rolling back");
+      await client.query("BEGIN");
+    }
+    try {
+      await client.query("DELETE FROM council_tax_charges WHERE tax_year = $1", [taxYear]);
+      await client.query(
+        `INSERT INTO council_tax_charges (billing_authority_ons_code, authority_name, nation, tax_year, band_d_area_average_pence, parish_averaged, billing_authority_component_pence, county_component_pence, police_component_pence, fire_component_pence, gla_component_pence, combined_authority_component_pence, source_name, source_date) SELECT billing_authority_ons_code, authority_name, nation, tax_year, band_d_area_average_pence, parish_averaged, billing_authority_component_pence, county_component_pence, police_component_pence, fire_component_pence, gla_component_pence, combined_authority_component_pence, source_name, source_date FROM ${stageTable}`,
+      );
+      await client.query("COMMIT");
+    } catch (error) {
+      if (resume) await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    }
+    if (resume) {
+      // The run is complete: staging + checkpoint go together,
+      // so nothing is left behind for the next tax year.
+      await resume.clear();
+    }
   } catch (error) {
     progress?.failed({
       stage: "file",
       filed: 0,
       total: rows.length,
       error,
-      resume: "re-run from scratch (the filing transaction rolls back)",
+      resume: resume
+        ? resume.resumeNote()
+        : "re-run from scratch (the filing transaction rolls back)",
     });
-    await client.query("ROLLBACK");
+    if (!resumeOpts) await client.query("ROLLBACK").catch(() => {});
     throw error;
   } finally {
     client.release();
@@ -1251,6 +1339,11 @@ async function main() {
     fileDir: fileAt === -1 ? null : argv[fileAt + 1],
     verifyOnly: argv.includes("--verify-only"),
     all: argv.includes("--all"),
+    // BUG-368: resume the full pass from the last
+    // checkpointed chunk instead of re-staging the whole
+    // tax year; with no checkpoint this is a fresh start.
+    // The seed pass is untouched (atomic upserts).
+    restart: argv.includes("--restart"),
   };
   if (fileAt !== -1 && !args.fileDir) throw new Error("--file needs a directory");
 
@@ -1331,7 +1424,8 @@ async function main() {
   }
   const pool = new Pool({ connectionString });
   try {
-    if (args.all) await fileAllRows(pool, rows, taxYear, { progress });
+    if (args.all)
+      await fileAllRows(pool, rows, taxYear, { progress, resume: { restart: args.restart } });
     else await fileSeedRows(pool, rows, taxYear, { progress });
   } finally {
     await pool.end();

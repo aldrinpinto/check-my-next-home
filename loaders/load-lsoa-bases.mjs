@@ -35,6 +35,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import yauzl from "yauzl";
+import { createLoaderResume } from "./loader-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -207,12 +208,25 @@ export function goldenChecks(rows, { full }) {
  * @param {any} pool
  * @param {any[]} rows
  * @param {string} retrievedAt
- * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, resume?: { restart?: boolean } | null }} [options]
  */
-export async function fileLsoaBases(pool, rows, retrievedAt, { progress = null } = {}) {
+export async function fileLsoaBases(
+  pool,
+  rows,
+  retrievedAt,
+  { progress = null, resume: resumeOpts = null } = {},
+) {
   // BUG-265: the stage flushes are the run's long phase — a
   // line every twentieth of the flushes, a heartbeat, and a
   // warning for a flush over 3x the recent average.
+  // BUG-368: with the resume option the stage is a PERSISTENT
+  // table (migration 0048) and a loader_checkpoint row records
+  // the last fully staged flush, so a killed run resumes
+  // instead of restarting. Without it the filing is exactly
+  // the one-shot transaction below (a TEMP stage inside one
+  // BEGIN…COMMIT). The edition is Census Day itself — the
+  // load is a static one-off, so the edition never changes
+  // between runs of the same census.
   const totalFlushes = Math.ceil(rows.length / 500);
   const stageTally = progress?.tally({
     label: "stage",
@@ -225,12 +239,37 @@ export async function fileLsoaBases(pool, rows, retrievedAt, { progress = null }
   let stagedRows = 0;
   progress?.stage(`filing ${formatCount(rows.length)} LSOA bases...`);
   const client = await pool.connect();
+  let resume = null;
   try {
-    await client.query("BEGIN");
-    await client.query(`CREATE TEMP TABLE lsoa_bases_stage (
+    if (resumeOpts) {
+      await client.query(`CREATE TABLE IF NOT EXISTS lsoa_bases_stage (
+        lsoa_code text, lsoa_name text, residents integer, households integer,
+        source_name text, source_date date,
+        seq bigint NOT NULL, UNIQUE (seq)
+      )`);
+      resume = createLoaderResume(client, {
+        loader: "load-lsoa-bases",
+        stageTable: "lsoa_bases_stage",
+        progress,
+        restart: resumeOpts.restart ?? false,
+      });
+      const prep = await resume.prepare({ edition: SOURCE_DATE, expected: rows.length });
+      if (prep.resumed) {
+        stagedRows = prep.checkpoint.filed_count;
+        // The tally counts absolute flushes, so a resumed
+        // run's first tick lands at its true position.
+        // Ceil, not floor: the last flush may be partial, and a
+        // fully staged resume must finish at total/total, not
+        // one short (a kill during the swap resumes here).
+        flushCount = Math.ceil(stagedRows / 500);
+      }
+    } else {
+      await client.query("BEGIN");
+      await client.query(`CREATE TEMP TABLE lsoa_bases_stage (
       lsoa_code text, lsoa_name text, residents integer, households integer,
       source_name text, source_date date
     ) ON COMMIT DROP`);
+    }
     const values = [];
     const params = [];
     const flush = async () => {
@@ -238,7 +277,9 @@ export async function fileLsoaBases(pool, rows, retrievedAt, { progress = null }
       const started = Date.now();
       const flushedRows = values.length;
       await client.query(
-        `INSERT INTO lsoa_bases_stage (lsoa_code, lsoa_name, residents, households, source_name, source_date) VALUES ${values.join(", ")}`,
+        resume
+          ? `INSERT INTO lsoa_bases_stage (lsoa_code, lsoa_name, residents, households, source_name, source_date, seq) VALUES ${values.join(", ")}`
+          : `INSERT INTO lsoa_bases_stage (lsoa_code, lsoa_name, residents, households, source_name, source_date) VALUES ${values.join(", ")}`,
         params,
       );
       values.length = 0;
@@ -255,40 +296,90 @@ export async function fileLsoaBases(pool, rows, retrievedAt, { progress = null }
           threshold: `3x recent average ${formatDuration(averageMs)}`,
         });
       }
+      if (resume) {
+        await resume.checkpoint({
+          edition: SOURCE_DATE,
+          expected: rows.length,
+          nextStartIndex: stagedRows,
+          read: stagedRows,
+          filed: stagedRows,
+          unit: "LSOAs",
+        });
+      }
     };
-    for (const row of rows) {
+    for (let i = stagedRows; i < rows.length; i += 1) {
+      const row = rows[i];
       const base = params.length;
-      values.push(
-        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6})`,
-      );
-      params.push(
-        row.lsoaCode,
-        row.lsoaName,
-        row.residents,
-        row.households,
-        SOURCE_NAME,
-        SOURCE_DATE,
-      );
+      if (resume) {
+        values.push(
+          `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7})`,
+        );
+        params.push(
+          row.lsoaCode,
+          row.lsoaName,
+          row.residents,
+          row.households,
+          SOURCE_NAME,
+          SOURCE_DATE,
+          resume.takeSeq(1),
+        );
+      } else {
+        values.push(
+          `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6})`,
+        );
+        params.push(
+          row.lsoaCode,
+          row.lsoaName,
+          row.residents,
+          row.households,
+          SOURCE_NAME,
+          SOURCE_DATE,
+        );
+      }
       if (values.length >= 500) await flush();
     }
     await flush();
     stageTally?.finish(flushCount);
-    await client.query("DELETE FROM lsoa_bases");
-    await client.query(
-      `INSERT INTO lsoa_bases (lsoa_code, lsoa_name, residents, households, source_name, source_date, loaded_at)
-       SELECT lsoa_code, lsoa_name, residents, households, source_name, source_date, $1 FROM lsoa_bases_stage`,
-      [retrievedAt],
-    );
-    await client.query("COMMIT");
+    if (resume) {
+      const staged = await client.query("SELECT count(*)::int AS n FROM lsoa_bases_stage");
+      if (staged.rows[0].n !== rows.length)
+        throw new Error("the staged LSOA count does not match — rolling back");
+      await client.query("BEGIN");
+      try {
+        await client.query("DELETE FROM lsoa_bases");
+        await client.query(
+          `INSERT INTO lsoa_bases (lsoa_code, lsoa_name, residents, households, source_name, source_date, loaded_at)
+           SELECT lsoa_code, lsoa_name, residents, households, source_name, source_date, $1 FROM lsoa_bases_stage`,
+          [retrievedAt],
+        );
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw error;
+      }
+      // The run is complete: staging + checkpoint go together,
+      // so nothing is left behind for the next census.
+      await resume.clear();
+    } else {
+      await client.query("DELETE FROM lsoa_bases");
+      await client.query(
+        `INSERT INTO lsoa_bases (lsoa_code, lsoa_name, residents, households, source_name, source_date, loaded_at)
+         SELECT lsoa_code, lsoa_name, residents, households, source_name, source_date, $1 FROM lsoa_bases_stage`,
+        [retrievedAt],
+      );
+      await client.query("COMMIT");
+    }
   } catch (err) {
     progress?.failed({
       stage: "file",
       filed: stagedRows,
       total: rows.length,
       error: err,
-      resume: "re-run from scratch (the swap is one transaction; nothing was filed)",
+      resume: resume
+        ? resume.resumeNote()
+        : "re-run from scratch (the swap is one transaction; nothing was filed)",
     });
-    await client.query("ROLLBACK").catch(() => {});
+    if (!resumeOpts) await client.query("ROLLBACK").catch(() => {});
     throw err;
   } finally {
     client.release();
@@ -412,6 +503,9 @@ async function main() {
   const fileArg = fileIdx >= 0 ? args[fileIdx + 1] : null;
   const fixtureMode = fileArg !== null;
   const verifyOnly = args.includes("--verify-only");
+  // BUG-368: resume from the last checkpointed flush instead of
+  // restarting; with no checkpoint this is a fresh start.
+  const restart = args.includes("--restart");
   const source = fixtureMode
     ? { kind: "dir", dir: fileArg ?? DEFAULT_FIXTURE_DIR }
     : { kind: "live" };
@@ -434,7 +528,10 @@ async function main() {
   }
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   try {
-    await fileLsoaBases(pool, rows, new Date().toISOString(), { progress });
+    // BUG-368: stage resumably — a killed run's staging +
+    // checkpoint survive, and the next run resumes from the
+    // checkpoint instead of re-staging.
+    await fileLsoaBases(pool, rows, new Date().toISOString(), { progress, resume: { restart } });
   } finally {
     await pool.end();
   }

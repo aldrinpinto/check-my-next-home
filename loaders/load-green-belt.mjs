@@ -36,9 +36,12 @@
 // sits 0.101 miles OUTSIDE the London belt, and a few doors one
 // way would flip that, so edges are what the product must quote.
 
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { createLoaderResume } from "./loader-resume.mjs";
 import { createProgressLogger, formatCount } from "./progress.mjs";
 
 const FILE_URL = "https://files.planning.data.gov.uk/dataset/green-belt.csv";
@@ -52,7 +55,7 @@ const HOMES = {
 
 // One CSV parser, quote-aware and header-keyed (the house copy —
 // geometry fields are quoted WKT containing commas).
-function parseCsv(text) {
+export function parseCsv(text) {
   const rows = [];
   let row = [];
   let field = "";
@@ -276,40 +279,11 @@ function checkGolden(processed) {
   if (fails.length > 0) throw new Error(`golden checks failed:\n - ${fails.join("\n - ")}`);
 }
 
-async function main() {
-  const startedAt = Date.now();
-  const args = process.argv.slice(2);
-  const verifyOnly = args.includes("--verify-only");
-  const fileAt = args.indexOf("--file");
-  const fixtureMode = fileAt !== -1;
-  const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
-
-  // BUG-265: one logger for the run — the parse count and
-  // the filing tally below. The file is small (~181 rows),
-  // so this loader gets stage + count + tally only: no
-  // heartbeat fires on a run this short.
-  const progress = createProgressLogger({ name: "load-green-belt" });
-  let text;
-  let sourceDate;
-  if (fixtureMode) {
-    progress.stage("reading the fixture green-belt file");
-    text = await readFile(join(fixtureDir, "green-belt.csv"), "utf8");
-    sourceDate = JSON.parse(await readFile(join(fixtureDir, "fixture.json"), "utf8")).captured;
-  } else {
-    progress.stage("downloading the green-belt file from planning.data.gov.uk");
-    const response = await fetch(FILE_URL);
-    if (!response.ok) throw new Error(`HTTP ${response.status} for the green-belt download`);
-    text = await response.text();
-    sourceDate = new Date().toISOString().slice(0, 10);
-  }
-
-  const rows = parseCsv(text);
-  if (rows.length === 0) throw new Error("contract failure: the green-belt file has no rows");
-  for (const header of CONSUMED) {
-    if (!(header in rows[0]))
-      throw new Error(`contract failure: the green-belt file no longer carries "${header}"`);
-  }
-
+// Current pieces only: ended excluded and counted;
+// geometry-less current rows counted, never filed;
+// unparseable geometry fails the run. Dedupe on
+// reference + organisation, newest entry kept.
+export function processPieces(rows) {
   let ended = 0;
   let geoless = 0;
   let invalid = 0;
@@ -350,7 +324,7 @@ async function main() {
     }
     byKey.set(key, item);
   }
-  const processed = {
+  return {
     total: rows.length,
     ended,
     geoless,
@@ -358,6 +332,213 @@ async function main() {
     filed: [...byKey.values()],
     duplicates,
   };
+}
+
+// --- filing ------------------------------------------------------------
+
+// Stage, count, swap — with resume support (BUG-368): the
+// staging is a PERSISTENT table now (migration 0048) and
+// one loader_checkpoint row records the last fully staged
+// 5-row chunk, so a killed run re-reads and re-processes
+// the whole file (fast and deterministic) and stages only
+// the pieces past the checkpoint. BUG-248 atomicity is
+// unchanged: live tables change ONLY on a complete,
+// verified swap, in its own transaction; staging +
+// checkpoint are dropped (clear()) after a successful swap,
+// and stay on any failure.
+/**
+ * @param {import("./progress.mjs").ProgressLogger | null} [progress]
+ * @param {{ restart?: boolean, client?: any }} [options]
+ */
+export async function beginFiling(
+  progress = null,
+  { restart = false, client: injectedClient = null } = {},
+) {
+  // The client is injectable so the resume tests can file
+  // against a fake database; production passes none and a
+  // real client is opened as before.
+  const client = injectedClient ?? new pg.Client({ connectionString: process.env.DATABASE_URL });
+  const ownsClient = !injectedClient;
+  if (ownsClient) await client.connect();
+  try {
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS green_belt_stage (
+         constraint_type text, name text, geom geometry(MultiPolygon, 4326),
+         source_reference text, organisation text, quality text, detail text,
+         source_name text, source_date date,
+         loaded_at timestamptz NOT NULL DEFAULT now(),
+         seq bigint NOT NULL, UNIQUE (seq)
+       )`,
+    );
+  } catch (error) {
+    if (ownsClient) await client.end().catch(() => {});
+    throw error;
+  }
+  const resume = createLoaderResume(client, {
+    loader: "load-green-belt",
+    stageTable: "green_belt_stage",
+    progress,
+    restart,
+  });
+  let edition = null;
+  let expected = null;
+  let staged = 0;
+  // The failure line's resume note: the last checkpoint
+  // written (prepare seeds it with the resumed checkpoint,
+  // the staging loop advances it).
+  let lastNote = "the start (nothing staged yet)";
+  return {
+    resumeNote: () => lastNote,
+    filedSoFar: () => staged,
+    // Decide, from the edition and the staged rows, whether
+    // the run resumes or starts from zero. Returns the
+    // prepare result; the caller slices the filed array
+    // from its checkpoint's next_start_index.
+    async prepareResume(ed, exp) {
+      edition = ed;
+      expected = exp;
+      const prep = await resume.prepare({ edition: ed, expected: exp });
+      if (prep.resumed) {
+        staged = prep.checkpoint.filed_count;
+        lastNote = resume.resumeNote();
+      }
+      return prep;
+    },
+    // Stage the pieces the caller passes (already sliced
+    // from the resume offset), in the house chunks of 5,
+    // checkpointing per chunk. The BUG-265 file tally rides
+    // as before, ticking the absolute staged count against
+    // the full total.
+    async stagePieces(items, sourceDate, { fileTally = null } = {}) {
+      const CHUNK = 5;
+      for (let at = 0; at < items.length; at += CHUNK) {
+        const chunk = items.slice(at, at + CHUNK);
+        const values = [];
+        const params = [];
+        const base = resume.takeSeq(chunk.length);
+        chunk.forEach((item, i) => {
+          const b = i * 10;
+          values.push(
+            `($${b + 1},$${b + 2},ST_Multi(ST_GeomFromText($${b + 3}, 4326)),$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8},$${b + 9},$${b + 10})`,
+          );
+          params.push(
+            "green_belt",
+            item.row["green-belt-core"] || null,
+            (item.row.geometry ?? "").trim(),
+            item.row.reference || null,
+            item.row["organisation-entity"] || null,
+            item.row.quality || null,
+            null,
+            SOURCE_GREEN_BELT,
+            sourceDate,
+            base + i,
+          );
+        });
+        await client.query(
+          `INSERT INTO green_belt_stage (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, seq)
+           VALUES ${values.join(",")}`,
+          params,
+        );
+        staged += chunk.length;
+        await resume.checkpoint({
+          edition,
+          expected,
+          nextStartIndex: staged,
+          read: staged,
+          filed: staged,
+          unit: "pieces",
+        });
+        lastNote = resume.resumeNote();
+        fileTally?.tick(staged);
+      }
+      fileTally?.finish(staged);
+    },
+    // Count-check the staged pieces, then swap in one
+    // transaction and verify the filed count. Staging +
+    // checkpoint go together after a successful swap.
+    async finishFiling(expectedPieces) {
+      try {
+        const stagedRes = await client.query("SELECT count(*)::int AS n FROM green_belt_stage");
+        if (stagedRes.rows[0].n !== expectedPieces)
+          throw new Error("the staged piece count does not match — rolling back");
+        await client.query("BEGIN");
+        try {
+          await client.query("DELETE FROM planning_layers WHERE constraint_type = 'green_belt'");
+          await client.query(
+            `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
+             SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM green_belt_stage`,
+          );
+          const filedCount = await client.query(
+            "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type = 'green_belt'",
+          );
+          if (filedCount.rows[0].n !== expectedPieces)
+            throw new Error("the filed piece count does not match — rolling back");
+          await client.query("COMMIT");
+        } catch (error) {
+          await client.query("ROLLBACK").catch(() => {});
+          throw error;
+        }
+        await resume.clear();
+        lastNote = "the start (nothing staged yet)";
+      } finally {
+        if (ownsClient) await client.end().catch(() => {});
+      }
+    },
+    async abortFiling() {
+      // The staging + checkpoint STAY: they are the next
+      // run's resume point.
+      if (ownsClient) await client.end().catch(() => {});
+    },
+  };
+}
+
+// The edition for a run: the retrieval date plus a hash of
+// the file text — the file carries no edition date, so the
+// date guards a next-day resume (staged rows would
+// otherwise carry mixed source_dates) and the hash guards
+// a same-day republication.
+export function greenBeltEdition(sourceDate, text) {
+  return `${sourceDate}:${createHash("sha256").update(text).digest("hex").slice(0, 16)}`;
+}
+
+async function main() {
+  const startedAt = Date.now();
+  const args = process.argv.slice(2);
+  const verifyOnly = args.includes("--verify-only");
+  // BUG-368: resume from the last checkpointed chunk instead
+  // of restarting; with no checkpoint this is a fresh start.
+  const restart = args.includes("--restart");
+  const fileAt = args.indexOf("--file");
+  const fixtureMode = fileAt !== -1;
+  const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
+
+  // BUG-265: one logger for the run — the parse count and
+  // the filing tally below. The file is small (~181 rows),
+  // so this loader gets stage + count + tally only: no
+  // heartbeat fires on a run this short.
+  const progress = createProgressLogger({ name: "load-green-belt" });
+  let text;
+  let sourceDate;
+  if (fixtureMode) {
+    progress.stage("reading the fixture green-belt file");
+    text = await readFile(join(fixtureDir, "green-belt.csv"), "utf8");
+    sourceDate = JSON.parse(await readFile(join(fixtureDir, "fixture.json"), "utf8")).captured;
+  } else {
+    progress.stage("downloading the green-belt file from planning.data.gov.uk");
+    const response = await fetch(FILE_URL);
+    if (!response.ok) throw new Error(`HTTP ${response.status} for the green-belt download`);
+    text = await response.text();
+    sourceDate = new Date().toISOString().slice(0, 10);
+  }
+
+  const rows = parseCsv(text);
+  if (rows.length === 0) throw new Error("contract failure: the green-belt file has no rows");
+  for (const header of CONSUMED) {
+    if (!(header in rows[0]))
+      throw new Error(`contract failure: the green-belt file no longer carries "${header}"`);
+  }
+
+  const processed = processPieces(rows);
   // BUG-265: the file's row count is the genuine total,
   // so the count carries a real percentage — rows parsed
   // against pieces to file.
@@ -387,8 +568,6 @@ async function main() {
   if (!process.env.DATABASE_URL)
     throw new Error("DATABASE_URL is not set — filing requires a database");
 
-  const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
-  await client.connect();
   // BUG-265: the filing runs in chunks of 5 — a line
   // every 50 pieces with the genuine total and percentage.
   const fileTally = progress.tally({
@@ -398,80 +577,42 @@ async function main() {
     unit: "pieces",
   });
   progress.stage(`filing ${formatCount(processed.filed.length)} green belt pieces`);
+  // BUG-368: the filing is resumable — the edition is the
+  // retrieval date plus a hash of the file text, so a kill
+  // mid-stage resumes from the last checkpointed chunk
+  // instead of re-staging the whole file.
+  const filer = await beginFiling(progress, { restart });
+  const edition = greenBeltEdition(sourceDate, text);
   try {
-    await client.query("BEGIN");
-    await client.query(
-      `CREATE TEMP TABLE planning_stage (
-         constraint_type text, name text, geom geometry(MultiPolygon, 4326),
-         source_reference text, organisation text, quality text, detail text,
-         source_name text, source_date date,
-         loaded_at timestamptz NOT NULL DEFAULT now()
-       ) ON COMMIT DROP`,
+    const prep = await filer.prepareResume(edition, processed.filed.length);
+    const startOffset = prep.resumed ? prep.checkpoint.next_start_index : 0;
+    await filer.stagePieces(processed.filed.slice(startOffset), sourceDate, { fileTally });
+    progress.stage(
+      `swap started — filing ${formatCount(processed.filed.length)} staged pieces into planning_layers`,
     );
-    const CHUNK = 5;
-    const layers = processed.filed;
-    for (let at = 0; at < layers.length; at += CHUNK) {
-      const chunk = layers.slice(at, at + CHUNK);
-      const values = [];
-      const params = [];
-      chunk.forEach((item, i) => {
-        const base = i * 9;
-        values.push(
-          `($${base + 1},$${base + 2},ST_Multi(ST_GeomFromText($${base + 3}, 4326)),$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8},$${base + 9})`,
-        );
-        params.push(
-          "green_belt",
-          item.row["green-belt-core"] || null,
-          (item.row.geometry ?? "").trim(),
-          item.row.reference || null,
-          item.row["organisation-entity"] || null,
-          item.row.quality || null,
-          null,
-          SOURCE_GREEN_BELT,
-          sourceDate,
-        );
-      });
-      await client.query(
-        `INSERT INTO planning_stage (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date)
-         VALUES ${values.join(",")}`,
-        params,
-      );
-      fileTally.tick(at + chunk.length);
-    }
-    const staged = await client.query("SELECT count(*)::int AS n FROM planning_stage");
-    if (staged.rows[0].n !== layers.length)
-      throw new Error("the staged piece count does not match — rolling back");
-    await client.query("DELETE FROM planning_layers WHERE constraint_type = 'green_belt'");
-    await client.query(
-      `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
-       SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM planning_stage`,
-    );
-    const filedCount = await client.query(
-      "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type = 'green_belt'",
-    );
-    if (filedCount.rows[0].n !== layers.length)
-      throw new Error("the filed piece count does not match — rolling back");
-    await client.query("COMMIT");
-    fileTally.finish(layers.length);
+    await filer.finishFiling(processed.filed.length);
   } catch (error) {
-    // BUG-265: the filing transaction rolls back, so
-    // nothing is filed on failure.
+    // BUG-368: the failure line carries the resume note,
+    // so it names the point the next run resumes from.
+    // The filing is not one transaction any more — on a
+    // failure the live tables are untouched and the
+    // staging stays as the resume point.
     progress.failed({
       stage: "file",
-      filed: 0,
+      filed: filer.filedSoFar(),
       total: processed.filed.length,
       error,
-      resume: "re-run from scratch (the filing transaction rolls back)",
+      resume: filer.resumeNote(),
     });
-    await client.query("ROLLBACK").catch(() => {});
+    await filer.abortFiling();
     throw error;
-  } finally {
-    await client.end();
   }
   console.log(`${summary()} · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`);
 }
 
-main().catch((error) => {
-  console.error(`load-green-belt FAILED: ${error.message}`);
-  process.exitCode = 1;
-});
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(`load-green-belt FAILED: ${error.message}`);
+    process.exitCode = 1;
+  });
+}

@@ -300,10 +300,15 @@ describe("OS Greenspace — iterated read, golden tally, atomic filer", () => {
   // A stateful fake: greenspace_points and the stage as
   // in-memory row sets, with real transaction semantics —
   // BEGIN snapshots, ROLLBACK restores, COMMIT keeps.
+  // BUG-368: the stage is PERSISTENT now and the filer
+  // checkpoints into loader_checkpoint, so the fake models
+  // the checkpoint row and the staged-count query too —
+  // otherwise a re-run stages onto the first run's rows.
   type PointRow = Record<string, unknown>;
   function statefulPool({ failSwapOnce = false } = {}) {
     let live: PointRow[] = [{ name: "Previously Filed Park", point_role: "centre" }];
     let stage: PointRow[] = [];
+    let checkpoint: Record<string, unknown> | null = null;
     let snapshot: PointRow[] | null = null;
     let swapFailed = false;
     const client = {
@@ -312,7 +317,9 @@ describe("OS Greenspace — iterated read, golden tally, atomic filer", () => {
         if (head === "BEGIN") snapshot = structuredClone(live);
         else if (head.startsWith("CREATE TEMP TABLE greenspace_stage")) stage = [];
         else if (head.startsWith("INSERT INTO greenspace_stage")) {
-          for (let at = 0; at < params.length; at += 7)
+          // BUG-368: the stage insert carries 8 params/row
+          // (the added seq); the old 7-stride garbled rows.
+          for (let at = 0; at < params.length; at += 8)
             stage.push({
               osm_id: params[at],
               name: params[at + 1],
@@ -321,8 +328,39 @@ describe("OS Greenspace — iterated read, golden tally, atomic filer", () => {
               longitude: params[at + 4],
               source_name: params[at + 5],
               source_date: params[at + 6],
+              seq: params[at + 7],
             });
-        } else if (head === "DELETE FROM greenspace_points") live = [];
+        } else if (head.startsWith("SELECT loader, edition, expected, next_start_index")) {
+          return { rows: checkpoint ? [checkpoint] : [], rowCount: checkpoint ? 1 : 0 };
+        } else if (head.startsWith("INSERT INTO loader_checkpoint")) {
+          checkpoint = {
+            loader: params[0],
+            edition: params[1],
+            expected: params[2],
+            next_start_index: params[3],
+            read_count: params[4],
+            filed_count: params[5],
+            state: params[6],
+            updated_at: new Date().toISOString(),
+          };
+        } else if (head.startsWith("SELECT count(*)::int AS n, coalesce(sum(seq)")) {
+          const seqs = stage.map((r) => Number(r.seq ?? 0));
+          return {
+            rows: [
+              {
+                n: stage.length,
+                s: seqs.reduce((a, b) => a + b, 0),
+                m: seqs.length > 0 ? Math.max(...seqs) : 0,
+              },
+            ],
+            rowCount: 1,
+          };
+        } else if (head === "DELETE FROM greenspace_stage") stage = [];
+        else if (head.startsWith("DELETE FROM greenspace_stage WHERE seq >=")) {
+          const threshold = Number(params[0]);
+          stage = stage.filter((r) => Number(r.seq ?? 0) < threshold);
+        } else if (head.startsWith("DELETE FROM loader_checkpoint")) checkpoint = null;
+        else if (head === "DELETE FROM greenspace_points") live = [];
         else if (head.startsWith("INSERT INTO greenspace_points")) {
           if (failSwapOnce && !swapFailed) {
             swapFailed = true;
@@ -493,9 +531,13 @@ describe("DWP Universal Credit — streamed pull, golden tally, atomic filer", (
       async query(sql: string, params: unknown[] = []) {
         const head = sql.trim().replace(/\s+/g, " ");
         if (head === "BEGIN") snapshot = structuredClone(live);
-        else if (head.startsWith("CREATE TEMP TABLE uc_stage")) stage = [];
-        else if (head.startsWith("INSERT INTO uc_stage")) {
-          for (let at = 0; at < params.length; at += 6)
+        // BUG-368: the stage is persistent now — the CREATE
+        // no longer resets it, and the inserts carry the
+        // per-series seq as a seventh parameter.
+        else if (head.startsWith("CREATE TABLE IF NOT EXISTS uc_stage")) {
+          /* the persistent stage stands */
+        } else if (head.startsWith("INSERT INTO uc_stage")) {
+          for (let at = 0; at < params.length; at += 7)
             stage.push({
               lsoa_code: params[at],
               lsoa_name: params[at + 1],
@@ -503,7 +545,41 @@ describe("DWP Universal Credit — streamed pull, golden tally, atomic filer", (
               reference_month: params[at + 3],
               count: params[at + 4],
               source_name: params[at + 5],
+              seq: params[at + 6],
             });
+        } else if (head.startsWith("SELECT count(*)::int AS n FROM uc_stage")) {
+          return { rows: [{ n: stage.length }], rowCount: 1 };
+        } else if (head.startsWith("SELECT count(*)::int AS n, coalesce(sum(seq)")) {
+          const rows = params[0] ? stage.filter((r) => r.series === params[0]) : stage;
+          return {
+            rows: [
+              {
+                n: rows.length,
+                s: rows.reduce((a, r) => a + (r.seq as number), 0),
+                m: rows.length ? Math.max(...rows.map((r) => r.seq as number)) : 0,
+              },
+            ],
+            rowCount: 1,
+          };
+        } else if (head.startsWith("DELETE FROM uc_stage WHERE seq >=")) {
+          stage = stage.filter(
+            (r) => !((r.seq as number) >= (params[0] as number) && r.series === params[1]),
+          );
+        } else if (head.startsWith("DELETE FROM uc_stage")) {
+          stage = params[0] ? stage.filter((r) => r.series !== params[0]) : [];
+        } else if (head.startsWith("SELECT lsoa_code, lsoa_name, series, reference_month")) {
+          return {
+            rows: stage
+              .filter((r) => r.series === params[0])
+              .sort((a, b) => (a.seq as number) - (b.seq as number)),
+            rowCount: 0,
+          };
+        } else if (head.startsWith("SELECT loader, edition, expected")) {
+          return { rows: [], rowCount: 0 };
+        } else if (head.startsWith("INSERT INTO loader_checkpoint")) {
+          return { rows: [], rowCount: 0 };
+        } else if (head.startsWith("DELETE FROM loader_checkpoint")) {
+          return { rows: [], rowCount: 0 };
         } else if (
           head.startsWith("DELETE FROM benefits_stats WHERE series = $1 AND reference_month = $2")
         ) {

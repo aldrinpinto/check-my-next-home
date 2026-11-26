@@ -44,17 +44,31 @@
 // in the BUG-187 flood shape: each page is processed as it
 // lands and handed to the staging inserter, the run retains
 // only the totals and the golden candidates (the flood
-// sift), and the filing stays the same single-transaction
-// stage-and-swap — the swap's atomicity is the contract
-// (a failed run leaves the last good filing serving), so
-// the intake streams into the staging table inside that
-// transaction rather than committing in chunks.
+// sift), and the filing stays the same single-edition swap
+// — the swap's atomicity is the contract (a failed run
+// leaves the last good filing serving).
+//
+// BUG-368 (26 Nov 2026): the staging table is PERSISTENT
+// now (built_up_area_stage, migration 0048) and a
+// loader_checkpoint row records the last fully staged
+// page, so a killed run resumes instead of restarting.
+// The resume point is PAGE-GRANULAR, not per staged
+// chunk: this loader's processor drops geoless and
+// invalid features, so the count of items offered is
+// not the count of features read — the only position a
+// resumed run can reproduce exactly is a page boundary,
+// where every raw feature of the page has been tallied
+// and every filed item staged. The checkpoint's state
+// therefore carries the dropped-feature tallies
+// (geoless, invalid) as of that page, and the read
+// skips to the checkpoint's raw-feature offset.
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { createGoldenSift } from "./flood-stream.mjs";
+import { createGoldenSift, GOLDEN_WINDOW_MILES } from "./flood-stream.mjs";
+import { createLoaderResume } from "./loader-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -206,10 +220,25 @@ export function createFeatureProcessor() {
       }
       return items;
     },
-    finish() {
-      if (invalid > 0)
+    // The running tallies as of the last processed page —
+    // the read driver hands them to the staging sink so
+    // the page-end checkpoint can seed a resumed run
+    // (BUG-368).
+    tallies() {
+      return { total, geoless, invalid, filed: filedCount };
+    },
+    // BUG-368: the seeded invalid count rides in — a run
+    // resumed after an earlier portion already counted
+    // invalid features must still fail the whole read at
+    // this judgement, over the combined count. The return
+    // keeps the shape the collecting form always had
+    // ({ total, geoless, filed }) — the invalid count is
+    // judgement input only, never a filed total.
+    finish(seedInvalid = 0) {
+      const invalidTotal = invalid + seedInvalid;
+      if (invalidTotal > 0)
         throw new Error(
-          `built-up areas: ${invalid} features are malformed, unnamed or duplicated — contract failure, nothing filed`,
+          `built-up areas: ${invalidTotal} features are malformed, unnamed or duplicated — contract failure, nothing filed`,
         );
       return { total, geoless, filed: filedCount };
     },
@@ -261,18 +290,31 @@ const SIFT_HOMES = { ...HOMES, BATH };
 // The streaming read driver (BUG-195, the BUG-187 shape):
 // batches of raw features arrive one at a time; each is
 // processed and handed to the sink (the staging inserter
-// in a filing run) as it lands, offered to the golden sift,
-// and released. What the run retains is the totals and the
-// sifted candidates — never the dataset.
-async function driveRead(batches, onItems, { progress = null } = {}) {
+// in a filing run) as it lands, offered to the golden
+// sift, and released. What the run retains is the totals
+// and the sifted candidates — never the dataset.
+//
+// BUG-368: a resumed run is seeded — the staged portion's
+// totals ride in as `seed` (raw features read, areas
+// filed, geoless and invalid tallies) and its golden
+// candidates as `seedItems`, so the returned totals and
+// the golden checks cover the whole read. The sink is
+// called per page as onItems(items, rawOffset, tallies):
+// rawOffset is the absolute raw-feature position at the
+// end of the page (seed included) — the page-end resume
+// point — and tallies are the dropped-feature counts as
+// of that page, seed included.
+async function driveRead(batches, onItems, { progress = null, seed = null, seedItems = [] } = {}) {
   const processor = createFeatureProcessor();
   const sift = createGoldenSift(SIFT_HOMES);
+  for (const item of seedItems) sift.offer({ ...item, bbox: bboxOfNested(item.polygons) });
   // BUG-265: the paged read is the run's long phase — 7,775
   // areas live over four pages — so a tally lands every
   // 2,000 features, a heartbeat halfway through the read,
   // and a page that takes more than 3x the recent average
   // earns a warning. No total: the service carries no count
-  // up front.
+  // up front. On a resume the tally counts the whole read,
+  // seed included.
   const readTally = progress?.tally({ label: "read", every: PAGE_SIZE, unit: "features" });
   const readWatch = createBatchWatch();
   let pageIndex = 0;
@@ -281,12 +323,18 @@ async function driveRead(batches, onItems, { progress = null } = {}) {
     const started = Date.now();
     const items = processor.processBatch(features);
     for (const item of items) sift.offer({ ...item, bbox: bboxOfNested(item.polygons) });
-    if (onItems) await onItems(items);
+    read += features.length;
+    const rawOffset = read + (seed?.total ?? 0);
+    const tallies = processor.tallies();
+    if (onItems)
+      await onItems(items, rawOffset, {
+        geoless: tallies.geoless + (seed?.geoless ?? 0),
+        invalid: tallies.invalid + (seed?.invalid ?? 0),
+      });
     const { tookMs, averageMs, slow } = readWatch.observe(Date.now() - started);
     pageIndex += 1;
-    read += features.length;
-    readTally?.tick(read);
-    progress?.heartbeat({ stage: "read", done: read, every: 2 * PAGE_SIZE });
+    readTally?.tick(rawOffset);
+    progress?.heartbeat({ stage: "read", done: rawOffset, every: 2 * PAGE_SIZE });
     if (slow) {
       progress?.warning({
         what: "read page duration",
@@ -295,14 +343,25 @@ async function driveRead(batches, onItems, { progress = null } = {}) {
       });
     }
   }
-  const totals = processor.finish();
-  readTally?.finish(totals.total);
-  return { ...totals, items: sift.items };
+  const totals = processor.finish(seed?.invalid ?? 0);
+  readTally?.finish(totals.total + (seed?.total ?? 0));
+  return {
+    total: totals.total + (seed?.total ?? 0),
+    geoless: totals.geoless + (seed?.geoless ?? 0),
+    filed: totals.filed + (seed?.filed ?? 0),
+    items: sift.items,
+  };
 }
 
-export async function readLive({ onItems = null, progress = null } = {}) {
+export async function readLive({ onItems = null, progress = null, onEdition = null } = {}) {
+  // BUG-368: the edition fires the resume decision — the
+  // runner returns the raw-feature offset the read starts
+  // from, the seeded totals, and the staged golden
+  // candidates. The edition is the dataset's own date,
+  // constant for this edition.
+  const resume = (await onEdition?.(EDITION_DATE)) ?? { startOffset: 0 };
   async function* pages() {
-    for (let offset = 0; ; offset += PAGE_SIZE) {
+    for (let offset = resume.startOffset; ; offset += PAGE_SIZE) {
       const params = new URLSearchParams({
         where: "1=1",
         outFields: "BUA24CD,BUA24NM,BUA24NMW",
@@ -321,63 +380,120 @@ export async function readLive({ onItems = null, progress = null } = {}) {
       if (batch.length < PAGE_SIZE) break;
     }
   }
-  return driveRead(pages(), onItems, { progress });
+  return driveRead(pages(), onItems, {
+    progress,
+    seed: resume.seed ?? null,
+    seedItems: resume.seedItems ?? [],
+  });
 }
 
 /**
  * @param {string} fixtureDir
- * @param {{ onItems?: ((items: any[]) => Promise<void>) | null, progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ * @param {{ onItems?: ((items: any[], rawOffset: number, tallies: { geoless: number, invalid: number }) => Promise<void>) | null, progress?: import("./progress.mjs").ProgressLogger | null, onEdition?: ((edition: string) => Promise<{ startOffset: number, seed?: { total: number, filed: number, geoless: number, invalid: number }, seedItems?: any[] }>) | null }} [options]
  */
-export async function readFixture(fixtureDir, { onItems = null, progress = null } = {}) {
+export async function readFixture(
+  fixtureDir,
+  { onItems = null, progress = null, onEdition = null } = {},
+) {
+  // BUG-368: same resume decision point as the live read.
+  const resume = (await onEdition?.(EDITION_DATE)) ?? { startOffset: 0 };
   const text = await readFile(join(fixtureDir, "built-up-areas.geojson"), "utf8");
   const features = JSON.parse(text).features ?? [];
   async function* slices() {
-    for (let at = 0; at < features.length; at += PAGE_SIZE)
+    for (let at = resume.startOffset; at < features.length; at += PAGE_SIZE)
       yield features.slice(at, at + PAGE_SIZE);
   }
-  return driveRead(slices(), onItems, { progress });
+  return driveRead(slices(), onItems, {
+    progress,
+    seed: resume.seed ?? null,
+    seedItems: resume.seedItems ?? [],
+  });
 }
 
 // --- filing ------------------------------------------------------------
 
-// Stage, count, swap — one transaction, fed as a stream
-// (BUG-195, the flood shape). beginFiling opens the
-// transaction and the staging table; stageItems converts
-// each batch to WKT and inserts it in the house chunks of
-// 10 rows, so neither the item set nor its WKT copy is ever
-// held whole; finishFiling runs the counts and the swap
-// exactly as the one-shot filer did. Any failure mid-stream
-// rolls the whole load back via abortFiling — the swap's
-// atomicity is the contract.
-async function beginFiling() {
-  const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
-  await client.connect();
+// Stage, count, swap — streamed (BUG-195, the flood shape),
+// with resume support (BUG-368): staging is a PERSISTENT
+// table now (migration 0048), and a loader_checkpoint row
+// records the last fully staged page, so a killed run
+// resumes instead of restarting. beginFiling opens the
+// staging table; stageItems converts each page to WKT and
+// inserts it in the house chunks of 10 rows, checkpointing
+// once the whole page is staged; finishFiling runs the
+// counts and the swap exactly as the one-shot filer did,
+// in its own transaction. The single-edition swap: the
+// whole built_up_area layer is replaced in this
+// transaction, so a failed run leaves the last good filing
+// serving untouched.
+//
+// THE RESUME UNITS. The read is paged by resultOffset and
+// the processor drops geoless/invalid features, so the
+// resume point is the raw-feature offset at the last
+// fully staged page (next_start_index), and the
+// checkpoint's state carries the dropped-feature tallies
+// as of that page. A page that was mid-stage when the run
+// died has staged rows past the checkpoint; prepare()
+// trims that tail, and the resumed run re-stages the
+// page whole. The golden sift is rebuilt from the staged
+// rows near the golden homes (stagedGoldenItems), so the
+// golden checks run over the whole read either way.
+/**
+ * Open the filing run's database client and resume handle
+ * (BUG-368). The client is injectable so the resume tests
+ * can file against a fake database; production passes none
+ * and a real client is opened as before.
+ *
+ * @param {import("./progress.mjs").ProgressLogger | null} [progress]
+ * @param {{ restart?: boolean, client?: any }} [options]
+ */
+export async function beginFiling(
+  progress = null,
+  { restart = false, client: injectedClient = null } = {},
+) {
+  // The client is injectable so the resume tests can file
+  // against a fake database; production passes none and a
+  // real client is opened as before (BUG-366).
+  const client = injectedClient ?? new pg.Client({ connectionString: process.env.DATABASE_URL });
+  const ownsClient = !injectedClient;
+  if (ownsClient) await client.connect();
   try {
-    await client.query("BEGIN");
     await client.query(
-      `CREATE TEMP TABLE planning_stage (
+      `CREATE TABLE IF NOT EXISTS built_up_area_stage (
          constraint_type text, name text, geom geometry(MultiPolygon, 4326),
          source_reference text, organisation text, quality text, detail text,
          source_name text, source_date date,
-         loaded_at timestamptz NOT NULL DEFAULT now()
-       ) ON COMMIT DROP`,
+         loaded_at timestamptz NOT NULL DEFAULT now(),
+         seq bigint NOT NULL, UNIQUE (seq)
+       )`,
     );
   } catch (error) {
-    await client.query("ROLLBACK").catch(() => {});
-    await client.end().catch(() => {});
+    if (ownsClient) await client.end().catch(() => {});
     throw error;
   }
+  const resume = createLoaderResume(client, {
+    loader: "load-built-up-areas",
+    stageTable: "built_up_area_stage",
+    progress,
+    restart,
+  });
   const CHUNK = 10;
   const pending = [];
+  let staged = 0;
+  let seqNext = 0;
+  let edition = null;
+  /** @type {{ resumed: boolean, reason?: string, checkpoint?: any, prefix?: boolean }} */
+  let resumePrep = { resumed: false };
   async function flushPending(flushTail = false) {
     while (pending.length >= CHUNK || (flushTail && pending.length > 0)) {
       const chunk = pending.splice(0, Math.min(CHUNK, pending.length));
       const values = [];
       const params = [];
+      const base = seqNext;
+      seqNext += chunk.length;
       chunk.forEach((row, i) => {
-        const base = i * 9;
+        const b = i * 10;
         values.push(
-          `($${base + 1},$${base + 2},ST_Multi(ST_GeomFromText($${base + 3}, 4326)),$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8},$${base + 9})`,
+          `($${b + 1},$${b + 2},ST_Multi(ST_GeomFromText($${b + 3}, 4326)),$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8},$${b + 9},$${b + 10})`,
         );
         params.push(
           "built_up_area",
@@ -389,49 +505,128 @@ async function beginFiling() {
           null,
           SOURCE_BUA,
           EDITION_DATE,
+          base + i,
         );
       });
       await client.query(
-        `INSERT INTO planning_stage (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date)
+        `INSERT INTO built_up_area_stage (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, seq)
          VALUES ${values.join(",")}`,
         params,
       );
+      staged += chunk.length;
     }
   }
   return {
-    async stageItems(items) {
+    stagedCount: () => staged,
+    resumePrep: () => resumePrep,
+    resumeNote: () => resume.resumeNote(),
+    // Decide, from the edition and the staged rows, whether this
+    // run resumes or starts from zero. Called by the runner once
+    // the read has resolved the edition, before the first page
+    // is staged.
+    async prepareResume(ed) {
+      edition = ed;
+      resumePrep = await resume.prepare({ edition, expected: null });
+      if (resumePrep.resumed) {
+        const cp = resumePrep.checkpoint;
+        staged = cp.filed_count;
+        seqNext = cp.filed_count;
+      }
+      return resumePrep;
+    },
+    // The staged portion's golden candidates, for rebuilding the
+    // sift after a resume — the envelope test mirrors the sift's
+    // bbox test, so the rebuilt set is exactly what the live sift
+    // would have retained for that portion. Called after
+    // prepareResume, which has already trimmed the staged tail
+    // past the checkpoint, so no cap is needed.
+    async stagedGoldenItems() {
+      const homes = Object.values(SIFT_HOMES);
+      const windowParam = 2 + homes.length * 2;
+      const conditions = [];
+      const params = [];
+      homes.forEach((home, i) => {
+        const base = 2 + i * 2;
+        conditions.push(
+          `ST_DWithin(ST_Envelope(geom)::geography, ST_SetSRID(ST_MakePoint($${base}, $${base + 1}), 4326)::geography, $${windowParam})`,
+        );
+        params.push(home.lng, home.lat);
+      });
+      params.push(GOLDEN_WINDOW_MILES * 1609.344);
+      const { rows } = await client.query(
+        `SELECT name, source_reference, ST_AsGeoJSON(geom) AS geojson FROM built_up_area_stage WHERE (${conditions.join(" OR ")})`,
+        params,
+      );
+      return rows.map((r) => ({
+        code: r.source_reference,
+        name: r.name,
+        polygons: geojsonPolygons(JSON.parse(r.geojson)),
+      }));
+    },
+    // Stage one page's filed items, then checkpoint the page:
+    // the page is fully staged now — tail included — so the
+    // resume point is this page's raw-feature offset and the
+    // checkpoint state carries the dropped-feature tallies
+    // as of this page. A page that yields no filed items
+    // still checkpoints: its raw features are consumed and
+    // must be skipped on resume.
+    async stageItems(items, rawOffset, tallies = {}) {
       for (const item of items) {
         pending.push({ name: item.name, wkt: polygonsToWkt(item.polygons), code: item.code });
         if (pending.length >= CHUNK) await flushPending();
+      }
+      await flushPending(true);
+      if (edition && Number.isFinite(rawOffset)) {
+        await resume.checkpoint({
+          edition,
+          expected: null,
+          nextStartIndex: rawOffset,
+          read: rawOffset,
+          filed: staged,
+          state: {
+            geoless: tallies.geoless ?? 0,
+            invalid: tallies.invalid ?? 0,
+          },
+          unit: "features",
+        });
       }
     },
     async finishFiling(expectedCount) {
       try {
         await flushPending(true);
-        const staged = await client.query("SELECT count(*)::int AS n FROM planning_stage");
-        if (staged.rows[0].n !== expectedCount)
+        const stagedRes = await client.query("SELECT count(*)::int AS n FROM built_up_area_stage");
+        if (stagedRes.rows[0].n !== expectedCount)
           throw new Error("the staged area count does not match — rolling back");
-        await client.query("DELETE FROM planning_layers WHERE constraint_type = 'built_up_area'");
-        await client.query(
-          `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
-           SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM planning_stage`,
-        );
-        const filedCount = await client.query(
-          "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type = 'built_up_area'",
-        );
-        if (filedCount.rows[0].n !== expectedCount)
-          throw new Error("the filed area count does not match — rolling back");
-        await client.query("COMMIT");
-      } catch (error) {
-        await client.query("ROLLBACK").catch(() => {});
-        throw error;
+        await client.query("BEGIN");
+        try {
+          await client.query("DELETE FROM planning_layers WHERE constraint_type = 'built_up_area'");
+          await client.query(
+            `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
+           SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM built_up_area_stage`,
+          );
+          const filedCount = await client.query(
+            "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type = 'built_up_area'",
+          );
+          if (filedCount.rows[0].n !== expectedCount)
+            throw new Error("the filed area count does not match — rolling back");
+          await client.query("COMMIT");
+        } catch (error) {
+          await client.query("ROLLBACK").catch(() => {});
+          throw error;
+        }
+        // The run is complete: staging + checkpoint go together,
+        // so nothing is left behind for the next edition.
+        await resume.clear();
       } finally {
-        await client.end();
+        if (ownsClient) await client.end().catch(() => {});
       }
     },
     async abortFiling() {
-      await client.query("ROLLBACK").catch(() => {});
-      await client.end().catch(() => {});
+      // The staging + checkpoint STAY: they are the next run's
+      // resume point. A run that never prepared leaves whatever
+      // a previous run left, and the next run's prepare()
+      // validates or discards it.
+      if (ownsClient) await client.end().catch(() => {});
     },
   };
 }
@@ -440,6 +635,9 @@ async function main() {
   const startedAt = Date.now();
   const args = process.argv.slice(2);
   const verifyOnly = args.includes("--verify-only");
+  // BUG-368: resume from the last checkpointed page instead of
+  // restarting; with no checkpoint this is a fresh start.
+  const restart = args.includes("--restart");
   const fileAt = args.indexOf("--file");
   const fixtureMode = fileAt !== -1;
   const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
@@ -447,25 +645,50 @@ async function main() {
   // filing marker below.
   const progress = createProgressLogger({ name: "load-built-up-areas" });
 
-  // A filing run streams the read into the staging
-  // transaction as it lands (BUG-195), so the database check
-  // moves ahead of the read: without DATABASE_URL a filing
-  // run now fails before fetching instead of after it.
-  // Verify-only never opens the database.
+  // A filing run streams the read into the persistent
+  // staging table as it lands (BUG-195, BUG-368), so the
+  // database check moves ahead of the read: without
+  // DATABASE_URL a filing run now fails before fetching
+  // instead of after it. Verify-only never opens the
+  // database.
   let filer = null;
   if (!verifyOnly) {
     if (!process.env.DATABASE_URL)
       throw new Error("DATABASE_URL is not set — filing requires a database");
-    filer = await beginFiling();
+    filer = await beginFiling(progress, { restart });
   }
 
   let processed;
   try {
     progress.stage("reading the built-up areas");
-    const onItems = filer ? (items) => filer.stageItems(items) : null;
+    const onItems = filer
+      ? (items, rawOffset, tallies) => filer.stageItems(items, rawOffset, tallies)
+      : null;
+    // BUG-368: the edition fires the resume decision — the
+    // filer prepares (resume or fresh start) and hands back
+    // the raw-feature offset the read starts from, with the
+    // seeded totals and the staged golden candidates for the
+    // sift.
+    const onEdition = filer
+      ? async (edition) => {
+          const prep = await filer.prepareResume(edition);
+          if (!prep.resumed) return { startOffset: 0 };
+          const cp = prep.checkpoint;
+          return {
+            startOffset: cp.next_start_index,
+            seed: {
+              total: cp.read_count,
+              filed: cp.filed_count,
+              geoless: cp.state?.geoless ?? 0,
+              invalid: cp.state?.invalid ?? 0,
+            },
+            seedItems: await filer.stagedGoldenItems(),
+          };
+        }
+      : null;
     processed = fixtureMode
-      ? await readFixture(fixtureDir, { onItems, progress })
-      : await readLive({ onItems, progress });
+      ? await readFixture(fixtureDir, { onItems, progress, onEdition })
+      : await readLive({ onItems, progress, onEdition });
     if (!fixtureMode && (processed.filed < 7000 || processed.filed > 8500))
       throw new Error(
         `sanity failure: ${processed.filed} built-up areas is outside the expected band for the December 2024 edition (7,775 as published)`,
@@ -478,7 +701,9 @@ async function main() {
       stage: "read",
       filed: 0,
       error,
-      resume: "re-run the loader from the start (nothing is filed until the swap)",
+      resume: filer
+        ? filer.resumeNote()
+        : "re-run the loader from the start (nothing is filed until the swap)",
     });
     if (filer) await filer.abortFiling();
     throw error;
@@ -506,8 +731,9 @@ async function main() {
       filed: 0,
       total: processed.filed,
       error,
-      resume:
-        "re-run the loader from the start (the swap rolled back, the live layer is untouched)",
+      // BUG-368: a swap failure leaves the staged read
+      // checkpointed, so the next run resumes at the swap.
+      resume: activeFiler.resumeNote(),
     });
     throw error;
   }

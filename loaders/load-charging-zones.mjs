@@ -101,11 +101,13 @@
 //     GOV.UK's CAZ list and the Scottish LEZ count
 //     between filings).
 
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import proj4 from "proj4";
+import { createLoaderResume } from "./loader-resume.mjs";
 import { createProgressLogger, formatCount } from "./progress.mjs";
 
 const USER_AGENT = "CheckMyNextHome/1.0 (+https://checkmynexthome.co.uk)";
@@ -557,43 +559,147 @@ export function checkGolden(filed) {
   if (fails.length > 0) throw new Error(`golden checks failed:\n - ${fails.join("\n - ")}`);
 }
 
-// ------------------------------------------------------------------
-// The filing: ONE transaction over the whole set. Stage
-// every scheme, validate the staged rows (validity,
-// measured area against the pinned reference), assert
-// pairwise disjointness over the staged set, then swap.
-// Any failure rolls the whole filing back — the last
-// good set keeps serving, and no partial set can ever
-// exist for the brain's completeness gate to misread.
-// ------------------------------------------------------------------
+// The edition for a run: a hash of the eleven scheme
+// bodies in register order — the sources carry no edition
+// date (source_date is null throughout), so the bodies
+// themselves are the edition: a republication changes the
+// hash and the next run discards the staging.
+export function chargingZonesEdition(bodiesByKey) {
+  const hash = createHash("sha256");
+  for (const scheme of SOURCED_SCHEMES) {
+    const body = bodiesByKey.get(scheme.key);
+    const text = JSON.stringify(body ?? null);
+    hash.update(`${scheme.key}:${text.length}:${text}`);
+  }
+  return hash.digest("hex").slice(0, 16);
+}
 
+// The edition from a processed filing (the WKT of each
+// scheme's boundary, in register order) — the fallback
+// when the caller has the processed schemes but not the
+// raw bodies, as the resume tests do.
+export function chargingZonesWktEdition(filed) {
+  const hash = createHash("sha256");
+  for (const entry of filed) {
+    const wkt = polygonsToWkt(entry.polygons);
+    hash.update(`${entry.scheme.key}:${wkt.length}:${wkt}`);
+  }
+  return hash.digest("hex").slice(0, 16);
+}
+
+// --- filing ------------------------------------------------------------
+
+// Stage, validate, swap — with resume support (BUG-368):
+// the staging is a PERSISTENT table now (migration 0048)
+// and one loader_checkpoint row records the last staged
+// scheme, so a killed run re-reads the eleven boundaries
+// (cheap) and stages only the schemes past the
+// checkpoint. Each staged row carries the sha256 of its
+// WKT, so a resumed run also re-stages a scheme whose
+// boundary changed since the kill — the edition hash
+// catches a changed body, and the per-scheme hash catches
+// a boundary that re-processes differently under the
+// same body (a code change in the transform). BUG-248
+// atomicity is unchanged: the live table changes ONLY
+// on a complete, verified swap, in its own transaction;
+// staging + checkpoint are dropped (clear()) after a
+// successful swap, and stay on any failure.
 /**
- * @param {any} client
- * @param {{ filed: any[], pending: any[] }} filing
- * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ * @param {import("./progress.mjs").ProgressLogger | null} [progress]
+ * @param {{ restart?: boolean, client?: any }} [options]
  */
-export async function fileChargingZones(client, filing, { progress = null } = {}) {
-  const { filed, pending } = filing;
-  // BUG-265: the filing is one transaction over the whole set.
-  progress?.stage(
-    `filing ${formatCount(filed.length)} schemes — validity, area and disjointness checks, then the swap`,
-  );
-  await client.query("BEGIN");
+export async function beginFiling(
+  progress = null,
+  { restart = false, client: injectedClient = null } = {},
+) {
+  // The client is injectable so the resume tests can file
+  // against a fake database; production passes none and a
+  // real client is opened as before.
+  const client = injectedClient ?? new pg.Client({ connectionString: process.env.DATABASE_URL });
+  const ownsClient = !injectedClient;
+  if (ownsClient) await client.connect();
   try {
     await client.query(
-      `CREATE TEMP TABLE cz_stage (
+      `CREATE TABLE IF NOT EXISTS cz_stage (
          scheme_key text PRIMARY KEY, name text, family text, class text,
          operator text, in_force_date date, checker_url text,
          geom geometry(MultiPolygon, 4326),
          source_name text, source_date date, terms_note text,
-         loaded_at timestamptz NOT NULL DEFAULT now()
-       ) ON COMMIT DROP`,
+         loaded_at timestamptz NOT NULL DEFAULT now(),
+         geom_hash text,
+         seq bigint NOT NULL, UNIQUE (seq)
+       )`,
     );
-    for (const entry of filed) {
+  } catch (error) {
+    if (ownsClient) await client.end().catch(() => {});
+    throw error;
+  }
+  const resume = createLoaderResume(client, {
+    loader: "load-charging-zones",
+    stageTable: "cz_stage",
+    progress,
+    restart,
+  });
+  let edition = null;
+  let expected = null;
+  let staged = 0;
+  // The staged schemes' WKT hashes, keyed by scheme —
+  // seeded from the stage table on resume, advanced as
+  // schemes stage.
+  let hashes = {};
+  // The failure line's resume note: the last checkpoint
+  // written (prepare seeds it with the resumed checkpoint,
+  // the staging loop advances it).
+  let lastNote = "the start (nothing staged yet)";
+  // A scheme's seq is its index in register order — dense
+  // from 0, stable across runs, so a re-staged scheme
+  // keeps the seq the checkpoint proof already verified.
+  const schemeSeq = (key) => SOURCED_SCHEMES.findIndex((scheme) => scheme.key === key);
+  return {
+    resumeNote: () => lastNote,
+    filedSoFar: () => staged,
+    stagedHash: (key) => hashes[key] ?? null,
+    // Decide, from the edition and the staged rows, whether
+    // the run resumes or starts from zero. On resume the
+    // staged hashes are seeded from the stage table, so a
+    // scheme whose boundary changed since the kill is
+    // re-staged rather than skipped.
+    async prepareResume(ed, exp) {
+      edition = ed;
+      expected = exp;
+      const prep = await resume.prepare({ edition: ed, expected: exp });
+      if (prep.resumed) {
+        staged = prep.checkpoint.filed_count;
+        const rows = await client.query("SELECT scheme_key, geom_hash FROM cz_stage");
+        hashes = Object.fromEntries(rows.rows.map((row) => [row.scheme_key, row.geom_hash]));
+        lastNote = resume.resumeNote();
+      }
+      return prep;
+    },
+    // Stage one scheme — unless it is already staged with
+    // the same boundary, in which case it is skipped: the
+    // resumed run's cheap path. A changed boundary
+    // re-stages under the same seq (an upsert on the
+    // scheme key), and a new scheme advances the staged
+    // count. Every staged scheme checkpoints, so the save
+    // is visible in the logs.
+    async stageScheme(entry) {
       const scheme = entry.scheme;
+      const wkt = polygonsToWkt(entry.polygons);
+      const hash = createHash("sha256").update(wkt).digest("hex");
+      const seq = schemeSeq(scheme.key);
+      if (seq < 0) throw new Error(`unknown scheme ${scheme.key} — not in the register`);
+      if (seq < staged && hashes[scheme.key] === hash) return false;
       await client.query(
-        `INSERT INTO cz_stage (scheme_key, name, family, class, operator, in_force_date, checker_url, geom, source_name, source_date, terms_note)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_GeomFromText($8, 4326)), 3)), $9, $10, $11)`,
+        `INSERT INTO cz_stage (scheme_key, name, family, class, operator, in_force_date, checker_url, geom, source_name, source_date, terms_note, geom_hash, seq)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_GeomFromText($8, 4326)), 3)), $9, $10, $11, $12, $13)
+         ON CONFLICT (scheme_key) DO UPDATE SET
+           name = EXCLUDED.name, family = EXCLUDED.family, class = EXCLUDED.class,
+           operator = EXCLUDED.operator, in_force_date = EXCLUDED.in_force_date,
+           checker_url = EXCLUDED.checker_url, geom = EXCLUDED.geom,
+           source_name = EXCLUDED.source_name, source_date = EXCLUDED.source_date,
+           terms_note = EXCLUDED.terms_note, geom_hash = EXCLUDED.geom_hash,
+           seq = EXCLUDED.seq, loaded_at = now()`,
         [
           scheme.key,
           scheme.name,
@@ -602,91 +708,173 @@ export async function fileChargingZones(client, filing, { progress = null } = {}
           scheme.operator,
           scheme.inForceDate,
           scheme.checkerUrl,
-          polygonsToWkt(entry.polygons),
+          wkt,
           scheme.sourceName,
           scheme.sourceDate,
           scheme.termsNote,
+          hash,
+          seq,
         ],
       );
-    }
-    const staged = await client.query("SELECT count(*)::int AS n FROM cz_stage");
-    if (staged.rows[0].n !== filed.length)
-      throw new Error(
-        `the staged scheme count ${staged.rows[0].n} does not match the ${filed.length} processed schemes — rolling back`,
-      );
-    // Validity + measured area, per staged scheme: the
-    // boundary as filed must be a valid shape of the
-    // size the publisher's boundary measures (±25% of
-    // the reference pinned at build) — a truncated,
-    // wrong-layer or wrong-CRS republication fails here,
-    // naming the scheme.
-    const areaRows = await client.query(
-      `SELECT scheme_key, ST_IsValid(geom) AS valid,
-              ST_Area(ST_Transform(geom, 27700)) / 1000000 AS km2
-       FROM cz_stage`,
-    );
-    const byKey = new Map(filed.map((entry) => [entry.scheme.key, entry.scheme]));
-    for (const row of areaRows.rows) {
-      const scheme = byKey.get(row.scheme_key);
-      if (!scheme) throw new Error(`a staged row names unknown scheme ${row.scheme_key}`);
-      if (!row.valid)
-        throw new Error(
-          `${scheme.name}: the staged boundary is not valid after make-valid — refusing the filing`,
+      if (seq >= staged) staged = seq + 1;
+      hashes[scheme.key] = hash;
+      await resume.checkpoint({
+        edition,
+        expected,
+        nextStartIndex: staged,
+        read: staged,
+        filed: staged,
+        state: { hashes },
+        unit: "schemes",
+      });
+      lastNote = resume.resumeNote();
+      return true;
+    },
+    // Validate the staged set (validity, measured area
+    // against the pinned reference, pairwise
+    // disjointness), then swap in one transaction and
+    // verify the filed count. Staging + checkpoint go
+    // together after a successful swap.
+    async finishFiling(filing) {
+      const { filed } = filing;
+      try {
+        const stagedRes = await client.query("SELECT count(*)::int AS n FROM cz_stage");
+        if (stagedRes.rows[0].n !== filed.length)
+          throw new Error(
+            `the staged scheme count ${stagedRes.rows[0].n} does not match the ${filed.length} processed schemes — refusing the filing`,
+          );
+        // Validity + measured area, per staged scheme: the
+        // boundary as filed must be a valid shape of the
+        // size the publisher's boundary measures (±25% of
+        // the reference pinned at build) — a truncated,
+        // wrong-layer or wrong-CRS republication fails
+        // here, naming the scheme.
+        const areaRows = await client.query(
+          `SELECT scheme_key, ST_IsValid(geom) AS valid,
+                  ST_Area(ST_Transform(geom, 27700)) / 1000000 AS km2
+           FROM cz_stage`,
         );
-      const reference = scheme.referenceAreaKm2;
-      const km2 = Number(row.km2);
-      if (
-        !Number.isFinite(km2) ||
-        km2 < reference * (1 - AREA_TOLERANCE) ||
-        km2 > reference * (1 + AREA_TOLERANCE)
-      )
-        throw new Error(
-          `${scheme.name}: the staged boundary measures ${km2.toFixed(3)} km2, outside ±25% of the reference ${reference} km2 measured from the published boundary — refusing the filing`,
+        const byKey = new Map(filed.map((entry) => [entry.scheme.key, entry.scheme]));
+        for (const row of areaRows.rows) {
+          const scheme = byKey.get(row.scheme_key);
+          if (!scheme) throw new Error(`a staged row names unknown scheme ${row.scheme_key}`);
+          if (!row.valid)
+            throw new Error(
+              `${scheme.name}: the staged boundary is not valid after make-valid — refusing the filing`,
+            );
+          const reference = scheme.referenceAreaKm2;
+          const km2 = Number(row.km2);
+          if (
+            !Number.isFinite(km2) ||
+            km2 < reference * (1 - AREA_TOLERANCE) ||
+            km2 > reference * (1 + AREA_TOLERANCE)
+          )
+            throw new Error(
+              `${scheme.name}: the staged boundary measures ${km2.toFixed(3)} km2, outside ±25% of the reference ${reference} km2 measured from the published boundary — refusing the filing`,
+            );
+        }
+        if (areaRows.rows.length !== filed.length)
+          throw new Error("the staged area check did not cover every scheme — refusing the filing");
+        // Pairwise disjointness over the staged set: the
+        // zones are disjoint as published (verified at
+        // build); interiors intersecting is a filing
+        // refusal — a shared boundary edge or point (a
+        // touch) is not an overlap.
+        const overlaps = await client.query(
+          `SELECT a.scheme_key AS a, b.scheme_key AS b
+           FROM cz_stage a JOIN cz_stage b ON a.scheme_key < b.scheme_key
+           WHERE ST_Intersects(a.geom, b.geom) AND NOT ST_Touches(a.geom, b.geom)`,
         );
-    }
-    if (areaRows.rows.length !== filed.length)
-      throw new Error("the staged area check did not cover every scheme — rolling back");
-    // Pairwise disjointness over the staged set: the
-    // zones are disjoint as published (verified at
-    // build); interiors intersecting is a filing
-    // refusal — a shared boundary edge or point (a
-    // touch) is not an overlap.
-    const overlaps = await client.query(
-      `SELECT a.scheme_key AS a, b.scheme_key AS b
-       FROM cz_stage a JOIN cz_stage b ON a.scheme_key < b.scheme_key
-       WHERE ST_Intersects(a.geom, b.geom) AND NOT ST_Touches(a.geom, b.geom)`,
-    );
-    if (overlaps.rows.length > 0) {
-      const pair = overlaps.rows[0];
-      throw new Error(
-        `the staged boundaries of ${byKey.get(pair.a)?.name ?? pair.a} and ${byKey.get(pair.b)?.name ?? pair.b} overlap — the zones are disjoint as published, so an overlap is a filing error; refusing the filing`,
-      );
-    }
-    // The swap: the whole set is replaced in this
-    // transaction, so the set's loaded_at stamps share
-    // one instant and a scheme that ever leaves the
-    // register disappears at the filing that drops it.
-    await client.query("DELETE FROM charging_zones");
-    await client.query(
-      `INSERT INTO charging_zones (scheme_key, name, family, class, operator, in_force_date, checker_url, geom, source_name, source_date, terms_note, loaded_at)
-       SELECT scheme_key, name, family, class, operator, in_force_date, checker_url, geom, source_name, source_date, terms_note, loaded_at FROM cz_stage`,
-    );
-    const filedCount = await client.query("SELECT count(*)::int AS n FROM charging_zones");
-    if (filedCount.rows[0].n !== filed.length)
-      throw new Error("the filed scheme count does not match — rolling back");
-    await client.query("COMMIT");
+        if (overlaps.rows.length > 0) {
+          const pair = overlaps.rows[0];
+          throw new Error(
+            `the staged boundaries of ${byKey.get(pair.a)?.name ?? pair.a} and ${byKey.get(pair.b)?.name ?? pair.b} overlap — the zones are disjoint as published, so an overlap is a filing error; refusing the filing`,
+          );
+        }
+        // The swap: the whole set is replaced in this
+        // transaction, so the set's loaded_at stamps share
+        // one instant and a scheme that ever leaves the
+        // register disappears at the filing that drops it.
+        await client.query("BEGIN");
+        try {
+          await client.query("DELETE FROM charging_zones");
+          await client.query(
+            `INSERT INTO charging_zones (scheme_key, name, family, class, operator, in_force_date, checker_url, geom, source_name, source_date, terms_note, loaded_at)
+             SELECT scheme_key, name, family, class, operator, in_force_date, checker_url, geom, source_name, source_date, terms_note, loaded_at FROM cz_stage`,
+          );
+          const filedCount = await client.query("SELECT count(*)::int AS n FROM charging_zones");
+          if (filedCount.rows[0].n !== filed.length)
+            throw new Error("the filed scheme count does not match — rolling back");
+          await client.query("COMMIT");
+        } catch (error) {
+          await client.query("ROLLBACK").catch(() => {});
+          throw error;
+        }
+        await resume.clear();
+        lastNote = "the start (nothing staged yet)";
+      } finally {
+        if (ownsClient) await client.end().catch(() => {});
+      }
+    },
+    async abortFiling() {
+      // The staging + checkpoint STAY: they are the next
+      // run's resume point.
+      if (ownsClient) await client.end().catch(() => {});
+    },
+  };
+}
+
+// ------------------------------------------------------------------
+// The filing: stage every scheme (resumable, BUG-368),
+// validate the staged rows (validity, measured area
+// against the pinned reference), assert pairwise
+// disjointness over the staged set, then swap in its own
+// transaction. Any failure files nothing and the last
+// good set keeps serving; the staging stays as the next
+// run's resume point.
+// ------------------------------------------------------------------
+
+/**
+ * @param {any} client
+ * @param {{ filed: any[], pending: any[] }} filing
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, edition?: string | null, restart?: boolean }} [options]
+ */
+export async function fileChargingZones(
+  client,
+  filing,
+  { progress = null, edition = null, restart = false } = {},
+) {
+  const { filed, pending } = filing;
+  // BUG-265: the filing stages per scheme, validates the
+  // staged set, then swaps.
+  progress?.stage(
+    `filing ${formatCount(filed.length)} schemes — validity, area and disjointness checks, then the swap`,
+  );
+  // BUG-368: the filing is resumable — the edition is the
+  // hash of the eleven scheme bodies (or of the filed
+  // WKTs when the caller has no bodies), so a kill
+  // mid-stage resumes from the last checkpointed scheme
+  // instead of re-staging the whole set.
+  const filer = await beginFiling(progress, { restart, client });
+  try {
+    const ed = edition ?? chargingZonesWktEdition(filed);
+    await filer.prepareResume(ed, filed.length);
+    for (const entry of filed) await filer.stageScheme(entry);
+    await filer.finishFiling(filing);
   } catch (error) {
-    // BUG-265: the filing is one transaction — on a rollback
-    // the live set is untouched.
+    // BUG-368: the failure line carries the resume note,
+    // so it names the point the next run resumes from.
+    // The filing is not one transaction any more — on a
+    // failure the live table is untouched and the staging
+    // stays as the resume point.
     progress?.failed({
       stage: "filing",
-      filed: 0,
+      filed: filer.filedSoFar(),
       total: filed.length,
       error,
-      resume:
-        "re-run the loader from the start (the filing rolled back, the live set is untouched)",
+      resume: filer.resumeNote(),
     });
-    await client.query("ROLLBACK").catch(() => {});
+    await filer.abortFiling();
     throw error;
   }
   return { filedCount: filed.length, pendingCount: pending.length };
@@ -720,11 +908,16 @@ async function main() {
   const startedAt = Date.now();
   const args = process.argv.slice(2);
   const verifyOnly = args.includes("--verify-only");
+  // BUG-368: resume from the last checkpointed scheme
+  // instead of restarting; with no checkpoint this is a
+  // fresh start.
+  const restart = args.includes("--restart");
   const fileAt = args.indexOf("--file");
   const fixtureMode = fileAt !== -1;
   const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
 
   const processedByKey = new Map();
+  const bodiesByKey = new Map();
   // BUG-265: one logger for the run — the per-scheme tally
   // and the filing stage below.
   const progress = createProgressLogger({ name: "load-charging-zones" });
@@ -741,6 +934,7 @@ async function main() {
       const body = fixtureMode
         ? JSON.parse(await readFile(join(fixtureDir, `${scheme.key}.geojson`), "utf8"))
         : await fetchSchemeBody(scheme);
+      bodiesByKey.set(scheme.key, body);
       processedByKey.set(scheme.key, processScheme(scheme, body));
       schemeTally.tick(processedByKey.size);
     }
@@ -776,7 +970,15 @@ async function main() {
   const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
   await client.connect();
   try {
-    await fileChargingZones(client, filing, { progress });
+    // BUG-368: the edition is the hash of the eleven
+    // scheme bodies, so a republication discards the
+    // staging and a kill mid-stage resumes from the last
+    // checkpointed scheme.
+    await fileChargingZones(client, filing, {
+      progress,
+      edition: chargingZonesEdition(bodiesByKey),
+      restart,
+    });
   } finally {
     await client.end();
   }

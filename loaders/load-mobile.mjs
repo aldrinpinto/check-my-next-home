@@ -88,7 +88,13 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import yauzl from "yauzl";
 import { csvRecords, discoverReleaseZips } from "./load-broadband.mjs";
-import { createProgressLogger, formatCount } from "./progress.mjs";
+import { createLoaderResume } from "./loader-resume.mjs";
+import {
+  createBatchWatch,
+  createProgressLogger,
+  formatCount,
+  formatDuration,
+} from "./progress.mjs";
 
 const USER_AGENT = "CheckMyNextHome/1.0 (+https://checkmynexthome.co.uk)";
 
@@ -262,81 +268,185 @@ function unmatchedNote(n) {
 /**
  * @param {any} client
  * @param {any[]} rows
- * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, resume?: { edition?: string, restart?: boolean } | null }} [options]
  */
-export async function fileMobile(client, rows, { progress = null } = {}) {
+export async function fileMobile(
+  client,
+  rows,
+  { progress = null, resume: resumeOpts = null } = {},
+) {
   // BUG-265: the authority staging is one short loop and
   // the postcode_cache UPDATE is a single statement, so
   // this loader's lines are stage markers and counts — no
   // batch loop exists to tally. The total is genuine: the
   // release's own authority count.
+  // BUG-368: with the resume option the stage is a PERSISTENT
+  // table (migration 0048) and a loader_checkpoint row records
+  // the last fully staged chunk, so a killed run resumes
+  // instead of restarting. Without it the filing is exactly
+  // the one-shot transaction below (a TEMP stage inside one
+  // BEGIN…COMMIT). The edition is the release's snapshot +
+  // revision (e.g. "2026-03r1") — the run passes it in, since
+  // the rows alone do not carry it. The merge into
+  // postcode_cache is idempotent, so a kill during the merge
+  // resumes with staging complete and re-runs the merge.
   progress?.stage(`filing ${formatCount(rows.length)} authorities...`);
   let updated = 0;
-  await client.query("BEGIN");
+  let resume = null;
+  let staged = 0;
+  const chunks = Math.ceil(rows.length / CHUNK);
+  const fileTally = resumeOpts
+    ? progress?.tally({
+        label: "file",
+        total: chunks,
+        every: Math.max(1, Math.ceil(chunks / 20)),
+        unit: "chunks",
+      })
+    : null;
+  const fileWatch = createBatchWatch();
   try {
-    await client.query(`CREATE TEMP TABLE mobile_stage (
+    if (resumeOpts) {
+      if (!resumeOpts.edition)
+        throw new Error("fileMobile with resume needs the release edition (snapshot + revision)");
+      await client.query(`CREATE TABLE IF NOT EXISTS mobile_stage (
+          laua_name text, laua_norm text PRIMARY KEY, answer jsonb,
+          seq bigint NOT NULL, UNIQUE (seq)
+        )`);
+      resume = createLoaderResume(client, {
+        loader: "load-mobile",
+        stageTable: "mobile_stage",
+        progress,
+        restart: resumeOpts.restart ?? false,
+      });
+      const prep = await resume.prepare({ edition: resumeOpts.edition, expected: rows.length });
+      if (prep.resumed) staged = prep.checkpoint.filed_count;
+    } else {
+      await client.query("BEGIN");
+      await client.query(`CREATE TEMP TABLE mobile_stage (
         laua_name text, laua_norm text PRIMARY KEY, answer jsonb
       ) ON COMMIT DROP`);
-    for (let i = 0; i < rows.length; i += CHUNK) {
+    }
+    // The tally counts absolute chunks, so a resumed run's
+    // first tick lands at its true position. Ceil, not floor:
+    // the last chunk may be partial, and a fully staged resume
+    // must finish at total/total, not one short (a kill during
+    // the merge resumes here).
+    let chunkNo = Math.ceil(staged / CHUNK);
+    for (let i = staged; i < rows.length; i += CHUNK) {
+      const started = Date.now();
       const chunk = rows.slice(i, i + CHUNK);
       const values = [];
       const params = [];
+      const base = resume ? resume.takeSeq(chunk.length) : 0;
       chunk.forEach((r, j) => {
-        const b = j * 3;
-        values.push(`($${b + 1}, $${b + 2}, $${b + 3}::jsonb)`);
+        const b = resume ? j * 4 : j * 3;
+        values.push(
+          resume
+            ? `($${b + 1}, $${b + 2}, $${b + 3}::jsonb, $${b + 4})`
+            : `($${b + 1}, $${b + 2}, $${b + 3}::jsonb)`,
+        );
         params.push(r.lauaName, normaliseCouncil(r.lauaName), JSON.stringify(r.answer));
+        if (resume) params.push(base + j);
       });
       await client.query(
-        `INSERT INTO mobile_stage (laua_name, laua_norm, answer) VALUES ${values.join(", ")}`,
+        resume
+          ? `INSERT INTO mobile_stage (laua_name, laua_norm, answer, seq) VALUES ${values.join(", ")}`
+          : `INSERT INTO mobile_stage (laua_name, laua_norm, answer) VALUES ${values.join(", ")}`,
         params,
       );
+      staged += chunk.length;
+      chunkNo += 1;
+      const { tookMs, averageMs, slow } = fileWatch.observe(Date.now() - started);
+      fileTally?.tick(chunkNo);
+      progress?.heartbeat({ stage: "file", done: chunkNo, total: chunks });
+      if (slow) {
+        progress?.warning({
+          what: "file chunk duration",
+          value: `chunk ${chunkNo} took ${formatDuration(tookMs)}`,
+          threshold: `3x recent average ${formatDuration(averageMs)}`,
+        });
+      }
+      if (resume) {
+        await resume.checkpoint({
+          edition: resumeOpts.edition,
+          expected: rows.length,
+          nextStartIndex: staged,
+          read: staged,
+          filed: staged,
+          unit: "authorities",
+        });
+      }
     }
+    fileTally?.finish(chunkNo);
     progress?.count({
       label: "stage",
-      done: rows.length,
+      done: staged,
       total: rows.length,
       unit: "authorities",
     });
     progress?.stage("updating postcode_cache answers from the staged authorities...");
-    const updatedRes = await client.query(
-      `UPDATE postcode_cache SET answers = answers || jsonb_build_object('mobile', s.answer)
+    if (resume) {
+      // The staged authority count must match before the merge
+      // runs — the merge itself is idempotent, so a kill here
+      // resumes with staging complete and re-runs it.
+      const stagedRes = await client.query("SELECT count(*)::int AS n FROM mobile_stage");
+      if (stagedRes.rows[0].n !== rows.length)
+        throw new Error("the staged authority count does not match — rolling back");
+      await client.query("BEGIN");
+    }
+    try {
+      const updatedRes = await client.query(
+        `UPDATE postcode_cache SET answers = answers || jsonb_build_object('mobile', s.answer)
        FROM mobile_stage s
        WHERE lower(regexp_replace(trim(postcode_cache.council), '\\s+', ' ', 'g')) = s.laua_norm`,
-    );
-    updated = updatedRes.rowCount ?? 0;
-    // Any postcode still holding a mobile key that this release did
-    // not just refresh belongs to an unmatched or renamed council —
-    // clear it rather than serve a stale area figure as current.
-    await client.query(
-      `UPDATE postcode_cache SET answers = answers - 'mobile'
+      );
+      updated = updatedRes.rowCount ?? 0;
+      // Any postcode still holding a mobile key that this release did
+      // not just refresh belongs to an unmatched or renamed council —
+      // clear it rather than serve a stale area figure as current.
+      await client.query(
+        `UPDATE postcode_cache SET answers = answers - 'mobile'
        WHERE answers ? 'mobile'
          AND lower(regexp_replace(trim(council), '\\s+', ' ', 'g'))
              NOT IN (SELECT laua_norm FROM mobile_stage)`,
-    );
-    const unmatched = await client.query(
-      `SELECT council, COUNT(*)::int AS n FROM postcode_cache
+      );
+      const unmatched = await client.query(
+        `SELECT council, COUNT(*)::int AS n FROM postcode_cache
        WHERE council IS NOT NULL
          AND lower(regexp_replace(trim(council), '\\s+', ' ', 'g'))
              NOT IN (SELECT laua_norm FROM mobile_stage)
        GROUP BY council ORDER BY council`,
-    );
-    progress?.count({
-      label: "file",
-      done: updated,
-      unit: "answers",
-      extra:
-        unmatched.rows.length === 0 ? "all councils matched" : unmatchedNote(unmatched.rows.length),
-    });
-    await client.query("COMMIT");
-    return { updated, unmatched: unmatched.rows };
+      );
+      progress?.count({
+        label: "file",
+        done: updated,
+        unit: "answers",
+        extra:
+          unmatched.rows.length === 0
+            ? "all councils matched"
+            : unmatchedNote(unmatched.rows.length),
+      });
+      await client.query("COMMIT");
+      if (resume) {
+        // The run is complete: staging + checkpoint go together,
+        // so nothing is left behind for the next release.
+        await resume.clear();
+      }
+      return { updated, unmatched: unmatched.rows };
+    } catch (error) {
+      if (resume) await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    }
   } catch (err) {
     progress?.failed({
       stage: "file",
       filed: updated,
       error: err,
-      resume: "re-run from scratch (filing is one transaction; nothing was swapped)",
+      resume: resume
+        ? resume.resumeNote()
+        : "re-run from scratch (filing is one transaction; nothing was swapped)",
     });
-    await client.query("ROLLBACK").catch(() => {});
+    if (!resumeOpts) await client.query("ROLLBACK").catch(() => {});
     throw err;
   }
 }
@@ -440,6 +550,10 @@ export async function loadMobileRows({ fileDir = null, progress = null } = {}) {
 async function run() {
   const args = process.argv.slice(2);
   const verifyOnly = args.includes("--verify-only");
+  // BUG-368: resume from the last checkpointed authority
+  // instead of re-staging the whole release; with no
+  // checkpoint this is a fresh start.
+  const restart = args.includes("--restart");
   const fileAt = args.indexOf("--file");
   const fileDir = fileAt >= 0 ? args[fileAt + 1] : null;
   if (fileAt >= 0 && !fileDir) throw new Error("--file needs a directory");
@@ -467,7 +581,13 @@ async function run() {
     const client = await pool.connect();
     let result;
     try {
-      result = await fileMobile(client, rows, { progress });
+      // BUG-368: the edition is the release's snapshot +
+      // revision — the checkpoint is only valid for this
+      // release.
+      result = await fileMobile(client, rows, {
+        progress,
+        resume: { edition: `${release.snapshotLabel}${release.revision ?? ""}`, restart },
+      });
     } finally {
       client.release();
     }

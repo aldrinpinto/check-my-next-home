@@ -102,11 +102,13 @@
 // and the gate was fixed on.
 
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createWriteStream, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { createLoaderResume } from "./loader-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -545,16 +547,40 @@ export function goldenChecks(sites, counts, { full }) {
   return failures;
 }
 
-// Stage-table swap — the house pattern (see load-os-greenspace).
+// Stage-table swap — the house pattern (see load-os-greenspace),
+// with resume support (BUG-368): the stage table is
+// PERSISTENT now (migration 0048) and one loader_checkpoint
+// row records the last fully staged 500-row flush, so a
+// killed run re-pulls and re-groups (the pull itself is not
+// resumed — grouping needs the whole POI set) and stages
+// only the sites past the checkpoint. The swap stays atomic
+// — ev_points is replaced whole, in its own transaction —
+// so a mid-run failure leaves the last good data serving.
+// The edition is the source date plus a hash of the pulled
+// POI JSON, passed by the caller; without one the source
+// date stands in.
 /**
  * @param {any} pool
  * @param {any[]} sites
  * @param {string} sourceDate
  * @param {string} retrievedAt
- * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, edition?: string | null, restart?: boolean }} [options]
  */
-export async function fileEvPoints(pool, sites, sourceDate, retrievedAt, { progress = null } = {}) {
+export async function fileEvPoints(
+  pool,
+  sites,
+  sourceDate,
+  retrievedAt,
+  { progress = null, edition = null, restart = false } = {},
+) {
   const client = await pool.connect();
+  const resume = createLoaderResume(client, {
+    loader: "load-ev-chargers",
+    stageTable: "ev_stage",
+    progress,
+    restart,
+  });
+  const filerEdition = edition ?? sourceDate;
   // BUG-265: the filing stages in 500-row flushes — a
   // line every 5,000 sites with the genuine total and
   // percentage, a heartbeat every 5,000, and a warning
@@ -569,35 +595,38 @@ export async function fileEvPoints(pool, sites, sourceDate, retrievedAt, { progr
   const flushWatch = createBatchWatch();
   let staged = 0;
   try {
-    // BEGIN first — the other M5 loaders' shape, and load-
-    // bearing: the stage table is ON COMMIT DROP, and outside
-    // a transaction each statement is its own commit, so a
-    // stage created before BEGIN is dropped again by the end
-    // of its own CREATE statement and the first staged insert
-    // fails with "relation ev_stage does not exist". That is
-    // exactly what CI runs 101 and 102's database jobs hit —
-    // the first real calls of this function anywhere, the
-    // sandbox proofs having all been verify-only. This filer
-    // was written before the M5.6 fix rounds and copied the
-    // then-buggy shape.
-    await client.query("BEGIN");
-    await client.query(`CREATE TEMP TABLE ev_stage (
-      registry_id text, name text, lat double precision, lon double precision,
-      operator text, connector_types text, charging_speed text, detail jsonb,
-      source_name text, source_date date
-    ) ON COMMIT DROP`);
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS ev_stage (
+         registry_id text, name text, lat double precision, lon double precision,
+         operator text, connector_types text, charging_speed text, detail jsonb,
+         source_name text, source_date date,
+         seq bigint NOT NULL, UNIQUE (seq)
+       )`,
+    );
+    const prep = await resume.prepare({ edition: filerEdition, expected: sites.length });
+    const startOffset = prep.resumed ? prep.checkpoint.next_start_index : 0;
+    staged = prep.resumed ? prep.checkpoint.filed_count : 0;
     const values = [];
     const params = [];
     const flush = async () => {
       if (values.length === 0) return;
       const started = Date.now();
       await client.query(
-        `INSERT INTO ev_stage (registry_id, name, lat, lon, operator, connector_types, charging_speed, detail, source_name, source_date) VALUES ${values.join(", ")}`,
+        `INSERT INTO ev_stage (registry_id, name, lat, lon, operator, connector_types, charging_speed, detail, source_name, source_date, seq) VALUES ${values.join(", ")}`,
         params,
       );
       staged += values.length;
       values.length = 0;
       params.length = 0;
+      // One BUG-204 line per committed flush, never per row.
+      await resume.checkpoint({
+        edition: filerEdition,
+        expected: sites.length,
+        nextStartIndex: staged,
+        read: staged,
+        filed: staged,
+        unit: "sites",
+      });
       const { tookMs, averageMs, slow } = flushWatch.observe(Date.now() - started);
       fileTally?.tick(staged);
       progress?.heartbeat({ stage: "file", done: staged, total: sites.length, every: 5000 });
@@ -609,10 +638,12 @@ export async function fileEvPoints(pool, sites, sourceDate, retrievedAt, { progr
         });
       }
     };
-    for (const site of sites) {
+    // BUG-368: a resumed run stages only the sites past
+    // the checkpoint — the earlier sites are already staged.
+    for (const site of sites.slice(startOffset)) {
       const base = params.length;
       values.push(
-        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}::jsonb, $${base + 9}, $${base + 10})`,
+        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}::jsonb, $${base + 9}, $${base + 10}, $${base + 11})`,
       );
       params.push(
         site.registryId,
@@ -625,29 +656,43 @@ export async function fileEvPoints(pool, sites, sourceDate, retrievedAt, { progr
         JSON.stringify(site.detail),
         SOURCE_NAME,
         sourceDate,
+        resume.takeSeq(1),
       );
       if (values.length >= 500) await flush();
     }
     await flush();
     fileTally?.finish(staged);
-    await client.query("DELETE FROM ev_points");
-    await client.query(
-      `INSERT INTO ev_points (registry_id, name, latitude, longitude, connector_types, charging_speed, operator, detail, source_name, source_date, loaded_at)
-       SELECT registry_id, name, lat, lon, connector_types, charging_speed, operator, detail, source_name, source_date, $1 FROM ev_stage`,
-      [retrievedAt],
-    );
-    await client.query("COMMIT");
+    try {
+      await client.query("BEGIN");
+      await client.query("DELETE FROM ev_points");
+      await client.query(
+        `INSERT INTO ev_points (registry_id, name, latitude, longitude, connector_types, charging_speed, operator, detail, source_name, source_date, loaded_at)
+         SELECT registry_id, name, lat, lon, connector_types, charging_speed, operator, detail, source_name, source_date, $1 FROM ev_stage`,
+        [retrievedAt],
+      );
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw err;
+    }
+    // The run is complete: staging + checkpoint go
+    // together, so nothing is left behind for the next
+    // edition. A failed swap never reaches here, so its
+    // staging stays as the next run's resume point.
+    await resume.clear();
   } catch (err) {
-    // BUG-265: the filing transaction rolls back, so
-    // nothing is filed on failure.
+    // BUG-368: the failure line carries the resume note,
+    // so it names the point the next run resumes from. No
+    // transaction is open during staging, so there is
+    // nothing to roll back there; a swap failure rolls
+    // its own transaction back above.
     progress?.failed({
       stage: "file",
       filed: staged,
       total: sites.length,
       error: err,
-      resume: "re-run from scratch (the filing transaction rolls back)",
+      resume: resume.resumeNote(),
     });
-    await client.query("ROLLBACK").catch(() => {});
     throw err;
   } finally {
     client.release();
@@ -871,6 +916,9 @@ async function main() {
   const fileArg = fileIdx >= 0 ? args[fileIdx + 1] : null;
   const fixtureMode = args.includes("--fixture") || fileArg !== null;
   const verifyOnly = args.includes("--verify-only");
+  // BUG-368: resume from the last checkpointed flush instead
+  // of restarting; with no checkpoint this is a fresh start.
+  const restart = args.includes("--restart");
   const retrievedOn = todayDate();
   const workDir = mkdtempSync(join(tmpdir(), "cmnh-ev-"));
   // BUG-265: one logger for the run — the tile stages in
@@ -917,7 +965,21 @@ async function main() {
     }
     const pool = new Pool({ connectionString: process.env.DATABASE_URL });
     try {
-      await fileEvPoints(pool, sites, sourceDate, `${retrievedOn}T00:00:00Z`, { progress });
+      // BUG-368: the edition is the source date plus a hash
+      // of the pulled POI JSON — the pull itself is not
+      // resumed (grouping needs the whole POI set), but the
+      // staging is: a re-pull + re-group replays the same
+      // deterministic site order, and only the sites past
+      // the checkpoint stage again.
+      const edition = `${sourceDate}:${createHash("sha256")
+        .update(JSON.stringify(pois))
+        .digest("hex")
+        .slice(0, 16)}`;
+      await fileEvPoints(pool, sites, sourceDate, `${retrievedOn}T00:00:00Z`, {
+        progress,
+        edition,
+        restart,
+      });
     } finally {
       await pool.end();
     }

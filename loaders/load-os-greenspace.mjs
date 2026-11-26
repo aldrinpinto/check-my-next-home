@@ -122,6 +122,7 @@ import { createHash } from "node:crypto";
 import pg from "pg";
 import proj4 from "proj4";
 import yauzl from "yauzl";
+import { createLoaderResume } from "./loader-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -616,32 +617,51 @@ export function createGoldenTally() {
 }
 
 // Stage-table swap — the house pattern (see load-osm-places),
-// in its streaming form (BUG-195): createGreenspaceFiler
-// opens the one transaction and the staging table, stageRows
-// buffers rows into the same 500-row inserts the one-shot
-// filer ran, and finishFiling runs the swap. The atomicity
-// is the contract — greenspace_points is replaced whole —
-// so a failure anywhere rolls the whole filing back and a
-// re-run files it whole; nothing commits in pieces.
-export async function createGreenspaceFiler(pool, retrievedAt, { progress = null } = {}) {
+// in its streaming form (BUG-195), with resume support
+// (BUG-368): the stage table is PERSISTENT now (migration
+// 0048) and one loader_checkpoint row records the last
+// fully staged 500-row flush, so a killed run re-iterates
+// the GeoPackage from scratch and skips the first N yielded
+// rows instead of re-staging them. The swap stays atomic —
+// greenspace_points is replaced whole, in its own
+// transaction — so a mid-run failure leaves the last good
+// data serving and a re-run files the edition whole. The
+// edition is the product version + md5 (the T2 oracle):
+// the source date is stable per edition, so a resume works
+// across days. The read's one dataset-sized structure is
+// the kept-site name map, rebuilt by the generator itself
+// on a resumed run.
+export async function createGreenspaceFiler(
+  pool,
+  retrievedAt,
+  { progress = null, edition = null, restart = false } = {},
+) {
   const client = await pool.connect();
+  const resume = createLoaderResume(client, {
+    loader: "load-os-greenspace",
+    stageTable: "greenspace_stage",
+    progress,
+    restart,
+  });
   try {
-    // BEGIN first — the house pattern (see load-osm-places):
-    // the stage table is ON COMMIT DROP, and created outside
-    // a transaction it is dropped by its own CREATE statement
-    // in autocommit, so the first staged insert fails with
-    // "relation greenspace_stage does not exist" (CI run 98).
-    await client.query("BEGIN");
-    await client.query(`CREATE TEMP TABLE greenspace_stage (
-      osm_id bigint, name text, point_role text,
-      latitude double precision, longitude double precision,
-      source_name text, source_date date
-    ) ON COMMIT DROP`);
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS greenspace_stage (
+         osm_id bigint, name text, point_role text,
+         latitude double precision, longitude double precision,
+         source_name text, source_date date,
+         seq bigint NOT NULL, UNIQUE (seq)
+       )`,
+    );
   } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
     client.release();
     throw err;
   }
+  // The edition is the product version + md5, passed by the
+  // caller; without one (a hand-run through fileGreenspace)
+  // the retrieval timestamp stands in, so a same-day
+  // re-run resumes and a later run starts fresh.
+  const filerEdition = edition ?? retrievedAt;
+  const prep = await resume.prepare({ edition: filerEdition, expected: null });
   // BUG-265: the stage flushes are the filing's long phase.
   // No total exists at filer creation — the read's row count
   // is only known when the read ends — so the tally counts
@@ -650,7 +670,7 @@ export async function createGreenspaceFiler(pool, retrievedAt, { progress = null
   const stageTally = progress?.tally({ label: "stage", every: 50, unit: "flushes" });
   const stageWatch = createBatchWatch();
   let flushCount = 0;
-  let stagedRows = 0;
+  let stagedRows = prep.resumed ? prep.checkpoint.filed_count : 0;
   const values = [];
   const params = [];
   const flush = async () => {
@@ -658,13 +678,22 @@ export async function createGreenspaceFiler(pool, retrievedAt, { progress = null
     const started = Date.now();
     const flushedRows = values.length;
     await client.query(
-      `INSERT INTO greenspace_stage (osm_id, name, point_role, latitude, longitude, source_name, source_date) VALUES ${values.join(", ")}`,
+      `INSERT INTO greenspace_stage (osm_id, name, point_role, latitude, longitude, source_name, source_date, seq) VALUES ${values.join(", ")}`,
       params,
     );
     values.length = 0;
     params.length = 0;
     stagedRows += flushedRows;
     flushCount += 1;
+    // One BUG-204 line per committed flush, never per row.
+    await resume.checkpoint({
+      edition: filerEdition,
+      expected: null,
+      nextStartIndex: stagedRows,
+      read: stagedRows,
+      filed: stagedRows,
+      unit: "rows",
+    });
     const { tookMs, averageMs, slow } = stageWatch.observe(Date.now() - started);
     stageTally?.tick(flushCount);
     progress?.heartbeat({ stage: "stage", done: stagedRows, every: 50_000 });
@@ -677,12 +706,16 @@ export async function createGreenspaceFiler(pool, retrievedAt, { progress = null
     }
   };
   return {
+    // Rows already staged by a previous run: the caller
+    // skips the first this many yielded rows.
+    startOffset: prep.resumed ? prep.checkpoint.next_start_index : 0,
+    resumeNote: () => resume.resumeNote(),
     stagedCount: () => stagedRows,
     async stageRows(rows) {
       for (const row of rows) {
         const base = params.length;
         values.push(
-          `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7})`,
+          `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8})`,
         );
         params.push(
           row.osmId,
@@ -692,6 +725,7 @@ export async function createGreenspaceFiler(pool, retrievedAt, { progress = null
           row.lon,
           row.sourceName,
           row.sourceDate,
+          resume.takeSeq(1),
         );
         if (values.length >= 500) await flush();
       }
@@ -699,27 +733,43 @@ export async function createGreenspaceFiler(pool, retrievedAt, { progress = null
     async finishFiling() {
       stageTally?.finish(flushCount);
       await flush();
-      await client.query("DELETE FROM greenspace_points");
-      // The live table's position columns are latitude/longitude
-      // (migration 0001) — this INSERT originally named them
-      // lat/lon, the row objects' property names: the same
-      // defect CI run 99 exposed in the places filer's INSERT
-      // ("column lat of relation osm_points does not exist").
-      // This filer's own copy of the error never reached the
-      // log — the runner's one-line summary showed Node 22's
-      // node:sqlite ExperimentalWarning instead (runs 98–99) —
-      // but the DDL cross-check finds it here without needing
-      // the log, and the schema-contract tests now pin it.
-      await client.query(
-        `INSERT INTO greenspace_points (osm_id, name, point_role, latitude, longitude, source_name, source_date, loaded_at)
-       SELECT osm_id, name, point_role, latitude, longitude, source_name, source_date, $1 FROM greenspace_stage`,
-        [retrievedAt],
-      );
-      await client.query("COMMIT");
+      try {
+        await client.query("BEGIN");
+        await client.query("DELETE FROM greenspace_points");
+        // The live table's position columns are latitude/longitude
+        // (migration 0001) — this INSERT originally named them
+        // lat/lon, the row objects' property names: the same
+        // defect CI run 99 exposed in the places filer's INSERT
+        // ("column lat of relation osm_points does not exist").
+        // This filer's own copy of the error never reached the
+        // log — the runner's one-line summary showed Node 22's
+        // node:sqlite ExperimentalWarning instead (runs 98–99) —
+        // but the DDL cross-check finds it here without needing
+        // the log, and the schema-contract tests now pin it.
+        await client.query(
+          `INSERT INTO greenspace_points (osm_id, name, point_role, latitude, longitude, source_name, source_date, loaded_at)
+           SELECT osm_id, name, point_role, latitude, longitude, source_name, source_date, $1 FROM greenspace_stage`,
+          [retrievedAt],
+        );
+        await client.query("COMMIT");
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        client.release();
+        throw err;
+      }
+      // The run is complete: staging + checkpoint go
+      // together, so nothing is left behind for the next
+      // edition. The clear runs on this client, before it
+      // is released — it opens its own transaction. A
+      // failed swap never reaches here, so its staging
+      // stays as the next run's resume point.
+      await resume.clear();
       client.release();
     },
     async abortFiling() {
-      await client.query("ROLLBACK").catch(() => {});
+      // No transaction is open during staging, so there is
+      // nothing to roll back: the staging + checkpoint STAY
+      // as the next run's resume point.
       client.release();
     },
   };
@@ -734,16 +784,23 @@ export async function createGreenspaceFiler(pool, retrievedAt, { progress = null
  * @param {any} pool
  * @param {any[]} rows
  * @param {string} retrievedAt
- * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, edition?: string | null, restart?: boolean }} [options]
  */
-export async function fileGreenspace(pool, rows, retrievedAt, { progress = null } = {}) {
+export async function fileGreenspace(
+  pool,
+  rows,
+  retrievedAt,
+  { progress = null, edition = null, restart = false } = {},
+) {
   // BUG-265: stage marker and closing count around the
   // streaming filer (whose own flush tally covers the long
   // phase); the failure line names the staged count.
   progress?.stage(`filing ${formatCount(rows.length)} greenspace points...`);
-  const filer = await createGreenspaceFiler(pool, retrievedAt, { progress });
+  const filer = await createGreenspaceFiler(pool, retrievedAt, { progress, edition, restart });
   try {
-    await filer.stageRows(rows);
+    // BUG-368: a resumed run stages only the rows past the
+    // checkpoint — the earlier rows are already staged.
+    await filer.stageRows(rows.slice(filer.startOffset));
     progress?.count({ label: "file", done: rows.length, total: rows.length, unit: "points" });
     await filer.finishFiling();
   } catch (err) {
@@ -752,7 +809,7 @@ export async function fileGreenspace(pool, rows, retrievedAt, { progress = null 
       filed: filer.stagedCount(),
       total: rows.length,
       error: err,
-      resume: "re-run from scratch (the swap is one transaction; nothing was filed)",
+      resume: filer.resumeNote(),
     });
     await filer.abortFiling();
     throw err;
@@ -831,6 +888,9 @@ async function main() {
   const fileArg = fileIdx >= 0 ? args[fileIdx + 1] : null;
   const fixtureMode = args.includes("--fixture") || fileArg !== null;
   const verifyOnly = args.includes("--verify-only");
+  // BUG-368: resume from the last checkpointed flush instead
+  // of restarting; with no checkpoint this is a fresh start.
+  const restart = args.includes("--restart");
   const retrievedOn = todayDate();
   // BUG-265: one logger for the download, the read and the
   // swap; the read's row total is unknown up front (the
@@ -934,7 +994,14 @@ async function main() {
     try {
       if (!verifyOnly) {
         pool = new Pool({ connectionString: process.env.DATABASE_URL });
-        filer = await createGreenspaceFiler(pool, `${retrievedOn}T00:00:00Z`, { progress });
+        // BUG-368: the edition is the product version + md5
+        // (the T2 oracle) — the filer resumes from the last
+        // checkpointed flush when a previous run died.
+        filer = await createGreenspaceFiler(pool, `${retrievedOn}T00:00:00Z`, {
+          progress,
+          edition: `${version}:${md5}`,
+          restart,
+        });
       }
       progress.stage("reading the GeoPackage...");
       const iterator = iterateGreenspaceFile(gpkgPath, versionDate(version));
@@ -942,12 +1009,15 @@ async function main() {
         let step;
         while (!(step = iterator.next()).done) {
           const row = step.value;
+          // The golden tally offers EVERY row, including
+          // ones a resumed run skips staging: the checks
+          // judge the whole read, not the resumed tail.
           tally.offer(row);
           if (row.pointRole === "centre") centres += 1;
           filedRows += 1;
           readTally.tick(filedRows);
           progress.heartbeat({ stage: "read", done: filedRows, every: 100_000 });
-          if (filer) await filer.stageRows([row]);
+          if (filer && filedRows > filer.startOffset) await filer.stageRows([row]);
         }
         read = step.value;
       } finally {
@@ -961,7 +1031,7 @@ async function main() {
         stage: "read",
         filed: filedRows,
         error: err,
-        resume: "re-run from scratch (the swap transaction rolls back)",
+        resume: filer ? filer.resumeNote() : "the start (nothing staged yet)",
       });
       if (filer) await filer.abortFiling();
       if (pool) await pool.end().catch(() => {});

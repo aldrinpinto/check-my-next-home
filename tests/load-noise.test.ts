@@ -267,11 +267,15 @@ describe("toBng — the live sampling conversion", () => {
 });
 
 describe("filing — statement order and the swap", () => {
-  it("opens BEGIN before the stage create and swaps in one transaction", async () => {
+  it("stages into a persistent table and swaps in its own transaction", async () => {
     const statements: string[] = [];
+    let staged = 0;
     const client = {
-      query: async (sql: string) => {
+      query: async (sql: string, params: unknown[] = []) => {
         statements.push(sql);
+        if (/INSERT INTO noise_stage/.test(sql)) staged += params.length / 7;
+        if (/SELECT count\(\*\)::int AS n FROM noise_stage/.test(sql))
+          return { rows: [{ n: staged }], rowCount: 1 };
         return { rows: [], rowCount: 0 };
       },
     };
@@ -288,12 +292,209 @@ describe("filing — statement order and the swap", () => {
         },
       ] as never,
     );
+    // BUG-368: the stage is persistent now — the CREATE
+    // TABLE IF NOT EXISTS opens the run (no BEGIN before
+    // it: staging commits per chunk), and the swap runs in
+    // its own transaction after the staging.
+    const stageAt = statements.findIndex((s) => /CREATE TABLE IF NOT EXISTS noise_stage/.test(s));
+    expect(stageAt).toBe(0);
+    const insertAt = statements.findIndex((s) => /INSERT INTO noise_stage/.test(s));
     const beginAt = statements.findIndex((s) => s === "BEGIN");
-    const stageAt = statements.findIndex((s) => /CREATE TEMP TABLE noise_stage/.test(s));
-    expect(beginAt).toBeGreaterThanOrEqual(0);
-    expect(stageAt).toBeGreaterThan(beginAt);
+    expect(insertAt).toBeGreaterThan(stageAt);
+    expect(beginAt).toBeGreaterThan(insertAt);
     expect(statements.some((s) => /INSERT INTO noise_summary \(/.test(s))).toBe(true);
     expect(statements.at(-1)).toBe("COMMIT");
+  });
+});
+
+describe("resume (BUG-368)", () => {
+  // A fake pg client: the staged rows, the live summary and
+  // the loader_checkpoint row as arrays, with just enough
+  // SQL to run the filer.
+  type StagedRow = { areaRef: string; sourceKind: string; seq: number };
+  type CheckpointRow = {
+    loader: string;
+    edition: string;
+    expected: number | null;
+    next_start_index: number;
+    read_count: number;
+    filed_count: number;
+    state: Record<string, unknown> | null;
+  };
+  function createFakeClient() {
+    let staged: StagedRow[] = [];
+    let live: StagedRow[] = [];
+    const checkpoints = new Map<string, CheckpointRow>();
+    let insertCalls = 0;
+    let failAfterInserts: number | null = null;
+    let snapshot: { staged: StagedRow[]; live: StagedRow[] } | null = null;
+    const query = async (sql: string, params: unknown[] = []) => {
+      const text = sql.replace(/\s+/g, " ");
+      if (text === "BEGIN") {
+        snapshot = { staged: [...staged], live: [...live] };
+        return { rows: [] };
+      }
+      if (text === "COMMIT") {
+        snapshot = null;
+        return { rows: [] };
+      }
+      if (text === "ROLLBACK") {
+        if (snapshot) {
+          staged = snapshot.staged;
+          live = snapshot.live;
+        }
+        snapshot = null;
+        return { rows: [] };
+      }
+      if (/CREATE TABLE IF NOT EXISTS noise_stage/.test(text)) return { rows: [] };
+      if (/INSERT INTO noise_stage/.test(text)) {
+        insertCalls += 1;
+        if (failAfterInserts !== null && insertCalls > failAfterInserts)
+          throw new Error("simulated kill: the database connection dropped mid-insert");
+        for (let r = 0; r < params.length / 7; r++)
+          staged.push({
+            areaRef: params[r * 7] as string,
+            sourceKind: params[r * 7 + 1] as string,
+            seq: params[r * 7 + 6] as number,
+          });
+        return { rows: [], rowCount: params.length / 7 };
+      }
+      if (/SELECT loader, edition, expected, next_start_index/.test(text)) {
+        const row = checkpoints.get(params[0] as string);
+        return { rows: row ? [row] : [] };
+      }
+      if (/INSERT INTO loader_checkpoint/.test(text)) {
+        checkpoints.set(params[0] as string, {
+          loader: params[0] as string,
+          edition: params[1] as string,
+          expected: params[2] as number | null,
+          next_start_index: params[3] as number,
+          read_count: params[4] as number,
+          filed_count: params[5] as number,
+          state: JSON.parse(params[6] as string) as Record<string, unknown>,
+        });
+        return { rows: [] };
+      }
+      if (/DELETE FROM loader_checkpoint WHERE loader =/.test(text)) {
+        checkpoints.delete(params[0] as string);
+        return { rows: [] };
+      }
+      if (/SELECT count\(\*\)::int AS n, coalesce\(sum\(seq\)/.test(text)) {
+        return {
+          rows: [
+            {
+              n: staged.length,
+              s: staged.reduce((a, r) => a + r.seq, 0),
+              m: staged.length ? Math.max(...staged.map((r) => r.seq)) : 0,
+            },
+          ],
+        };
+      }
+      if (/DELETE FROM noise_stage WHERE seq >=/.test(text)) {
+        staged = staged.filter((r) => r.seq < (params[0] as number));
+        return { rows: [], rowCount: 0 };
+      }
+      if (/DELETE FROM noise_stage/.test(text)) {
+        staged = [];
+        return { rows: [] };
+      }
+      if (/SELECT count\(\*\)::int AS n FROM noise_stage/.test(text))
+        return { rows: [{ n: staged.length }] };
+      if (/DELETE FROM noise_summary/.test(text)) {
+        live = [];
+        return { rows: [] };
+      }
+      if (/INSERT INTO noise_summary/.test(text)) {
+        live = [...staged];
+        return { rows: [] };
+      }
+      throw new Error(`fake client: unhandled SQL: ${sql}`);
+    };
+    return {
+      query,
+      staged: () => staged,
+      live: () => live,
+      checkpoints,
+      setFailAfterInserts: (n: number | null) => {
+        insertCalls = 0;
+        failAfterInserts = n;
+      },
+    };
+  }
+  const rows1200 = () =>
+    Array.from({ length: 1200 }, (_, i) => ({
+      areaRef: `PC${String(i).padStart(4, "0")}`,
+      sourceKind: i % 2 === 0 ? "road" : "rail",
+      dayBand: "Below 55 dB",
+      nightBand: "Below 50 dB",
+      latitude: 51.5,
+      longitude: 0.1,
+    }));
+
+  it("kill mid-staging resumes and files every row exactly once", async () => {
+    const fake = createFakeClient();
+    const lines: string[] = [];
+    const progress = createProgressLogger({
+      name: "load-noise",
+      log: (...args: unknown[]) => lines.push(args.join(" ")),
+    });
+    fake.setFailAfterInserts(1);
+    await expect(fileNoise(fake as never, rows1200() as never, { progress })).rejects.toThrow(
+      /simulated kill/,
+    );
+    expect(fake.staged().length).toBe(500);
+    expect(fake.checkpoints.get("load-noise")?.next_start_index).toBe(500);
+    expect(
+      lines.some((l) =>
+        /checkpoint 500\/1,200 rows \(42%\) · staged 500 · resume from 500/.test(l),
+      ),
+    ).toBe(true);
+
+    fake.setFailAfterInserts(null);
+    const resumeLines: string[] = [];
+    const resumeProgress = createProgressLogger({
+      name: "load-noise",
+      log: (...args: unknown[]) => resumeLines.push(args.join(" ")),
+    });
+    await fileNoise(fake as never, rows1200() as never, { progress: resumeProgress });
+    expect(
+      resumeLines.some((l) =>
+        /resuming from checkpoint · 500 rows staged · edition round4-2024-10-01 · resume from 500/.test(
+          l,
+        ),
+      ),
+    ).toBe(true);
+    expect(fake.live().length).toBe(1200);
+    expect(new Set(fake.live().map((r) => r.areaRef)).size).toBe(1200);
+    expect(fake.staged().length).toBe(0);
+    expect(fake.checkpoints.get("load-noise")).toBeUndefined();
+  });
+
+  it("a row-count change discards the staged rows and starts from zero", async () => {
+    const fake = createFakeClient();
+    fake.setFailAfterInserts(1);
+    await expect(fileNoise(fake as never, rows1200() as never)).rejects.toThrow(/simulated kill/);
+    expect(fake.staged().length).toBe(500);
+    fake.setFailAfterInserts(null);
+    // One extra row: the expected total moved, so the
+    // checkpoint no longer belongs to this run.
+    await fileNoise(fake as never, [...rows1200(), rows1200()[0]] as never);
+    expect(fake.live().length).toBe(1201);
+    expect(fake.staged().length).toBe(0);
+    expect(fake.checkpoints.get("load-noise")).toBeUndefined();
+  });
+
+  it("--restart discards the checkpoint and starts from zero", async () => {
+    const fake = createFakeClient();
+    fake.setFailAfterInserts(1);
+    await expect(fileNoise(fake as never, rows1200() as never)).rejects.toThrow(/simulated kill/);
+    expect(fake.staged().length).toBe(500);
+    fake.setFailAfterInserts(null);
+    await fileNoise(fake as never, rows1200() as never, { restart: true });
+    expect(fake.live().length).toBe(1200);
+    expect(new Set(fake.live().map((r) => r.areaRef)).size).toBe(1200);
+    expect(fake.staged().length).toBe(0);
+    expect(fake.checkpoints.get("load-noise")).toBeUndefined();
   });
 });
 
@@ -318,9 +519,13 @@ describe("progress — BUG-265", () => {
     const { lines, log } = collect();
     const progress = createProgressLogger({ name: "load-noise", log });
     const statements: string[] = [];
+    let staged = 0;
     const client = {
-      query: async (sql: string) => {
+      query: async (sql: string, params: unknown[] = []) => {
         statements.push(sql);
+        if (/INSERT INTO noise_stage/.test(sql)) staged += params.length / 7;
+        if (/SELECT count\(\*\)::int AS n FROM noise_stage/.test(sql))
+          return { rows: [{ n: staged }], rowCount: 1 };
         return { rows: [], rowCount: 0 };
       },
     };
@@ -344,7 +549,9 @@ describe("progress — BUG-265", () => {
     );
     expect(
       lines.some((l) =>
-        /failed · file · filed 0 of 1 · forced failure · resume from re-run from scratch/.test(l),
+        /failed · file · filed 0 of 1 · forced failure · resume from the start \(nothing staged yet\)/.test(
+          l,
+        ),
       ),
     ).toBe(true);
   });

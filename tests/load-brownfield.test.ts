@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { processSites, siteAddress } from "../loaders/load-brownfield.mjs";
+import { beginFiling, processSites, siteAddress } from "../loaders/load-brownfield.mjs";
 import { createProgressLogger } from "../loaders/progress.mjs";
 
 // Guards the brownfield loader (plan step M6.21, decision
@@ -279,5 +279,290 @@ describe("recorded spelling correction (BUG-344(b))", () => {
     expect(processed.filed.some((f) => (f.row["site-address"] ?? "").includes("Stratigic"))).toBe(
       false,
     );
+  });
+});
+
+describe("resume (BUG-368)", () => {
+  // A fake pg client: the staged rows, the live tables, the
+  // gate staging and the loader_checkpoint row as arrays,
+  // with just enough SQL to run the filer.
+  type StagedRow = { reference: string; seq: number };
+  type GateRow = { organisation_entity: string; current_sites: number };
+  type CheckpointRow = {
+    loader: string;
+    edition: string;
+    expected: number | null;
+    next_start_index: number;
+    read_count: number;
+    filed_count: number;
+    state: Record<string, unknown> | null;
+  };
+  function createFakeClient() {
+    let staged: StagedRow[] = [];
+    let gateStaged: GateRow[] = [];
+    let live: StagedRow[] = [];
+    let liveGate: GateRow[] = [];
+    const checkpoints = new Map<string, CheckpointRow>();
+    let insertCalls = 0;
+    let failAfterInserts: number | null = null;
+    let snapshot: {
+      staged: StagedRow[];
+      gateStaged: GateRow[];
+      live: StagedRow[];
+      liveGate: GateRow[];
+      checkpoints: Map<string, CheckpointRow>;
+    } | null = null;
+    const query = async (sql: string, params: unknown[] = []) => {
+      const text = sql.replace(/\s+/g, " ");
+      if (text === "BEGIN") {
+        snapshot = {
+          staged: [...staged],
+          gateStaged: [...gateStaged],
+          live: [...live],
+          liveGate: [...liveGate],
+          checkpoints: new Map(checkpoints),
+        };
+        return { rows: [] };
+      }
+      if (text === "COMMIT") {
+        snapshot = null;
+        return { rows: [] };
+      }
+      if (text === "ROLLBACK") {
+        if (snapshot) {
+          staged = snapshot.staged;
+          gateStaged = snapshot.gateStaged;
+          live = snapshot.live;
+          liveGate = snapshot.liveGate;
+          checkpoints.clear();
+          for (const [k, v] of snapshot.checkpoints) checkpoints.set(k, v);
+        }
+        snapshot = null;
+        return { rows: [] };
+      }
+      if (/CREATE TABLE IF NOT EXISTS brownfield_(stage|gate_stage)/.test(text))
+        return { rows: [] };
+      if (/INSERT INTO brownfield_stage/.test(text)) {
+        insertCalls += 1;
+        if (failAfterInserts !== null && insertCalls > failAfterInserts)
+          throw new Error("simulated kill: the database connection dropped mid-insert");
+        for (let r = 0; r < params.length / 13; r++) {
+          const b = r * 13;
+          staged.push({ reference: params[b] as string, seq: params[b + 12] as number });
+        }
+        return { rows: [], rowCount: params.length / 13 };
+      }
+      if (
+        /SELECT loader, edition, expected, next_start_index, read_count, filed_count, state, updated_at/.test(
+          text,
+        )
+      ) {
+        const row = checkpoints.get(params[0] as string);
+        return { rows: row ? [row] : [] };
+      }
+      if (/INSERT INTO loader_checkpoint/.test(text)) {
+        checkpoints.set(params[0] as string, {
+          loader: params[0] as string,
+          edition: params[1] as string,
+          expected: params[2] as number | null,
+          next_start_index: params[3] as number,
+          read_count: params[4] as number,
+          filed_count: params[5] as number,
+          state: JSON.parse(params[6] as string) as Record<string, unknown>,
+        });
+        return { rows: [] };
+      }
+      if (/DELETE FROM loader_checkpoint WHERE loader =/.test(text)) {
+        checkpoints.delete(params[0] as string);
+        return { rows: [] };
+      }
+      if (/SELECT count\(\*\)::int AS n, coalesce\(sum\(seq\)/.test(text)) {
+        return {
+          rows: [
+            {
+              n: staged.length,
+              s: staged.reduce((a, r) => a + r.seq, 0),
+              m: staged.length ? Math.max(...staged.map((r) => r.seq)) : 0,
+            },
+          ],
+        };
+      }
+      if (/DELETE FROM brownfield_stage WHERE seq >=/.test(text)) {
+        staged = staged.filter((r) => r.seq < (params[0] as number));
+        return { rows: [], rowCount: 0 };
+      }
+      if (/DELETE FROM brownfield_stage/.test(text)) {
+        staged = [];
+        return { rows: [] };
+      }
+      if (/SELECT count\(\*\)::int AS n FROM brownfield_stage/.test(text))
+        return { rows: [{ n: staged.length }] };
+      if (/DELETE FROM brownfield_gate_stage/.test(text)) {
+        gateStaged = [];
+        return { rows: [] };
+      }
+      if (/INSERT INTO brownfield_gate_stage/.test(text)) {
+        for (let r = 0; r < params.length / 4; r++) {
+          const b = r * 4;
+          gateStaged.push({
+            organisation_entity: params[b] as string,
+            current_sites: params[b + 1] as number,
+          });
+        }
+        return { rows: [], rowCount: params.length / 4 };
+      }
+      if (/DELETE FROM brownfield_sites/.test(text)) {
+        live = [];
+        return { rows: [] };
+      }
+      if (/INSERT INTO brownfield_sites/.test(text)) {
+        live = [...staged];
+        return { rows: [] };
+      }
+      if (/SELECT count\(\*\)::int AS n FROM brownfield_sites/.test(text))
+        return { rows: [{ n: live.length }] };
+      if (/DELETE FROM brownfield_publishers/.test(text)) {
+        liveGate = [];
+        return { rows: [] };
+      }
+      if (/INSERT INTO brownfield_publishers/.test(text)) {
+        liveGate = [...gateStaged];
+        return { rows: [] };
+      }
+      if (/SELECT count\(\*\)::int AS n FROM brownfield_publishers/.test(text))
+        return { rows: [{ n: liveGate.length }] };
+      throw new Error(`fake client: unhandled SQL: ${sql}`);
+    };
+    return {
+      query,
+      staged: () => staged,
+      live: () => live,
+      liveGate: () => liveGate,
+      checkpoints,
+      setFailAfterInserts: (n: number | null) => {
+        insertCalls = 0;
+        failAfterInserts = n;
+      },
+    };
+  }
+  type FakeClient = ReturnType<typeof createFakeClient>;
+  const EDITION = "2026-11-12:0123456789abcdef";
+  const SOURCE_DATE = "2026-11-12";
+  // Synthetic filed items in the filer's shape: 1,200
+  // distinct sites across three organisations.
+  const makeItems = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      row: {
+        reference: `REF-${i}`,
+        "organisation-entity": ["56", "246", "129"][i % 3],
+        "site-address": `Site ${i}, Test Street`,
+        hectares: "1.5",
+        "planning-permission-status": "permissioned",
+        "minimum-net-dwellings": "10",
+        "maximum-net-dwellings": "20",
+        "site-plan-url": "",
+        "entry-date": "2026-01-01",
+        entity: String(i),
+      },
+      lat: 51.7 + i * 0.0001,
+      lng: 0.6,
+    }));
+  const publishers = new Map([
+    ["56", 400],
+    ["246", 400],
+    ["129", 400],
+  ]);
+  async function runLoad(
+    fake: FakeClient,
+    { restart = false, lines = null as string[] | null } = {},
+  ) {
+    const capturedLines: string[] = lines ?? [];
+    const progress = createProgressLogger({
+      name: "load-brownfield",
+      log: (line: string) => capturedLines.push(line),
+    });
+    const filer = await beginFiling(progress, { client: fake as never, restart });
+    const items = makeItems(1200);
+    const prep = await filer.prepareResume(EDITION, items.length);
+    const startOffset = prep.resumed ? prep.checkpoint.next_start_index : 0;
+    await filer.stageSites(items.slice(startOffset), SOURCE_DATE);
+    await filer.finishFiling(items.length, publishers, SOURCE_DATE);
+    return { filer, items, lines: capturedLines };
+  }
+
+  it(
+    "kill mid-stage resumes from the last chunk and files every site exactly once",
+    { timeout: 60_000 },
+    async () => {
+      const fake = createFakeClient();
+      // The first 500-row chunk lands and checkpoints at
+      // 500; the second chunk (insert 2) dies — 500 staged,
+      // the checkpoint at 500, the gate untouched.
+      const killLines: string[] = [];
+      fake.setFailAfterInserts(1);
+      await expect(runLoad(fake, { lines: killLines })).rejects.toThrow(/simulated kill/);
+      expect(fake.staged().length).toBe(500);
+      expect(fake.checkpoints.get("load-brownfield")?.next_start_index).toBe(500);
+      expect(fake.live().length).toBe(0);
+      expect(fake.liveGate().length).toBe(0);
+      expect(
+        killLines.some((l) =>
+          /checkpoint 500\/1,200 sites \(42%\) · staged 500 · resume from 500/.test(l),
+        ),
+      ).toBe(true);
+
+      fake.setFailAfterInserts(null);
+      const { filer, items, lines } = await runLoad(fake);
+      expect(
+        lines.some((l) =>
+          /resuming from checkpoint · 500 rows staged · edition 2026-11-12:0123456789abcdef · resume from 500/.test(
+            l,
+          ),
+        ),
+      ).toBe(true);
+      expect(fake.live().length).toBe(1200);
+      expect(new Set(fake.live().map((r) => r.reference)).size).toBe(1200);
+      expect(fake.liveGate().length).toBe(3);
+      expect(
+        fake
+          .liveGate()
+          .map((g) => g.current_sites)
+          .sort(),
+      ).toEqual([400, 400, 400]);
+      expect(items.length).toBe(1200);
+      expect(fake.staged().length).toBe(0);
+      expect(fake.checkpoints.get("load-brownfield")).toBeUndefined();
+      expect(filer.resumeNote()).toBe("the start (nothing staged yet)");
+    },
+  );
+
+  it(
+    "an edition change discards the staged rows and starts from zero",
+    { timeout: 60_000 },
+    async () => {
+      const fake = createFakeClient();
+      fake.setFailAfterInserts(1);
+      await expect(runLoad(fake)).rejects.toThrow(/simulated kill/);
+      expect(fake.staged().length).toBe(500);
+
+      const progress = createProgressLogger({ name: "load-brownfield" });
+      const filer = await beginFiling(progress, { client: fake as never });
+      const prep = await filer.prepareResume("2099-01-01:deadbeefdeadbeef", 1200);
+      expect(prep.resumed).toBe(false);
+      expect(fake.staged().length).toBe(0);
+      expect(fake.checkpoints.get("load-brownfield")).toBeUndefined();
+    },
+  );
+
+  it("--restart discards the checkpoint and starts from zero", { timeout: 60_000 }, async () => {
+    const fake = createFakeClient();
+    fake.setFailAfterInserts(1);
+    await expect(runLoad(fake)).rejects.toThrow(/simulated kill/);
+    expect(fake.staged().length).toBe(500);
+
+    fake.setFailAfterInserts(null);
+    await runLoad(fake, { restart: true });
+    expect(fake.live().length).toBe(1200);
+    expect(fake.checkpoints.get("load-brownfield")).toBeUndefined();
   });
 });

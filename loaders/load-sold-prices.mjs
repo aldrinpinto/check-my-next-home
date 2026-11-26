@@ -282,10 +282,6 @@ async function collectFromLines(lines, targets, stats) {
   return byGuid;
 }
 
-async function collectFromText(text, targets, stats) {
-  return collectFromLines(text.split(/\r?\n/), targets, stats);
-}
-
 // ------------------------------------------------------------------
 // The national mode and the monthly update (adopted prep, gaps 1–7)
 // ------------------------------------------------------------------
@@ -439,24 +435,36 @@ function recordValues(record, sourceDate, sourceName = SOURCE_NAME) {
 // defaults to the register's standing source name; the national
 // pass stages with null — the staging stores no per-row copy of
 // a pass-wide constant (BUG-201), and the swap writes the real
-// one as it files the rows.
-async function insertRecords(client, table, records, sourceDate, sourceName = SOURCE_NAME) {
+// one as it files the rows. seqBase, when given, prepends the
+// staging seq (BUG-368, the legacy pass's takeSeq-assigned
+// ordinal — the national pass's identity column needs none).
+async function insertRecords(
+  client,
+  table,
+  records,
+  sourceDate,
+  sourceName = SOURCE_NAME,
+  seqBase = null,
+) {
   if (records.length === 0) return;
-  const width = PRICE_PAID_COLUMNS.length;
+  const width = PRICE_PAID_COLUMNS.length + (seqBase === null ? 0 : 1);
   const tuples = [];
   const params = [];
   records.forEach((record, row) => {
-    tuples.push(`(${PRICE_PAID_COLUMNS.map((_, col) => `$${row * width + col + 1}`).join(",")})`);
-    params.push(...recordValues(record, sourceDate, sourceName));
+    const values = seqBase === null ? [] : [seqBase + row];
+    values.push(...recordValues(record, sourceDate, sourceName));
+    tuples.push(`(${values.map((_, col) => `$${row * width + col + 1}`).join(",")})`);
+    params.push(...values);
   });
-  await client.query(
-    `INSERT INTO ${table}
-       (transaction_id, postcode, price, sale_date, property_type, new_build,
+  const columns =
+    seqBase === null
+      ? `(transaction_id, postcode, price, sale_date, property_type, new_build,
         tenure, paon, saon, street, locality, town, county, ppd_category,
-        record_status, source_name, source_date)
-     VALUES ${tuples.join(", ")}`,
-    params,
-  );
+        record_status, source_name, source_date)`
+      : `(seq, transaction_id, postcode, price, sale_date, property_type, new_build,
+        tenure, paon, saon, street, locality, town, county, ppd_category,
+        record_status, source_name, source_date)`;
+  await client.query(`INSERT INTO ${table} ${columns} VALUES ${tuples.join(", ")}`, params);
 }
 
 async function deleteByGuids(client, table, guids) {
@@ -1209,6 +1217,570 @@ export async function runNational(
   };
 }
 
+// --legacy: the per-postcode load, with resume support (BUG-368).
+// The legacy mode streams the whole 5.54 GB full file (at ~2.6
+// MB/s from this VM, ~35 minutes a postcode) and used to hold the
+// target postcodes' sales in an in-memory Map, so a kill anywhere
+// in the stream lost the run outright. It now stages the target
+// records into the PERSISTENT sold_prices_legacy_stage table as
+// the stream reads them (migration 0048 — the parent adds the
+// table at merge time; runLegacy still creates it, so the loader
+// works on a database the migration has not yet reached), and a
+// loader_checkpoint row records the last fully staged chunk, so
+// a killed run resumes mid-stream instead of re-reading the file.
+//
+// THE RESUME UNITS. The intake is line-based, like the national
+// pass: the checkpoint's next_start_index is the count of lines
+// read, and a resumed run re-reads the file from the start,
+// skipping that many lines (the skipped lines still count their
+// bytes, so the BUG-188 size guard reconciles exactly as on a
+// fresh run). The staged rows carry takeSeq seqs (the AQMA
+// shape — assigned at flush, so a kill between a flush and its
+// checkpoint leaves a trimmable tail), and the checkpoint lands
+// every 500,000 lines read plus at the intake's end, one line
+// per checkpointed chunk — the target records are sparse (a
+// handful per million lines), so the batch flush alone would
+// stage nothing for most of the stream and the resume point
+// would never advance. Past the intake the staged set is no
+// longer a prefix (the dedupe deletes rows, the merge replaces
+// them), so the phase checkpoints use the national pass's
+// stagedCheck: only the intake phase takes the prefix proof,
+// and the dedupe/merge steps reconcile by count instead. The
+// filing is unchanged in shape: each postcode's set is swapped
+// whole inside ONE transaction, proved by a read-back before
+// commit, and a successful filing clears staging + checkpoint
+// together (BUG-248 atomicity unchanged).
+const LEGACY_STAGE_TABLE = "sold_prices_legacy_stage";
+const LEGACY_CHECKPOINT_EVERY_LINES = 500000;
+
+/**
+ * @param {any} client
+ * @param {{ fullLines: AsyncIterable<string> | Iterable<string>, updateLines: Iterable<string>, targets: Set<string>, edition: string | null, resumeEdition?: string | null, expectedFullBytes?: number | null, progress?: any, restart?: boolean }} options
+ */
+export async function runLegacy(
+  client,
+  {
+    fullLines,
+    updateLines,
+    targets,
+    edition,
+    resumeEdition = null,
+    expectedFullBytes = null,
+    progress = null,
+    restart = false,
+  },
+) {
+  const startedAt = Date.now();
+  const stats = { malformed: 0, emptyPostcode: 0, duplicates: 0, uncovered: {} };
+  const targetList = [...targets];
+  await client.query(
+    `CREATE TABLE IF NOT EXISTS ${LEGACY_STAGE_TABLE} (
+       seq bigint NOT NULL,
+       transaction_id text,
+       postcode text,
+       price integer,
+       sale_date date,
+       property_type text,
+       new_build boolean,
+       tenure text,
+       paon text,
+       saon text,
+       street text,
+       locality text,
+       town text,
+       county text,
+       ppd_category text,
+       record_status text,
+       source_name text,
+       source_date date,
+       UNIQUE (seq)
+     )`,
+  );
+  if (!resumeEdition) {
+    // No edition to key a checkpoint on: this run cannot resume,
+    // so a stage table left by a crashed earlier run is stale
+    // and must not mix with this run's rows.
+    await client.query(`TRUNCATE ${LEGACY_STAGE_TABLE}`);
+  }
+  let resume = null;
+  /** @type {{ resumed: boolean, reason?: string, checkpoint?: any, prefix?: boolean }} */
+  let resumePrep = { resumed: false };
+  if (resumeEdition) {
+    resume = createLoaderResume(client, {
+      loader: "load-sold-prices-legacy",
+      stageTable: LEGACY_STAGE_TABLE,
+      progress,
+      restart,
+    });
+    resumePrep = await resume.prepare({
+      edition: resumeEdition,
+      expected: null,
+      // Past the intake the staged set is no longer a prefix
+      // (the dedupe deletes rows, the merge replaces them), so
+      // the prefix proof cannot apply: the step reconciliations
+      // below are the guard, and the phase checkpoints are
+      // written only once their step has reconciled.
+      stagedCheck: (checkpoint) => {
+        const phase = checkpoint.state?.phase ?? "intake";
+        if (phase === "intake") return null;
+        return { resumed: true, checkpoint, prefix: false };
+      },
+    });
+  }
+  // The checkpoint's phase: intake (died reading), deduped,
+  // merged. A run that died after the intake re-runs only the
+  // steps after its phase — the intake stream is never re-read
+  // once its tallies stand checkpointed.
+  const resumeState = resumePrep.resumed ? (resumePrep.checkpoint.state ?? {}) : {};
+  const resumePhase = resumePrep.resumed ? (resumeState.phase ?? "intake") : "intake";
+  const skipLines = resumePrep.resumed ? resumePrep.checkpoint.next_start_index : 0;
+  if (resumePrep.resumed) {
+    stats.malformed = resumeState.malformed ?? 0;
+    stats.emptyPostcode = resumeState.emptyPostcode ?? 0;
+    stats.uncovered = resumeState.uncovered ?? {};
+  }
+
+  // 1 — the full file, streamed and filtered to the requested
+  // postcodes, staged as it is read (the target records are
+  // sparse, so the checkpoint cadence is lines read, not rows
+  // staged — a batch flush alone would never advance it).
+  let batch = [];
+  let linesRead = resumePhase === "intake" ? 0 : (resumeState.linesRead ?? 0);
+  let lineBytes = resumePhase === "intake" ? 0 : (resumeState.lineBytes ?? 0);
+  let recordsStaged = resumePrep.resumed ? resumePrep.checkpoint.filed_count : 0;
+  // The parsed count before the dedupe collapses duplicates:
+  // the dedupe reconciliation is checked against this, and a
+  // run that died after the dedupe carries it in the
+  // checkpoint (the deduped checkpoint's filed count is the
+  // post-dedupe total, so it cannot stand in for it).
+  let parsedStaged = 0;
+  let seqNext = resumePrep.resumed ? resumePrep.checkpoint.filed_count : 0;
+  let nextCheckpointLine =
+    (Math.floor(skipLines / LEGACY_CHECKPOINT_EVERY_LINES) + 1) * LEGACY_CHECKPOINT_EVERY_LINES;
+  // BUG-248: the pass's later steps read these — they are
+  // assigned inside the intake-and-staging wrap below, and
+  // the wrap's catch reports them when a step refuses.
+  let updateRecords;
+  let sourceDate = edition;
+  let total = 0;
+  let stagedByPostcode = new Map();
+  // The checkpoint state for the phase this run reaches: the
+  // intake tallies the BUG-188 guard reconciles against, so a
+  // run that died after the intake can prove its staged set
+  // without re-reading the file.
+  const checkpointState = (phase) => ({
+    phase,
+    linesRead,
+    lineBytes,
+    malformed: stats.malformed,
+    emptyPostcode: stats.emptyPostcode,
+    uncovered: stats.uncovered,
+    duplicates: stats.duplicates,
+  });
+  try {
+    const flush = async () => {
+      if (batch.length === 0) return;
+      const base = seqNext;
+      seqNext += batch.length;
+      await insertRecords(client, LEGACY_STAGE_TABLE, batch, null, null, base);
+      recordsStaged += batch.length;
+      batch = [];
+    };
+    const checkpointIntake = async () => {
+      if (!resume) return;
+      await resume.checkpoint({
+        edition: resumeEdition,
+        expected: null,
+        nextStartIndex: linesRead,
+        read: linesRead,
+        filed: recordsStaged,
+        state: checkpointState("intake"),
+        unit: "lines",
+      });
+    };
+    // A run that died after the intake never re-reads the file:
+    // its tallies stand checkpointed, and the steps below run
+    // over the staged set. A run that died mid-intake re-reads
+    // from the checkpoint's line and skips the staged prefix —
+    // the skipped lines still count their bytes, so the BUG-188
+    // size guard reconciles exactly as on a fresh run.
+    if (resumePhase === "intake") {
+      for await (const line of fullLines) {
+        if (!line) continue;
+        linesRead += 1;
+        lineBytes += Buffer.byteLength(line);
+        if (linesRead <= skipLines) continue;
+        // BUG-204: a line every 2M lines read — and, where the
+        // source declared its size (the --file stat, or the
+        // live Content-Length), the share of those bytes
+        // consumed so far, which is the pass's real percentage.
+        if (linesRead % 2000000 === 0) {
+          const declared =
+            expectedFullBytes !== null && expectedFullBytes !== undefined
+              ? `${Math.min(100, Math.round(((lineBytes + linesRead) / expectedFullBytes) * 100))}% of declared ${formatCount(expectedFullBytes)} bytes`
+              : "";
+          progress?.count({ label: "intake", done: linesRead, unit: "lines", extra: declared });
+          progress?.heartbeat({ stage: "intake", done: linesRead, every: 10_000_000 });
+        }
+        // Cheap pre-filter: only lines naming a target postcode get parsed.
+        if (!targetList.some((pc) => line.includes(`"${pc}"`))) continue;
+        const record = toRecord(parsePpdLine(line));
+        if (!record) {
+          stats.malformed += 1;
+          continue;
+        }
+        if (record.postcode.trim() === "") {
+          stats.emptyPostcode += 1;
+          continue;
+        }
+        if (skipUncoveredRecord(record, stats)) continue;
+        batch.push(record);
+        if (batch.length >= INSERT_BATCH_ROWS) await flush();
+        if (linesRead >= nextCheckpointLine) {
+          await flush();
+          await checkpointIntake();
+          nextCheckpointLine += LEGACY_CHECKPOINT_EVERY_LINES;
+        }
+      }
+      await flush();
+      await checkpointIntake();
+      parsedStaged = recordsStaged;
+    }
+    progress?.stage(
+      `intake complete — ${formatCount(linesRead)} lines read, ${formatCount(recordsStaged)} target records staged`,
+    );
+
+    const stagedCount = async () =>
+      (await client.query(`SELECT count(*)::int AS n FROM ${LEGACY_STAGE_TABLE}`)).rows[0].n;
+
+    // 1b/1c — the intake guards run only when this run read
+    // the file: a run that died after the intake trusts the
+    // checkpointed tallies (the dedupe/merge reconciliations
+    // below are the guard for the staged set it resumes from).
+    // The byte guard (BUG-188): when the caller declared the
+    // full file's size, the lines consumed must account for
+    // exactly that many bytes — one terminator per line, LF or
+    // CRLF, the final terminator present or not. Anything else
+    // means the source under-delivered (or over-delivered) and
+    // the register this pass would file is not the register the
+    // source describes; refuse before the swap.
+    if (resumePhase === "intake") {
+      if (expectedFullBytes !== null && expectedFullBytes !== undefined) {
+        const honestSizes = new Set([
+          lineBytes + linesRead, // LF, final newline present
+          lineBytes + linesRead - 1, // LF, no final newline
+          lineBytes + 2 * linesRead, // CRLF, final newline present
+          lineBytes + 2 * linesRead - 2, // CRLF, no final newline
+        ]);
+        if (!honestSizes.has(expectedFullBytes))
+          throw new Error(
+            `the full file under-delivered: its source declared ${expectedFullBytes} bytes but the pass read ${linesRead} lines accounting for ${lineBytes + linesRead} of them — refusing to file a partial register (BUG-188)`,
+          );
+      }
+
+      // The staged count must equal the parsed count: a batch
+      // insert that landed short is a silent hole of exactly the
+      // BUG-188 shape, caught here instead of after the swap.
+      const afterIntake = await stagedCount();
+      if (afterIntake !== recordsStaged)
+        throw new Error(
+          `the legacy pass staged ${afterIntake} rows from ${recordsStaged} parsed records — refusing to file a register it cannot account for (BUG-188)`,
+        );
+    }
+
+    // 2 — duplicate transaction ids in the target set collapse to
+    // the last row filed (the legacy loader's Map semantics), in
+    // SQL: seq is insertion order, so the greatest seq survives.
+    // A run that died after this step does not re-run it: the
+    // staged set already holds the collapsed register, and the
+    // duplicate count stands checkpointed.
+    let afterDedupe;
+    if (resumePhase === "merged") {
+      // The merge already ran: the deduped count stands
+      // checkpointed in the merged checkpoint's state — the
+      // staged set no longer holds it (the merge replaced
+      // rows), so it cannot be re-read from the table.
+      stats.duplicates = resumeState.duplicates ?? 0;
+      parsedStaged = resumeState.parsedStaged ?? (resumeState.afterDedupe ?? 0) + stats.duplicates;
+      afterDedupe = resumeState.afterDedupe ?? parsedStaged - stats.duplicates;
+    } else if (resumePhase === "deduped") {
+      stats.duplicates = resumeState.duplicates ?? 0;
+      afterDedupe = await stagedCount();
+      // The deduped checkpoint carries the parsed count; a
+      // checkpoint written before that field existed is
+      // reconstructed from the collapsed total + duplicates.
+      // The merge is atomic with its checkpoint (step 3), so a
+      // run that died mid-merge rolled the stage back to
+      // exactly this deduped set — the count here is the
+      // deduped total, never a half-merged one.
+      parsedStaged = resumeState.parsedStaged ?? afterDedupe + stats.duplicates;
+      if (afterDedupe !== parsedStaged - stats.duplicates)
+        throw new Error(
+          `the legacy pass holds ${afterDedupe} staged rows after collapsing ${stats.duplicates} duplicates from ${parsedStaged} parsed records — refusing to file a register it cannot account for (BUG-188)`,
+        );
+    } else {
+      // The dedupe and its checkpoint commit together: a kill
+      // between the DELETE and the checkpoint would leave a
+      // staged set the intake checkpoint's prefix proof cannot
+      // recognise (the DELETE punches holes in the seqs), and
+      // the next run would discard the whole intake.
+      await client.query("BEGIN");
+      try {
+        const deduped = await client.query(
+          `DELETE FROM ${LEGACY_STAGE_TABLE} a USING ${LEGACY_STAGE_TABLE} b
+      WHERE a.transaction_id = b.transaction_id AND a.seq < b.seq`,
+        );
+        stats.duplicates = deduped.rowCount ?? 0;
+        afterDedupe = await stagedCount();
+        if (afterDedupe !== parsedStaged - stats.duplicates)
+          throw new Error(
+            `the legacy pass holds ${afterDedupe} staged rows after collapsing ${stats.duplicates} duplicates from ${parsedStaged} parsed records — refusing to file a register it cannot account for (BUG-188)`,
+          );
+        let row = null;
+        if (resume) {
+          row = resume.checkpointRow({
+            edition: resumeEdition,
+            expected: null,
+            nextStartIndex: linesRead,
+            read: linesRead,
+            filed: afterDedupe,
+            state: { ...checkpointState("deduped"), parsedStaged, afterDedupe },
+          });
+          await writeCheckpoint(client, row);
+        }
+        await client.query("COMMIT");
+        if (resume && row) resume.noteCheckpoint(row, { unit: "lines" });
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw err;
+      }
+    }
+
+    // 3 — the monthly update file merged over the staged target
+    // rows, by transaction id (the legacy merge, filtered to the
+    // requested postcodes): an update row marked D deletes its
+    // transaction id; any other row replaces it. The merge is
+    // reconciled too: staged rows whose id the update names are
+    // counted before the merge, and the staged total after it
+    // must be that count removed and the upserts added.
+    const targetUpdateLines = updateLines.filter(
+      (line) => line && targetList.some((pc) => line.includes(`"${pc}"`)),
+    );
+    updateRecords = parseAllRecords(targetUpdateLines, stats);
+    const updateGuids = [...new Set(updateRecords.map((r) => r.transactionId))];
+    let updateMatched = 0;
+    let merged;
+    let afterMerge;
+    if (resumePhase === "merged") {
+      // The merge already ran: its counts stand checkpointed,
+      // and the staged set already holds the merged register.
+      updateMatched = resumeState.updateMatched ?? 0;
+      merged = { upserted: resumeState.upserted ?? 0 };
+      afterMerge = await stagedCount();
+      if (afterMerge !== afterDedupe - updateMatched + merged.upserted)
+        throw new Error(
+          `the legacy pass holds ${afterMerge} staged rows after the update merge (expected ${afterDedupe - updateMatched + merged.upserted}: ${afterDedupe} staged − ${updateMatched} replaced or deleted + ${merged.upserted} upserted) — refusing to file a register it cannot account for (BUG-188)`,
+        );
+    } else {
+      // The merge and its checkpoint commit together (the
+      // dedupe's shape): a kill mid-merge rolls the stage
+      // back to the deduped set, so the resumed run re-runs
+      // the merge from a clean deduped register instead of a
+      // half-merged one — and the match count below is taken
+      // against that deduped set, never a half-merged one.
+      await client.query("BEGIN");
+      try {
+        for (let at = 0; at < updateGuids.length; at += GUID_CHUNK) {
+          const res = await client.query(
+            `SELECT count(*)::int AS n FROM ${LEGACY_STAGE_TABLE} WHERE transaction_id = ANY($1)`,
+            [updateGuids.slice(at, at + GUID_CHUNK)],
+          );
+          updateMatched += res.rows[0].n;
+        }
+        merged = await mergeUpdateRecords(client, LEGACY_STAGE_TABLE, updateRecords, null, null);
+        afterMerge = await stagedCount();
+        if (afterMerge !== afterDedupe - updateMatched + merged.upserted)
+          throw new Error(
+            `the legacy pass holds ${afterMerge} staged rows after the update merge (expected ${afterDedupe - updateMatched + merged.upserted}: ${afterDedupe} staged − ${updateMatched} replaced or deleted + ${merged.upserted} upserted) — refusing to file a register it cannot account for (BUG-188)`,
+          );
+        let row = null;
+        if (resume) {
+          row = resume.checkpointRow({
+            edition: resumeEdition,
+            expected: null,
+            nextStartIndex: linesRead,
+            read: linesRead,
+            filed: afterMerge,
+            state: {
+              ...checkpointState("merged"),
+              parsedStaged,
+              afterDedupe,
+              updateMatched,
+              upserted: merged.upserted,
+              afterMerge,
+            },
+          });
+          await writeCheckpoint(client, row);
+        }
+        await client.query("COMMIT");
+        if (resume && row) resume.noteCheckpoint(row, { unit: "lines" });
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw err;
+      }
+    }
+    progress?.stage(
+      `update merged — ${formatCount(merged.upserted)} upserted, ${formatCount(updateRecords.length - merged.upserted)} deleted`,
+    );
+
+    // 4 — the edition settles once, over the whole staged set:
+    // the file's publication date when the source gave one, else
+    // the newest sale date filed.
+    if (!sourceDate) {
+      const res = await client.query(
+        `SELECT max(sale_date)::text AS newest FROM ${LEGACY_STAGE_TABLE}`,
+      );
+      sourceDate = res.rows[0]?.newest ?? null;
+    }
+    if (!sourceDate) throw new Error("the full file filed no sales — nothing to swap in");
+
+    // 5 — proofs against staging, before anything live moves: the
+    // golden homes, and the zero-uncovered-row self-check.
+    // Uncovered-area rows were skipped at intake (BUG-184), so
+    // this count must read zero; a row here means the skip itself
+    // is broken, and the pass refuses on that defect — never on
+    // the source's data.
+    stagedByPostcode = new Map();
+    for (const pc of targets) {
+      const res = await client.query(
+        `SELECT transaction_id, postcode, price, sale_date, property_type, new_build, tenure,
+                paon, saon, street, locality, town, county, ppd_category, record_status
+           FROM ${LEGACY_STAGE_TABLE} WHERE postcode = $1 ORDER BY seq`,
+        [pc],
+      );
+      stagedByPostcode.set(pc, res.rows);
+    }
+    for (const [pc, rows] of stagedByPostcode) {
+      if (rows.length === 0)
+        console.error(`load-sold-prices WARNING: no sales found for ${pc} — nothing filed for it`);
+    }
+    const goldenRowsFor = (pc) => {
+      const rows = stagedByPostcode.get(pc);
+      if (!rows) return null;
+      return rows.map((r) => ({
+        transactionId: r.transaction_id,
+        price: r.price,
+        saleDate:
+          r.sale_date instanceof Date ? r.sale_date.toISOString().slice(0, 10) : r.sale_date,
+        paon: r.paon,
+        street: r.street,
+      }));
+    };
+    checkGolden((pc) => (targets.has(pc) ? goldenRowsFor(pc) : null), "the staged records");
+    const guard = await client.query(
+      `SELECT count(*)::int AS n FROM ${LEGACY_STAGE_TABLE}
+      WHERE regexp_replace(split_part(postcode, ' ', 1), '[0-9].*$', '') = ANY($1)`,
+      [[...UNCOVERED_AREAS]],
+    );
+    if (guard.rows[0].n > 0)
+      throw new Error(
+        `the legacy pass staged ${guard.rows[0].n} rows for Scotland or Northern Ireland postcodes despite the intake skip (BUG-184) — the loader is defective, refusing to file them`,
+      );
+    total = await stagedCount();
+    if (total !== afterMerge)
+      throw new Error(
+        `the legacy pass holds ${total} staged rows at the proofs against ${afterMerge} reconciled after the update merge — refusing to file a register it cannot account for (BUG-188)`,
+      );
+  } catch (err) {
+    // BUG-248: intake, dedupe, merge and proofs all fail
+    // before anything is filed — one line, at the stage
+    // that refused.
+    progress?.failed({
+      stage: "intake and staging",
+      filed: recordsStaged,
+      error: err,
+      resume: resume
+        ? resume.resumeNote()
+        : "re-run the legacy load from the start (staging is rebuilt, nothing is filed until the filing step)",
+    });
+    throw err;
+  }
+
+  const counts = [...stagedByPostcode.entries()]
+    .map(([pc, rows]) => `${pc} ${formatCount(rows.length)} sales`)
+    .join(" · ");
+  const summary = () =>
+    `load-sold-prices · edition ${sourceDate} · ${counts} · ${formatCount(updateRecords.length)} update rows merged · ${formatCount(stats.malformed)} malformed skipped · ${formatCount(stats.duplicates)} duplicates ignored`;
+
+  // 6 — file it: one transaction; each postcode's set is swapped
+  // whole, proved by a read-back before commit. A failed load
+  // files nothing and the previous data keeps serving.
+  progress?.stage(`filing ${formatCount(targets.size)} postcode sets — swap and proof`);
+  try {
+    await client.query("BEGIN");
+    for (const [pc, rows] of stagedByPostcode) {
+      await client.query("DELETE FROM price_paid WHERE postcode = $1", [pc]);
+      for (const r of rows) {
+        await client.query(
+          `INSERT INTO price_paid
+             (transaction_id, postcode, price, sale_date, property_type, new_build,
+              tenure, paon, saon, street, locality, town, county, ppd_category,
+              record_status, source_name, source_date)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+          [
+            r.transaction_id,
+            pc,
+            r.price,
+            r.sale_date,
+            r.property_type,
+            r.new_build,
+            r.tenure,
+            r.paon,
+            r.saon,
+            r.street,
+            r.locality,
+            r.town,
+            r.county,
+            r.ppd_category,
+            r.record_status,
+            SOURCE_NAME,
+            sourceDate,
+          ],
+        );
+      }
+    }
+    // Proof: read the filed rows back from the database, pre-commit.
+    const filed = new Map();
+    for (const pc of targets) {
+      filed.set(pc, await filedRowsFor(client, "price_paid", pc));
+    }
+    checkGolden((pc) => (targets.has(pc) ? filed.get(pc) : null), "the filed rows");
+    await client.query("COMMIT");
+  } catch (error) {
+    progress?.failed({
+      stage: "filing",
+      filed: 0,
+      total: targets.size,
+      error,
+      resume: resume
+        ? resume.resumeNote()
+        : "re-run the legacy load from the start (the filing transaction rolls back)",
+    });
+    await client.query("ROLLBACK");
+    throw error;
+  }
+  if (resume) await resume.clear();
+  else await client.query(`DROP TABLE IF EXISTS ${LEGACY_STAGE_TABLE}`);
+  return {
+    edition: sourceDate,
+    logLine: `${summary()} · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`,
+    total,
+    linesRead,
+    stats,
+    updateRows: updateRecords.length,
+  };
+}
+
 // --update: one monthly update file applied to the live
 // register, edition-gated. Returns the summary facts; the
 // caller stamps and prints. A refusal throws with the gate's
@@ -1217,6 +1789,10 @@ export async function runNational(
 // intake (BUG-184), exactly as in the national pass: the
 // monthly file carries TD rows most months, and this path never
 // had an area guard — without the skip it would FILE them.
+/**
+ * @param {any} client
+ * @param {{ updateLines: Iterable<string>, edition: string, verifyOnly?: boolean, progress?: import("./progress.mjs").ProgressLogger | null }} options
+ */
 export async function runUpdate(
   client,
   { updateLines, edition, verifyOnly = false, progress = null },
@@ -1512,143 +2088,128 @@ async function modeMain(args) {
 }
 
 async function legacyMain() {
-  const startedAt = Date.now();
   const args = process.argv.slice(2);
   const verifyOnly = args.includes("--verify-only");
+  // BUG-368: resume from the last staged chunk instead of
+  // re-reading the full file; with no checkpoint this is a
+  // fresh start.
+  const restart = args.includes("--restart");
   const fileIdx = args.indexOf("--file");
   const fileDir = fileIdx >= 0 ? args[fileIdx + 1] : null;
   const postcodes = args.filter((a, i) => !a.startsWith("--") && i !== fileIdx + 1);
   if (postcodes.length === 0)
     throw new Error('name at least one postcode, e.g. load-sold-prices -- "CM3 2JT"');
   const targets = new Set(postcodes.map((pc) => pc.trim().toUpperCase()));
-  const stats = { malformed: 0, duplicates: 0 };
-  let sourceDate = null;
 
-  // 1 — the full file.
-  let byGuid;
+  // Sources, resolved once for both paths: the full file as a
+  // line stream — never held whole (at 5.54 GB the file cannot
+  // be a string at all, BUG-200) — and the monthly update file
+  // as lines. The declared size feeds the BUG-188 guard: the
+  // file's on-disk size under --file; live, the download's
+  // Content-Length when the body arrives unencoded.
+  let fullLines;
+  let updateLines;
+  let sourceDate = null;
+  let expectedFullBytes = null;
   if (fileDir) {
-    const text = await readFile(join(fileDir, "pp-complete.csv"), "utf8");
-    byGuid = await collectFromText(text, targets, stats);
+    const fullPath = join(fileDir, "pp-complete.csv");
+    ({ size: expectedFullBytes } = await stat(fullPath));
+    // The line stream is created lazily, on the pass's first
+    // pull (the national pass's BUG-200 shape): a readline
+    // interface over a file stream flows the moment it is
+    // created, and lines it emits before the consumer
+    // attaches are lost.
+    fullLines = (async function* () {
+      const lines = createInterface({
+        input: createReadStream(fullPath),
+        crlfDelay: Infinity,
+      });
+      for await (const line of lines) yield line;
+    })();
+    updateLines = (await readFile(join(fileDir, "pp-monthly-update.csv"), "utf8")).split(/\r?\n/);
   } else {
     const response = await fetch(FULL_FILE_URL);
     if (!response.ok) throw new Error(`the full file download failed: HTTP ${response.status}`);
     const lastModified = response.headers.get("last-modified");
     if (lastModified) sourceDate = new Date(lastModified).toISOString().slice(0, 10);
-    const lines = createInterface({
+    const contentEncoding = response.headers.get("content-encoding");
+    const contentLength = response.headers.get("content-length");
+    if (contentLength && (!contentEncoding || contentEncoding === "identity"))
+      expectedFullBytes = Number(contentLength);
+    fullLines = createInterface({
       input: Readable.fromWeb(response.body),
       crlfDelay: Infinity,
     });
-    byGuid = await collectFromLines(lines, targets, stats);
+    updateLines = (await (await fetch(UPDATE_FILE_URL)).text()).split(/\r?\n/);
   }
-
-  // 2 — the monthly update file, merged over the full file by id.
-  let updateCount = 0;
-  const updateText = fileDir
-    ? await readFile(join(fileDir, "pp-monthly-update.csv"), "utf8")
-    : await (await fetch(UPDATE_FILE_URL)).text();
-  const targetList = [...targets];
-  for (const line of updateText.split(/\r?\n/)) {
-    if (!line || !targetList.some((pc) => line.includes(`"${pc}"`))) continue;
-    const record = toRecord(parsePpdLine(line));
-    if (!record || !targets.has(record.postcode)) continue;
-    updateCount += 1;
-    if (record.recordStatus === "D") byGuid.delete(record.transactionId);
-    else byGuid.set(record.transactionId, record);
-  }
-
-  const records = [...byGuid.values()];
-  const perPostcode = new Map();
-  for (const pc of targets)
-    perPostcode.set(
-      pc,
-      records.filter((r) => r.postcode === pc),
-    );
-  for (const [pc, rows] of perPostcode) {
-    if (rows.length === 0)
-      console.error(`load-sold-prices WARNING: no sales found for ${pc} — nothing filed for it`);
-  }
-  if (!sourceDate) {
-    sourceDate = records.reduce((max, r) => (r.saleDate > max ? r.saleDate : max), "1970-01-01");
-  }
-
-  const rowsFor = (pc) => (targets.has(pc) ? perPostcode.get(pc) : null);
-  checkGolden(rowsFor, "the parsed records");
-
-  const counts = [...perPostcode.entries()]
-    .map(([pc, rows]) => `${pc} ${formatCount(rows.length)} sales`)
-    .join(" · ");
-  const summary = () =>
-    `load-sold-prices · edition ${sourceDate} · ${counts} · ${formatCount(updateCount)} update rows merged · ${formatCount(stats.malformed)} malformed skipped · ${formatCount(stats.duplicates)} duplicates ignored`;
+  // BUG-368: the resume key is the full file's publication date
+  // when the source gave one, else the declared file size — a
+  // republication changes one or the other, so a checkpoint
+  // from an older file can never resume into this one. With
+  // neither, the pass runs unresumed, exactly as before.
+  const resumeEdition = sourceDate ?? (expectedFullBytes ? `size-${expectedFullBytes}` : null);
 
   if (verifyOnly) {
+    // Verify-only keeps the in-memory path: it files nothing
+    // and opens no database, so there is nothing to stage and
+    // no checkpoint to write.
+    const stats = { malformed: 0, duplicates: 0 };
+    const byGuid = await collectFromLines(fullLines, targets, stats);
+    let updateCount = 0;
+    const targetList = [...targets];
+    for (const line of updateLines) {
+      if (!line || !targetList.some((pc) => line.includes(`"${pc}"`))) continue;
+      const record = toRecord(parsePpdLine(line));
+      if (!record || !targets.has(record.postcode)) continue;
+      updateCount += 1;
+      if (record.recordStatus === "D") byGuid.delete(record.transactionId);
+      else byGuid.set(record.transactionId, record);
+    }
+    const records = [...byGuid.values()];
+    const perPostcode = new Map();
+    for (const pc of targets)
+      perPostcode.set(
+        pc,
+        records.filter((r) => r.postcode === pc),
+      );
+    for (const [pc, rows] of perPostcode) {
+      if (rows.length === 0)
+        console.error(`load-sold-prices WARNING: no sales found for ${pc} — nothing filed for it`);
+    }
+    if (!sourceDate) {
+      sourceDate = records.reduce((max, r) => (r.saleDate > max ? r.saleDate : max), "1970-01-01");
+    }
+    const rowsFor = (pc) => (targets.has(pc) ? perPostcode.get(pc) : null);
+    checkGolden(rowsFor, "the parsed records");
+    const counts = [...perPostcode.entries()]
+      .map(([pc, rows]) => `${pc} ${formatCount(rows.length)} sales`)
+      .join(" · ");
+    const summary = () =>
+      `load-sold-prices · edition ${sourceDate} · ${counts} · ${formatCount(updateCount)} update rows merged · ${formatCount(stats.malformed)} malformed skipped · ${formatCount(stats.duplicates)} duplicates ignored`;
     console.log(`${summary()} · golden homes OK (verify only, nothing filed)`);
     return;
   }
 
-  // 3 — file it: one transaction; each postcode's set is swapped whole.
+  // Filing: stage the stream, merge, swap — resumable (BUG-368).
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) throw new Error("DATABASE_URL is not set (see .env.example, Key K6)");
   const client = new pg.Client({ connectionString });
   await client.connect();
   try {
-    await client.query("BEGIN");
-    for (const [pc, rows] of perPostcode) {
-      await client.query("DELETE FROM price_paid WHERE postcode = $1", [pc]);
-      for (const r of rows) {
-        await client.query(
-          `INSERT INTO price_paid
-             (transaction_id, postcode, price, sale_date, property_type, new_build,
-              tenure, paon, saon, street, locality, town, county, ppd_category,
-              record_status, source_name, source_date)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
-          [
-            r.transactionId,
-            r.postcode,
-            r.price,
-            r.saleDate,
-            r.propertyType,
-            r.newBuild,
-            r.tenure,
-            r.paon,
-            r.saon,
-            r.street,
-            r.locality,
-            r.town,
-            r.county,
-            r.ppdCategory,
-            r.recordStatus,
-            SOURCE_NAME,
-            sourceDate,
-          ],
-        );
-      }
-    }
-    // Proof: read the filed rows back from the database, pre-commit.
-    const filed = new Map();
-    for (const pc of targets) {
-      const res = await client.query(
-        `SELECT transaction_id AS "transactionId", price, sale_date AS "saleDate",
-                paon, street
-           FROM price_paid WHERE postcode = $1`,
-        [pc],
-      );
-      filed.set(
-        pc,
-        res.rows.map((r) => ({
-          ...r,
-          saleDate: r.saleDate instanceof Date ? r.saleDate.toISOString().slice(0, 10) : r.saleDate,
-        })),
-      );
-    }
-    checkGolden((pc) => (targets.has(pc) ? filed.get(pc) : null), "the filed rows");
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
+    const result = await runLegacy(client, {
+      fullLines,
+      updateLines,
+      targets,
+      edition: sourceDate,
+      resumeEdition,
+      expectedFullBytes,
+      progress: createProgressLogger({ name: "load-sold-prices" }),
+      restart,
+    });
+    console.log(result.logLine);
   } finally {
     await client.end();
   }
-  console.log(`${summary()} · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`);
 }
 
 async function main() {

@@ -39,7 +39,9 @@
 // silently shrink the nation's picker.
 
 // (BUG-204: formatCount for the rebuild's progress lines
-// below — the only import this shared module takes.)
+// below; createLoaderResume for the two passes' resume
+// staging, BUG-368.)
+import { createLoaderResume } from "./loader-resume.mjs";
 import { formatCount } from "./progress.mjs";
 
 // The home key's own normalisation, mirrored from
@@ -89,6 +91,98 @@ export function stageTableFor(source) {
 
 export function extractTableFor(source) {
   return PER_SOURCE[source].extract;
+}
+
+// Resume support for the two picking passes (BUG-368):
+// the shared staging setup — the stage table, the
+// checkpoint handle, and the per-chunk save — so the
+// sales and EPC passes can never drift apart on the
+// resume mechanics, exactly as the rebuild lives here
+// once so the two passes can never drift on the merge
+// rules.
+//
+// THE SHAPE (the AQMA filer, per pass): the stage is a
+// PERSISTENT table now (migration 0030 created it, the
+// migration 0048 addition carries its seq column), and
+// a loader_checkpoint row records the last fully staged
+// chunk. The resume point is the input position consumed
+// (lines read for sales, certificates read for EPC); the
+// checkpoint's state carries the run's tallies
+// (malformed / unusable for sales, refusals by reason
+// for EPC), so a resumed run's summary counts cover the
+// whole read. The total is genuinely unknown until the
+// stream ends, so expected is null and the edition alone
+// (plus the staged prefix) validates the checkpoint.
+// BUG-248 atomicity is unchanged: the live tables
+// change only on the complete, verified swap in
+// fileStagedExtract, and clear() drops staging +
+// checkpoint after a successful swap.
+//
+// A database the migration has not reached yet carries
+// the pre-resume stage (migration 0030, no seq column):
+// the ALTER below adds the column in place, so the
+// staged inserts work on either. The CREATE is the
+// fallback for a database with no stage table at all.
+/**
+ * @param {any} client
+ * @param {import("./progress.mjs").ProgressLogger | null} [progress]
+ * @param {{ restart?: boolean, source?: string }} [options]
+ */
+export async function beginPickingStaging(
+  client,
+  progress = null,
+  { restart = false, source = "sales" } = {},
+) {
+  const stageTable = stageTableFor(source);
+  const loader = source === "sales" ? "load-picking-index" : "load-epc-index";
+  await client.query(
+    `CREATE TABLE IF NOT EXISTS ${stageTable} (
+       postcode text NOT NULL,
+       paon text,
+       saon text,
+       street text,
+       town text,
+       home_key text NOT NULL,
+       seq bigint NOT NULL,
+       UNIQUE (seq)
+     )`,
+  );
+  await client.query(`ALTER TABLE ${stageTable} ADD COLUMN IF NOT EXISTS seq bigint`);
+  const resume = createLoaderResume(client, { loader, stageTable, progress, restart });
+  let edition = null;
+  return {
+    get stageTable() {
+      return stageTable;
+    },
+    resumeNote: () => resume.resumeNote(),
+    takeSeq: (count) => resume.takeSeq(count),
+    // Decide, from the edition and the staged rows,
+    // whether this run resumes or starts from zero. The
+    // caller passes the prepared result to its staging
+    // function, which reads the skip and the seeded
+    // tallies off it.
+    async prepareResume(ed) {
+      edition = ed;
+      return resume.prepare({ edition, expected: null });
+    },
+    // Write the checkpoint for a fully staged chunk —
+    // one BUG-204 progress line per committed chunk.
+    async checkpoint({ read, filed, state = {}, unit }) {
+      await resume.checkpoint({
+        edition,
+        expected: null,
+        nextStartIndex: read,
+        read,
+        filed,
+        state,
+        unit,
+      });
+    },
+    // Clear staging + checkpoint after a successful swap.
+    async clear() {
+      await resume.clear();
+    },
+  };
 }
 
 // The editions row for one source, or null when the

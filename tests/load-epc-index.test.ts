@@ -34,7 +34,8 @@ import {
   streamCsvRecords,
 } from "../loaders/load-epc-index.mjs";
 import { loadPickingIndexFromLines } from "../loaders/load-picking-index.mjs";
-import { removeEpcFromIndex } from "../loaders/picking-index-filing.mjs";
+import { beginPickingStaging, removeEpcFromIndex } from "../loaders/picking-index-filing.mjs";
+import { createProgressLogger } from "../loaders/progress.mjs";
 import { FakePickingDb } from "./fixtures/picking-index";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -502,17 +503,192 @@ describe("the kill switch — EPC separability, tested", () => {
   });
 });
 
+describe("resume (BUG-368)", () => {
+  // 2,500 certificates in the S1 shape: three 1,000-row
+  // stage batches, so a kill can land between checkpoints.
+  // The staging layer is the proof here — the full pass's
+  // golden proof needs the fixture's witnesses, which the
+  // generated certificates do not carry — so these tests
+  // drive stageEpcIndex through a prepared staging
+  // handle, the composition the full pass uses.
+  function resumeCerts() {
+    const certs: Record<string, string>[] = [];
+    for (let n = 1; n <= 2500; n += 1) {
+      certs.push(cert(`${n} Resume Road`, "", "", "Testtown", "TS1 1AA"));
+    }
+    return certs;
+  }
+
+  async function stageResumePass(
+    db: FakePickingDb,
+    certs: Record<string, string>[],
+    {
+      edition = "epc-resume-test",
+      restart = false,
+      lines = null as string[] | null,
+    }: { edition?: string; restart?: boolean; lines?: string[] | null } = {},
+  ) {
+    const captured: string[] = lines ?? [];
+    const progress = createProgressLogger({
+      name: "load-epc-index",
+      log: (line: string) => captured.push(line),
+    });
+    const staging = await beginPickingStaging(db as never, progress, {
+      restart,
+      source: "epc",
+    });
+    const prep = await staging.prepareResume(edition);
+    const stats = await stageEpcIndex(db as never, certs, { progress, staging, prep });
+    return { stats, lines: captured };
+  }
+
+  const denseSeqs = (db: FakePickingDb, n: number) =>
+    db.epcStage
+      .map((r) => r.seq ?? -1)
+      .sort((a, b) => a - b)
+      .every((seq, i) => seq === i) && db.epcStage.length === n;
+
+  it(
+    "kill mid-stage resumes and stages every certificate exactly once",
+    { timeout: 30_000 },
+    async () => {
+      const db = new FakePickingDb();
+      const certs = resumeCerts();
+      const killLines: string[] = [];
+      db.setFailAfterStageInserts(2);
+      await expect(stageResumePass(db, certs, { lines: killLines })).rejects.toThrow(
+        /simulated kill/,
+      );
+      // Two 1,000-row chunks staged, the checkpoint at
+      // 2,000 certificates read; the third chunk never landed.
+      expect(db.epcStage).toHaveLength(2000);
+      expect(db.checkpoints.get("load-epc-index")?.next_start_index).toBe(2000);
+      expect(db.checkpoints.get("load-epc-index")?.filed_count).toBe(2000);
+      expect(denseSeqs(db, 2000)).toBe(true);
+      expect(
+        killLines.some((l) =>
+          /checkpoint 2,000 certificates · staged 2,000 · resume from 2,000$/.test(l),
+        ),
+      ).toBe(true);
+
+      db.setFailAfterStageInserts(null);
+      const { stats, lines } = await stageResumePass(db, certs);
+      expect(stats.certificatesRead).toBe(2500);
+      expect(stats.refusedTotal).toBe(0);
+      expect(
+        lines.some((l) =>
+          /resuming from checkpoint · 2,000 rows staged · edition epc-resume-test · resume from 2,000/.test(
+            l,
+          ),
+        ),
+      ).toBe(true);
+      expect(db.epcStage).toHaveLength(2500);
+      expect(new Set(db.epcStage.map((r) => `${r.postcode}\u0001${r.home_key}`)).size).toBe(2500);
+      // The staged seqs are dense from 0 — nothing staged twice.
+      expect(denseSeqs(db, 2500)).toBe(true);
+    },
+  );
+
+  it(
+    "a kill between the insert and its checkpoint trims the staged tail on resume",
+    { timeout: 30_000 },
+    async () => {
+      const db = new FakePickingDb();
+      db.setFailAfterCheckpoints(1);
+      await expect(stageResumePass(db, resumeCerts())).rejects.toThrow(/simulated kill/);
+      // Chunk 1 staged + checkpointed; chunk 2 staged, its
+      // checkpoint never landed.
+      expect(db.epcStage).toHaveLength(2000);
+      expect(db.checkpoints.get("load-epc-index")?.filed_count).toBe(1000);
+      expect(db.checkpoints.get("load-epc-index")?.next_start_index).toBe(1000);
+
+      db.setFailAfterCheckpoints(null);
+      const { stats, lines } = await stageResumePass(db, resumeCerts());
+      expect(stats.certificatesRead).toBe(2500);
+      expect(stats.refusedTotal).toBe(0);
+      expect(
+        lines.some((l) =>
+          /trimmed 1,000 staged rows past the checkpoint · resume re-stages them/.test(l),
+        ),
+      ).toBe(true);
+      expect(
+        lines.some((l) =>
+          /resuming from checkpoint · 1,000 rows staged · edition epc-resume-test · resume from 1,000/.test(
+            l,
+          ),
+        ),
+      ).toBe(true);
+      expect(db.epcStage).toHaveLength(2500);
+      expect(denseSeqs(db, 2500)).toBe(true);
+    },
+  );
+
+  it(
+    "an edition change discards the staged rows and starts from zero",
+    { timeout: 30_000 },
+    async () => {
+      const db = new FakePickingDb();
+      db.setFailAfterStageInserts(2);
+      await expect(stageResumePass(db, resumeCerts())).rejects.toThrow(/simulated kill/);
+      expect(db.epcStage).toHaveLength(2000);
+
+      db.setFailAfterStageInserts(null);
+      const { stats, lines } = await stageResumePass(db, resumeCerts(), {
+        edition: "epc-resume-test-2",
+      });
+      expect(stats.certificatesRead).toBe(2500);
+      expect(
+        lines.some((l) =>
+          /discarding stale checkpoint · edition changed \(epc-resume-test → epc-resume-test-2\) · starting from 0/.test(
+            l,
+          ),
+        ),
+      ).toBe(true);
+      expect(lines.some((l) => /resuming from checkpoint/.test(l))).toBe(false);
+      expect(db.epcStage).toHaveLength(2500);
+      expect(denseSeqs(db, 2500)).toBe(true);
+    },
+  );
+
+  it("--restart discards the checkpoint and starts from zero", { timeout: 30_000 }, async () => {
+    const db = new FakePickingDb();
+    db.setFailAfterStageInserts(2);
+    await expect(stageResumePass(db, resumeCerts())).rejects.toThrow(/simulated kill/);
+    expect(db.epcStage).toHaveLength(2000);
+
+    db.setFailAfterStageInserts(null);
+    const { stats, lines } = await stageResumePass(db, resumeCerts(), { restart: true });
+    expect(stats.certificatesRead).toBe(2500);
+    expect(
+      lines.some((l) =>
+        /restart requested — discarding checkpoint and staging · starting from 0/.test(l),
+      ),
+    ).toBe(true);
+    expect(lines.some((l) => /resuming from checkpoint/.test(l))).toBe(false);
+    expect(db.epcStage).toHaveLength(2500);
+    expect(denseSeqs(db, 2500)).toBe(true);
+  });
+});
+
 describe("load-epc-index — the CLI", () => {
   it("takes --file or --kill-switch, never postcodes", () => {
     expect(parseArgs(["--file", "drop"])).toEqual({
       fileDir: "drop",
       killSwitch: false,
+      restart: false,
     });
     expect(parseArgs(["--kill-switch"])).toEqual({
       fileDir: null,
       killSwitch: true,
+      restart: false,
+    });
+    expect(parseArgs(["--file", "drop", "--restart"])).toEqual({
+      fileDir: "drop",
+      killSwitch: false,
+      restart: true,
     });
     expect(() => parseArgs(["CM1 6ER"])).toThrow(/takes no postcodes/);
     expect(() => parseArgs(["--file", "x", "--kill-switch"])).toThrow(/runs alone/);
+    expect(() => parseArgs(["--kill-switch", "--restart"])).toThrow(/runs alone/);
   });
 });

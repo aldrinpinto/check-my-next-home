@@ -331,12 +331,19 @@ describe("fileCases — the stage-swap", () => {
     const statements: string[] = [];
     const calls: { sql: string; params: unknown[] }[] = [];
     let released = false;
+    let staged = 0;
     const client = {
       async query(sql: string, params: unknown[] = []) {
         const head = sql.trim().replace(/\s+/g, " ");
         statements.push(head);
         calls.push({ sql: head, params: [...params] });
         if (failOn && head.startsWith(failOn)) throw new Error(`forced failure: ${failOn}`);
+        // BUG-368: the filer verifies the staged count
+        // before the swap, so the fake answers it.
+        if (head.startsWith("SELECT count(*)::int AS n FROM tribunal_building_safety_stage"))
+          return { rows: [{ n: staged }], rowCount: 1 };
+        if (head.startsWith("INSERT INTO tribunal_building_safety_stage"))
+          staged += params.length / 11;
         return { rows: [], rowCount: 0 };
       },
       release() {
@@ -361,20 +368,23 @@ describe("fileCases — the stage-swap", () => {
     const rec = recordingPool();
     await fileCases(rec.pool as never, [row]);
     const at = (prefix: string) => rec.statements.findIndex((s) => s.startsWith(prefix));
-    expect(rec.statements[0]).toBe("BEGIN");
-    expect(at("CREATE TEMP TABLE stg_tribunal_building_safety_decisions")).toBeGreaterThan(0);
-    expect(at("INSERT INTO stg_tribunal_building_safety_decisions")).toBeGreaterThan(
-      at("CREATE TEMP TABLE stg_tribunal_building_safety_decisions"),
+    // BUG-368: the stage is persistent now — its CREATE
+    // is the first statement, and the swap's BEGIN comes
+    // only after the staging is complete and verified.
+    expect(rec.statements[0]).toBe(
+      "CREATE TABLE IF NOT EXISTS tribunal_building_safety_stage ( case_ref text, decision_date date, order_kind text, property_text text, postcode text, building_key text, is_single_flat boolean, source_url text, source_name text, source_date date, seq bigint NOT NULL, UNIQUE (seq) )",
     );
+    expect(at("INSERT INTO tribunal_building_safety_stage")).toBeGreaterThan(0);
+    expect(at("BEGIN")).toBeGreaterThan(at("INSERT INTO tribunal_building_safety_stage"));
     expect(at("DELETE FROM tribunal_building_safety_decisions")).toBeGreaterThan(
-      at("INSERT INTO stg_tribunal_building_safety_decisions"),
+      at("INSERT INTO tribunal_building_safety_stage"),
     );
     expect(at("INSERT INTO tribunal_building_safety_decisions")).toBeGreaterThan(
       at("DELETE FROM tribunal_building_safety_decisions"),
     );
     expect(rec.statements.at(-1)).toBe("COMMIT");
     const staged = rec.calls.find((c) =>
-      c.sql.startsWith("INSERT INTO stg_tribunal_building_safety_decisions"),
+      c.sql.startsWith("INSERT INTO tribunal_building_safety_stage"),
     )!;
     expect(staged.params.slice(0, 8)).toEqual([
       GOLDEN_CASE_REF,
@@ -386,15 +396,30 @@ describe("fileCases — the stage-swap", () => {
       false,
       "https://www.gov.uk/golden",
     ]);
+    // The eleventh parameter is the dense resume seq.
+    expect(staged.params[10]).toBe(0);
     expect(rec.released()).toBe(true);
   });
 
-  it("a second pass issues the identical statements (the swap is the idempotency)", async () => {
+  it("a second pass files the same rows to the same state (the swap is the idempotency)", async () => {
     const first = recordingPool();
     await fileCases(first.pool as never, [row]);
     const second = recordingPool();
     await fileCases(second.pool as never, [row]);
-    expect(second.statements).toEqual(first.statements);
+    // BUG-368: the two passes no longer issue identical
+    // statement lists — the second carries the checkpoint
+    // read/write traffic — but the live swap and the staged
+    // values are the same.
+    const swap = (statements: string[]) =>
+      statements.filter(
+        (s) =>
+          s.startsWith("DELETE FROM tribunal_building_safety_decisions") ||
+          s.startsWith("INSERT INTO tribunal_building_safety_decisions"),
+      );
+    expect(swap(second.statements)).toEqual(swap(first.statements));
+    const stagedParams = (rec: { calls: { sql: string; params: unknown[] }[] }) =>
+      rec.calls.find((c) => c.sql.startsWith("INSERT INTO tribunal_building_safety_stage"))!.params;
+    expect(stagedParams(second)).toEqual(stagedParams(first));
   });
 
   it("a failure mid-swap rolls back and still releases the client", async () => {
@@ -446,11 +471,18 @@ describe("progress logging (BUG-265)", () => {
   };
   const recordingPool = (failOn?: string) => {
     const statements: string[] = [];
+    let staged = 0;
     const client = {
       async query(sql: string, params: unknown[] = []) {
         const head = sql.trim().replace(/\s+/g, " ");
         statements.push(head);
         if (failOn && head.startsWith(failOn)) throw new Error(`forced failure: ${failOn}`);
+        // BUG-368: the filer verifies the staged count
+        // before the swap, so the fake answers it.
+        if (head.startsWith("SELECT count(*)::int AS n FROM tribunal_building_safety_stage"))
+          return { rows: [{ n: staged }], rowCount: 1 };
+        if (head.startsWith("INSERT INTO tribunal_building_safety_stage"))
+          staged += params.length / 11;
         return { rows: [], rowCount: 0 };
       },
       release() {},
@@ -504,10 +536,195 @@ describe("progress logging (BUG-265)", () => {
     expect(rec.statements).toContain("ROLLBACK");
     expect(
       lines.some((l) =>
-        /failed · filing · filed 2 of 2 · forced failure: DELETE FROM tribunal_building_safety_decisions · resume from re-run from scratch/.test(
+        /failed · filing · filed 2 of 2 · forced failure: DELETE FROM tribunal_building_safety_decisions · resume from the swap — the staged read stands checkpointed \(edition tribunal-2026-04-11\)/.test(
           l,
         ),
       ),
     ).toBe(true);
+  });
+});
+
+describe("resume (BUG-368)", () => {
+  type StatRow = Record<string, unknown>;
+  type CheckpointRow = {
+    loader: string;
+    edition: string;
+    expected: number | null;
+    next_start_index: number;
+    read_count: number;
+    filed_count: number;
+    state: Record<string, unknown> | null;
+  };
+  function statefulPool() {
+    let live: StatRow[] = [];
+    let stage: StatRow[] = [];
+    const checkpoints = new Map<string, CheckpointRow>();
+    let snapshot: StatRow[] | null = null;
+    let insertCalls = 0;
+    let failAfterInserts: number | null = null;
+    const client = {
+      async query(sql: string, params: unknown[] = []) {
+        const head = sql.trim().replace(/\s+/g, " ");
+        if (head === "BEGIN") {
+          snapshot = structuredClone(live);
+          return { rows: [] };
+        }
+        if (head === "COMMIT") {
+          snapshot = null;
+          return { rows: [] };
+        }
+        if (head === "ROLLBACK") {
+          if (snapshot) live = snapshot;
+          snapshot = null;
+          return { rows: [] };
+        }
+        if (head.startsWith("CREATE TABLE IF NOT EXISTS tribunal_building_safety_stage"))
+          return { rows: [] };
+        if (head.startsWith("INSERT INTO tribunal_building_safety_stage")) {
+          insertCalls += 1;
+          if (failAfterInserts !== null && insertCalls > failAfterInserts)
+            throw new Error("simulated kill: the database connection dropped mid-insert");
+          for (let at = 0; at < params.length; at += 11)
+            stage.push({
+              case_ref: params[at],
+              decision_date: params[at + 1],
+              order_kind: params[at + 2],
+              property_text: params[at + 3],
+              postcode: params[at + 4],
+              building_key: params[at + 5],
+              is_single_flat: params[at + 6],
+              source_url: params[at + 7],
+              source_name: params[at + 8],
+              source_date: params[at + 9],
+              seq: params[at + 10],
+            });
+          return { rows: [], rowCount: params.length / 11 };
+        }
+        if (head.startsWith("SELECT count(*)::int AS n FROM tribunal_building_safety_stage"))
+          return { rows: [{ n: stage.length }], rowCount: 1 };
+        if (head.startsWith("SELECT count(*)::int AS n, coalesce(sum(seq)")) {
+          return {
+            rows: [
+              {
+                n: stage.length,
+                s: stage.reduce((a, r) => a + (r.seq as number), 0),
+                m: stage.length ? Math.max(...stage.map((r) => r.seq as number)) : 0,
+              },
+            ],
+            rowCount: 1,
+          };
+        }
+        if (head.startsWith("DELETE FROM tribunal_building_safety_stage WHERE seq >=")) {
+          stage = stage.filter((r) => !((r.seq as number) >= (params[0] as number)));
+          return { rows: [], rowCount: 0 };
+        }
+        if (head.startsWith("DELETE FROM tribunal_building_safety_stage")) {
+          stage = [];
+          return { rows: [], rowCount: 0 };
+        }
+        if (head.startsWith("SELECT loader, edition, expected")) {
+          const row = checkpoints.get(params[0] as string);
+          return { rows: row ? [row] : [], rowCount: 0 };
+        }
+        if (head.startsWith("INSERT INTO loader_checkpoint")) {
+          checkpoints.set(params[0] as string, {
+            loader: params[0] as string,
+            edition: params[1] as string,
+            expected: params[2] as number | null,
+            next_start_index: params[3] as number,
+            read_count: params[4] as number,
+            filed_count: params[5] as number,
+            state: JSON.parse(params[6] as string) as Record<string, unknown>,
+          });
+          return { rows: [], rowCount: 0 };
+        }
+        if (head.startsWith("DELETE FROM loader_checkpoint")) {
+          checkpoints.delete(params[0] as string);
+          return { rows: [], rowCount: 0 };
+        }
+        if (head.startsWith("DELETE FROM tribunal_building_safety_decisions")) {
+          live = [];
+          return { rows: [], rowCount: 0 };
+        }
+        if (head.startsWith("INSERT INTO tribunal_building_safety_decisions")) {
+          live = stage.map((r) => ({ ...r }));
+          return { rows: [], rowCount: 0 };
+        }
+        throw new Error(`fake client: unhandled SQL: ${sql}`);
+      },
+      release() {},
+    };
+    return {
+      pool: { connect: async () => client },
+      live: () => live,
+      stage: () => stage,
+      checkpoints,
+      setFailAfterInserts: (n: number | null) => {
+        insertCalls = 0;
+        failAfterInserts = n;
+      },
+    };
+  }
+  // 300 rows: the golden row repeated with distinct case
+  // references, so the filer stages three 100-row chunks.
+  function bigRows() {
+    const rows = [];
+    for (let k = 0; k < 300; k++)
+      rows.push({
+        caseRef: `HAV/${String(k).padStart(4, "0")}/BSA/2025/0001`,
+        decisionDate: "2026-04-10",
+        orderKind: "remediation-order",
+        propertyText: `${k + 1} Oyster Bay Apartments, Sterte, Poole BH15 2FN`,
+        postcode: "BH15 2FN",
+        buildingKey: "oyster bay apartments sterte poole",
+        isSingleFlat: false,
+        sourceUrl: `https://www.gov.uk/case-${k}`,
+      });
+    return rows;
+  }
+
+  it("kill mid-staging resumes and files every case exactly once", async () => {
+    const fake = statefulPool();
+    const rows = bigRows();
+    fake.setFailAfterInserts(1);
+    await expect(fileCases(fake.pool as never, rows)).rejects.toThrow(/simulated kill/);
+    expect(fake.stage()).toHaveLength(100);
+    expect(fake.checkpoints.get("load-tribunal-building-safety")?.next_start_index).toBe(100);
+
+    fake.setFailAfterInserts(null);
+    await fileCases(fake.pool as never, rows);
+    expect(fake.live()).toHaveLength(300);
+    expect(new Set(fake.live().map((r) => r.case_ref)).size).toBe(300);
+    expect(fake.stage()).toHaveLength(0);
+    expect(fake.checkpoints.size).toBe(0);
+  });
+
+  it("a new decision date discards the staged rows and starts from zero", async () => {
+    const fake = statefulPool();
+    const rows = bigRows();
+    fake.setFailAfterInserts(1);
+    await expect(fileCases(fake.pool as never, rows)).rejects.toThrow(/simulated kill/);
+    expect(fake.stage()).toHaveLength(100);
+    fake.setFailAfterInserts(null);
+    const moved = rows.map((r) => ({ ...r, decisionDate: "2026-04-11" }));
+    await fileCases(fake.pool as never, moved);
+    expect(fake.live()).toHaveLength(300);
+    expect(fake.live().every((r) => r.decision_date === "2026-04-11")).toBe(true);
+    expect(fake.stage()).toHaveLength(0);
+    expect(fake.checkpoints.size).toBe(0);
+  });
+
+  it("--restart discards the checkpoints and starts from zero", async () => {
+    const fake = statefulPool();
+    const rows = bigRows();
+    fake.setFailAfterInserts(1);
+    await expect(fileCases(fake.pool as never, rows)).rejects.toThrow(/simulated kill/);
+    expect(fake.stage()).toHaveLength(100);
+    fake.setFailAfterInserts(null);
+    await fileCases(fake.pool as never, rows, { restart: true });
+    expect(fake.live()).toHaveLength(300);
+    expect(new Set(fake.live().map((r) => r.case_ref)).size).toBe(300);
+    expect(fake.stage()).toHaveLength(0);
+    expect(fake.checkpoints.size).toBe(0);
   });
 });

@@ -438,3 +438,248 @@ describe("BUG-265 progress logging", () => {
     expect(rec.statements).toContain("ROLLBACK");
   });
 });
+
+describe("resume (BUG-368) — the full pass only; the seed filer is untouched", () => {
+  // A fake pg pool: the staged rows, the live table and the
+  // loader_checkpoint row as arrays, with just enough SQL to
+  // run the full-pass filer. The 13 seed rows are cloned
+  // into 350 synthetic authorities with unique codes.
+  type CheckpointRow = {
+    loader: string;
+    edition: string;
+    expected: number | null;
+    next_start_index: number;
+    read_count: number;
+    filed_count: number;
+    state: Record<string, unknown> | null;
+  };
+  type StagedRow = { code: string; seq: number };
+  async function makeRows(n: number): Promise<Row[]> {
+    const { rows: seed } = await seedRows(FIXTURE_2026);
+    return Array.from({ length: n }, (_, i) => {
+      const template = seed[i % seed.length];
+      return { ...template, code: `E${String(10000000 + i)}` };
+    });
+  }
+  function createFakePool() {
+    let staged: StagedRow[] = [];
+    let live: { code: string; taxYear: string }[] = [];
+    const checkpoints = new Map<string, CheckpointRow>();
+    let insertCalls = 0;
+    let failAfterInserts: number | null = null;
+    let failSwapOnce = false;
+    let snapshot: {
+      staged: StagedRow[];
+      live: { code: string; taxYear: string }[];
+      checkpoints: Map<string, CheckpointRow>;
+    } | null = null;
+    const client = {
+      async query(sql: string, params: unknown[] = []) {
+        const text = sql.replace(/\s+/g, " ");
+        if (text === "BEGIN") {
+          snapshot = { staged: [...staged], live: [...live], checkpoints: new Map(checkpoints) };
+          return { rows: [] };
+        }
+        if (text === "COMMIT") {
+          snapshot = null;
+          return { rows: [] };
+        }
+        if (text === "ROLLBACK") {
+          if (snapshot) {
+            staged = snapshot.staged;
+            live = snapshot.live;
+            checkpoints.clear();
+            for (const [k, v] of snapshot.checkpoints) checkpoints.set(k, v);
+          }
+          snapshot = null;
+          return { rows: [] };
+        }
+        if (/CREATE TABLE IF NOT EXISTS council_tax_charges_stage/.test(text)) return { rows: [] };
+        if (/INSERT INTO council_tax_charges_stage/.test(text)) {
+          insertCalls += 1;
+          if (failAfterInserts !== null && insertCalls > failAfterInserts)
+            throw new Error("simulated kill: the database connection dropped mid-insert");
+          for (let r = 0; r < params.length / 15; r++) {
+            const b = r * 15;
+            staged.push({ code: params[b] as string, seq: params[b + 14] as number });
+          }
+          return { rows: [], rowCount: params.length / 15 };
+        }
+        if (
+          /SELECT loader, edition, expected, next_start_index, read_count, filed_count, state, updated_at/.test(
+            text,
+          )
+        ) {
+          const row = checkpoints.get(params[0] as string);
+          return { rows: row ? [row] : [] };
+        }
+        if (/INSERT INTO loader_checkpoint/.test(text)) {
+          checkpoints.set(params[0] as string, {
+            loader: params[0] as string,
+            edition: params[1] as string,
+            expected: params[2] as number | null,
+            next_start_index: params[3] as number,
+            read_count: params[4] as number,
+            filed_count: params[5] as number,
+            state: JSON.parse(params[6] as string) as Record<string, unknown>,
+          });
+          return { rows: [] };
+        }
+        if (/DELETE FROM loader_checkpoint WHERE loader =/.test(text)) {
+          checkpoints.delete(params[0] as string);
+          return { rows: [] };
+        }
+        if (/SELECT count\(\*\)::int AS n, coalesce\(sum\(seq\)/.test(text)) {
+          return {
+            rows: [
+              {
+                n: staged.length,
+                s: staged.reduce((a, r) => a + r.seq, 0),
+                m: staged.length ? Math.max(...staged.map((r) => r.seq)) : 0,
+              },
+            ],
+          };
+        }
+        if (/DELETE FROM council_tax_charges_stage WHERE seq >=/.test(text)) {
+          staged = staged.filter((r) => r.seq < (params[0] as number));
+          return { rows: [], rowCount: 0 };
+        }
+        if (/DELETE FROM council_tax_charges_stage/.test(text)) {
+          staged = [];
+          return { rows: [] };
+        }
+        if (/SELECT count\(\*\)::int AS n FROM council_tax_charges_stage/.test(text))
+          return { rows: [{ n: staged.length }] };
+        if (/DELETE FROM council_tax_charges WHERE tax_year/.test(text)) {
+          if (failSwapOnce) {
+            failSwapOnce = false;
+            throw new Error("simulated kill: the database connection dropped mid-swap");
+          }
+          live = live.filter((r) => r.taxYear !== (params[0] as string));
+          return { rows: [] };
+        }
+        if (/INSERT INTO council_tax_charges \(/.test(text)) {
+          live.push(...staged.map((r) => ({ code: r.code, taxYear: "2026-27" })));
+          return { rows: [] };
+        }
+        throw new Error(`fake pool: unhandled SQL: ${sql}`);
+      },
+      release() {},
+    };
+    return {
+      pool: { connect: async () => client },
+      staged: () => staged,
+      live: () => live,
+      checkpoints,
+      setFailAfterInserts: (n: number | null) => {
+        failAfterInserts = n;
+      },
+      setFailSwapOnce: () => {
+        failSwapOnce = true;
+      },
+    };
+  }
+  type FakePool = ReturnType<typeof createFakePool>;
+  async function runFiling(
+    fake: FakePool,
+    rows: Row[],
+    { restart = false, lines = null as string[] | null } = {},
+  ) {
+    const captured: string[] = lines ?? [];
+    const progress = createProgressLogger({
+      name: "load-council-tax",
+      log: (line: string) => captured.push(line),
+    });
+    await fileAllRows(fake.pool as never, rows as never, "2026-27", {
+      progress,
+      resume: { restart },
+    });
+    return captured;
+  }
+
+  it("kill mid-staging resumes and files every authority exactly once", async () => {
+    const fake = createFakePool();
+    const rows = await makeRows(350);
+    // Kill after two 100-row chunks: 200 rows staged, the
+    // checkpoint at 200, the rest never landed.
+    const killLines: string[] = [];
+    fake.setFailAfterInserts(2);
+    await expect(runFiling(fake, rows, { lines: killLines })).rejects.toThrow(/simulated kill/);
+    expect(fake.staged().length).toBe(200);
+    expect(fake.checkpoints.get("load-council-tax")?.next_start_index).toBe(200);
+    expect(
+      killLines.some((l) =>
+        /checkpoint 200\/350 authorities \(57%\) · staged 200 · resume from 200/.test(l),
+      ),
+    ).toBe(true);
+    expect(fake.live().length).toBe(0);
+
+    fake.setFailAfterInserts(null);
+    const lines = await runFiling(fake, rows);
+    expect(
+      lines.some((l) =>
+        /resuming from checkpoint · 200 rows staged · edition 2026-27 · resume from 200/.test(l),
+      ),
+    ).toBe(true);
+    expect(fake.live().map((r) => r.code)).toEqual(rows.map((r) => r.code));
+    // The swap cleared staging and the checkpoint together.
+    expect(fake.staged().length).toBe(0);
+    expect(fake.checkpoints.get("load-council-tax")).toBeUndefined();
+  });
+
+  it("kill during the swap resumes with staging complete and swaps cleanly", async () => {
+    const fake = createFakePool();
+    const rows = await makeRows(350);
+    fake.setFailSwapOnce();
+    await expect(runFiling(fake, rows)).rejects.toThrow(/simulated kill/);
+    // The swap transaction rolled back: staging and the
+    // checkpoint stand, the live table is untouched.
+    expect(fake.staged().length).toBe(350);
+    expect(fake.checkpoints.get("load-council-tax")?.next_start_index).toBe(350);
+    expect(fake.live().length).toBe(0);
+
+    const lines = await runFiling(fake, rows);
+    // The resumed run stages nothing, and its filing tally
+    // still closes at 350/350.
+    expect(lines.some((l) => /progress · file 350\/350 authorities \(100%\)$/.test(l))).toBe(true);
+    expect(fake.live().map((r) => r.code)).toEqual(rows.map((r) => r.code));
+    expect(fake.staged().length).toBe(0);
+    expect(fake.checkpoints.get("load-council-tax")).toBeUndefined();
+  });
+
+  it("a checkpoint for another tax year is discarded and the run starts from zero", async () => {
+    const fake = createFakePool();
+    const rows = await makeRows(350);
+    fake.setFailAfterInserts(2);
+    await expect(runFiling(fake, rows)).rejects.toThrow(/simulated kill/);
+    expect(fake.staged().length).toBe(200);
+
+    // The tax year never changes between runs of the same
+    // pass, so simulate the new year by editing the stored
+    // checkpoint's edition directly.
+    const cp = fake.checkpoints.get("load-council-tax");
+    expect(cp).toBeDefined();
+    if (!cp) throw new Error("expected a checkpoint to exist");
+    fake.checkpoints.set("load-council-tax", { ...cp, edition: "2025-26" });
+    fake.setFailAfterInserts(null);
+    const lines = await runFiling(fake, rows);
+    expect(lines.some((l) => /discarding stale checkpoint · edition changed/.test(l))).toBe(true);
+    expect(fake.live().map((r) => r.code)).toEqual(rows.map((r) => r.code));
+    expect(fake.staged().length).toBe(0);
+    expect(fake.checkpoints.get("load-council-tax")).toBeUndefined();
+  });
+
+  it("--restart discards the checkpoint and starts from zero", async () => {
+    const fake = createFakePool();
+    const rows = await makeRows(350);
+    fake.setFailAfterInserts(2);
+    await expect(runFiling(fake, rows)).rejects.toThrow(/simulated kill/);
+    expect(fake.staged().length).toBe(200);
+
+    fake.setFailAfterInserts(null);
+    await runFiling(fake, rows, { restart: true });
+    expect(fake.live().map((r) => r.code)).toEqual(rows.map((r) => r.code));
+    expect(fake.staged().length).toBe(0);
+    expect(fake.checkpoints.get("load-council-tax")).toBeUndefined();
+  });
+});

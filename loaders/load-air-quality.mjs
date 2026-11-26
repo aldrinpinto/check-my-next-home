@@ -56,6 +56,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import proj4 from "proj4";
+import { createLoaderResume } from "./loader-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -254,48 +255,75 @@ export function goldenChecks(rows, { full }) {
 
 const CHUNK = 500;
 
+// Filing with resume support (BUG-368): the stage is a
+// PERSISTENT table now (migration 0048) and a
+// loader_checkpoint row records the last fully staged
+// chunk, so a killed run resumes staging from the
+// checkpoint instead of re-staging the whole grid. The
+// read/build still re-runs — the rows are rebuilt from
+// the three CSVs — but the 510 staging chunks do not.
+// The edition is the PCM year; the expected total is the
+// row count, known once the build ends. The swap stays
+// atomic and year-scoped, and a successful swap clears
+// staging + checkpoint together (BUG-248 unchanged).
 /**
  * @param {any} client
  * @param {any[]} rows
- * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, restart?: boolean }} [options]
  */
-export async function fileAirGrid(client, rows, { progress = null } = {}) {
-  await client.query("BEGIN");
+export async function fileAirGrid(client, rows, { progress = null, restart = false } = {}) {
+  const year = rows[0]?.year;
+  if (year === undefined) throw new Error("PCM: no rows to file");
+  const edition = `pcm-${year}`;
+  const expected = rows.length;
+  await client.query(`CREATE TABLE IF NOT EXISTS air_stage (
+      grid_ref text, year integer, no2 numeric, pm25 numeric, pm10 numeric,
+      latitude double precision, longitude double precision,
+      seq bigint NOT NULL, UNIQUE (seq)
+    )`);
+  const resume = createLoaderResume(client, {
+    loader: "load-air-quality",
+    stageTable: "air_stage",
+    progress,
+    restart,
+  });
+  const resumePrep = await resume.prepare({ edition, expected });
+  const startAt = resumePrep.resumed ? resumePrep.checkpoint.next_start_index : 0;
+  // BUG-265: the staging is the run's second long loop — 510
+  // chunks of 500 live — so a tally lands every 25 chunks
+  // against the chunk count, a heartbeat every 10, and a
+  // chunk that takes more than 3x the recent average earns
+  // a warning. On a resume the tally counts from the
+  // checkpointed chunk, so the log still ends at the total.
+  const chunks = Math.ceil(rows.length / CHUNK);
+  const stageTally = progress?.tally({
+    label: "stage",
+    total: chunks,
+    every: 25,
+    unit: "chunks",
+  });
+  const stageWatch = createBatchWatch();
+  let chunkIndex = Math.floor(startAt / CHUNK);
+  let staged = resumePrep.resumed ? resumePrep.checkpoint.filed_count : 0;
   try {
-    await client.query(`CREATE TEMP TABLE air_stage (
-        grid_ref text, year integer, no2 numeric, pm25 numeric, pm10 numeric,
-        latitude double precision, longitude double precision
-      ) ON COMMIT DROP`);
-    // BUG-265: the staging is the run's second long loop — 510
-    // chunks of 500 live — so a tally lands every 25 chunks
-    // against the chunk count, a heartbeat every 10, and a
-    // chunk that takes more than 3x the recent average earns
-    // a warning.
-    const chunks = Math.ceil(rows.length / CHUNK);
-    const stageTally = progress?.tally({
-      label: "stage",
-      total: chunks,
-      every: 25,
-      unit: "chunks",
-    });
-    const stageWatch = createBatchWatch();
-    let chunkIndex = 0;
-    for (let i = 0; i < rows.length; i += CHUNK) {
+    for (let i = startAt; i < rows.length; i += CHUNK) {
       const started = Date.now();
       const chunk = rows.slice(i, i + CHUNK);
       const values = [];
       const params = [];
+      const base = resume.takeSeq(chunk.length);
       chunk.forEach((r, j) => {
-        const b = j * 7;
+        const b = j * 8;
         values.push(
-          `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7})`,
+          `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7}, $${b + 8})`,
         );
-        params.push(r.gridRef, r.year, r.no2, r.pm25, r.pm10, r.latitude, r.longitude);
+        params.push(r.gridRef, r.year, r.no2, r.pm25, r.pm10, r.latitude, r.longitude, base + j);
       });
       await client.query(
-        `INSERT INTO air_stage (grid_ref, year, no2, pm25, pm10, latitude, longitude) VALUES ${values.join(", ")}`,
+        `INSERT INTO air_stage (grid_ref, year, no2, pm25, pm10, latitude, longitude, seq) VALUES ${values.join(", ")}`,
         params,
       );
+      staged += chunk.length;
       chunkIndex += 1;
       const { tookMs, averageMs, slow } = stageWatch.observe(Date.now() - started);
       stageTally?.tick(chunkIndex);
@@ -307,27 +335,62 @@ export async function fileAirGrid(client, rows, { progress = null } = {}) {
           threshold: `3x recent average ${formatDuration(averageMs)}`,
         });
       }
+      // BUG-368: one checkpoint line per committed chunk —
+      // the save is visible in the logs, and a kill after
+      // this line loses at most the chunk in flight.
+      await resume.checkpoint({
+        edition,
+        expected,
+        nextStartIndex: i + chunk.length,
+        read: i + chunk.length,
+        filed: staged,
+        unit: "rows",
+      });
     }
     stageTally?.finish(chunks);
-    await client.query(`DELETE FROM air_grid WHERE year = $1`, [rows[0].year]);
-    await client.query(
-      `INSERT INTO air_grid (grid_ref, year, no2, pm25, pm10, latitude, longitude, source_name, source_date)
-       SELECT grid_ref, year, no2, pm25, pm10, latitude, longitude, $1, $2 FROM air_stage`,
-      [SOURCE_NAME, SOURCE_DATE],
-    );
-    await client.query("COMMIT");
   } catch (err) {
-    // BUG-265: the filing is one transaction — on a rollback
-    // the live table is untouched.
+    // BUG-368: the staging is durable per chunk — no
+    // transaction to roll back, and the staged rows +
+    // checkpoint STAY for the next run to resume from.
     progress?.failed({
       stage: "filing",
-      filed: 0,
+      filed: staged,
       total: rows.length,
       error: err,
-      resume:
-        "re-run the loader from the start (the filing rolled back, the live table is untouched)",
+      resume: resume.resumeNote(),
     });
-    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  }
+  try {
+    const stagedRes = await client.query("SELECT count(*)::int AS n FROM air_stage");
+    if (stagedRes.rows[0].n !== expected)
+      throw new Error("the staged square count does not match — rolling back");
+    await client.query("BEGIN");
+    try {
+      await client.query(`DELETE FROM air_grid WHERE year = $1`, [rows[0].year]);
+      await client.query(
+        `INSERT INTO air_grid (grid_ref, year, no2, pm25, pm10, latitude, longitude, source_name, source_date)
+       SELECT grid_ref, year, no2, pm25, pm10, latitude, longitude, $1, $2 FROM air_stage`,
+        [SOURCE_NAME, SOURCE_DATE],
+      );
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw err;
+    }
+    // The run is complete: staging + checkpoint go together,
+    // so nothing is left behind for the next vintage.
+    await resume.clear();
+  } catch (err) {
+    // BUG-368: a swap failure leaves the staged read
+    // checkpointed, so the next run resumes at the swap.
+    progress?.failed({
+      stage: "filing",
+      filed: staged,
+      total: rows.length,
+      error: err,
+      resume: resume.resumeNote(),
+    });
     throw err;
   }
 }
@@ -369,6 +432,9 @@ export async function loadAirRows({ fileDir = null, year = PCM_YEAR, progress = 
 async function run() {
   const args = process.argv.slice(2);
   const verifyOnly = args.includes("--verify-only");
+  // BUG-368: resume from the last checkpointed chunk instead of
+  // restarting; with no checkpoint this is a fresh start.
+  const restart = args.includes("--restart");
   const fileAt = args.indexOf("--file");
   const fileDir = fileAt >= 0 ? args[fileAt + 1] : null;
   if (fileAt >= 0 && !fileDir) throw new Error("--file needs a directory");
@@ -402,7 +468,7 @@ async function run() {
   try {
     const client = await pool.connect();
     try {
-      await fileAirGrid(client, rows, { progress });
+      await fileAirGrid(client, rows, { progress, restart });
     } finally {
       client.release();
     }

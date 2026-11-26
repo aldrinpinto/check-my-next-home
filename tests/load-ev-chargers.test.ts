@@ -493,9 +493,11 @@ describe("filing — the stage-table transaction", () => {
   // that the statements exist — never their order. No
   // Postgres exists in the sandbox (CI is the proof
   // environment), so the contract is pinned here against a
-  // recording fake pool: ONE transaction — BEGIN before the
-  // stage create, the swap after the staged inserts, COMMIT
-  // last — and a mid-filing failure rolls back.
+  // recording fake pool. BUG-368 changed the shape: the
+  // stage table is persistent now and staging rides OUTSIDE
+  // any transaction, so a killed run's staging survives as
+  // its resume point; only the swap itself is a
+  // transaction, opened in the swap step.
   function recordingPool(failOn?: string) {
     const statements: string[] = [];
     let released = false;
@@ -536,25 +538,33 @@ describe("filing — the stage-table transaction", () => {
     },
   ];
 
-  it("stages and swaps inside one transaction — BEGIN before the stage create, COMMIT last", async () => {
+  it("stages outside the swap transaction — stage create first, BEGIN before the swap, COMMIT last", async () => {
     const rec = recordingPool();
     await fileEvPoints(rec.pool as never, sites as never, "2026-11-13", "2026-11-13T00:00:00Z");
     const at = (prefix: string) => rec.statements.findIndex((s) => s.startsWith(prefix));
-    expect(rec.statements[0]).toBe("BEGIN");
-    expect(at("CREATE TEMP TABLE ev_stage")).toBeGreaterThan(0);
-    expect(at("INSERT INTO ev_stage")).toBeGreaterThan(at("CREATE TEMP TABLE ev_stage"));
-    expect(at("DELETE FROM ev_points")).toBeGreaterThan(at("INSERT INTO ev_stage"));
+    expect(rec.statements[0].startsWith("CREATE TABLE IF NOT EXISTS ev_stage")).toBe(true);
+    expect(at("INSERT INTO ev_stage")).toBeGreaterThan(0);
+    // The swap's BEGIN comes after the staging, before the
+    // DELETE; the clear's DELETEs come after the swap's
+    // COMMIT, and the clear's COMMIT is the last statement.
+    expect(at("BEGIN")).toBeGreaterThan(at("INSERT INTO ev_stage"));
+    expect(at("DELETE FROM ev_points")).toBeGreaterThan(at("BEGIN"));
     expect(at("INSERT INTO ev_points")).toBeGreaterThan(at("DELETE FROM ev_points"));
+    const lastAt = (prefix: string) => rec.statements.findLastIndex((s) => s.startsWith(prefix));
+    expect(lastAt("DELETE FROM ev_stage")).toBeGreaterThan(at("INSERT INTO ev_points"));
     expect(rec.statements.at(-1)).toBe("COMMIT");
     expect(rec.released()).toBe(true);
   });
 
-  it("a failure mid-filing rolls the transaction back and still releases the client", async () => {
+  it("a failure mid-staging leaves the staged rows in place and still releases the client", async () => {
     const rec = recordingPool("INSERT INTO ev_stage");
     await expect(
       fileEvPoints(rec.pool as never, sites as never, "2026-11-13", "2026-11-13T00:00:00Z"),
     ).rejects.toThrow("forced failure");
-    expect(rec.statements).toContain("ROLLBACK");
+    // No transaction is open during staging (BUG-368), so
+    // there is nothing to roll back and nothing to commit:
+    // the staging stays as the next run's resume point.
+    expect(rec.statements).not.toContain("ROLLBACK");
     expect(rec.statements).not.toContain("COMMIT");
     expect(rec.released()).toBe(true);
   });
@@ -678,8 +688,10 @@ describe("filing — the schema contract", () => {
   it("the stage table, the staged insert and the final SELECT agree with each other", async () => {
     const rec = recordingPool();
     await fileEvPoints(rec.pool as never, sites as never, "2026-11-13", "2026-11-13T00:00:00Z");
-    const stageCreate = rec.statements.find((s) => s.startsWith("CREATE TEMP TABLE ev_stage"))!;
-    const stageDefs = /\((.+)\) ON COMMIT DROP/.exec(stageCreate)![1];
+    const stageCreate = rec.statements.find((s) =>
+      s.startsWith("CREATE TABLE IF NOT EXISTS ev_stage"),
+    )!;
+    const stageDefs = /\((.+)\)/.exec(stageCreate)![1];
     const stageCols = stageDefs.split(",").map((def) => def.trim().split(/\s+/)[0]);
     const stagedInsert = rec.statements.find((s) => s.startsWith("INSERT INTO ev_stage ("))!;
     for (const col of firstParenList(stagedInsert)) expect(stageCols).toContain(col);
@@ -755,12 +767,14 @@ describe("BUG-265 progress logging", () => {
     await fileEvPoints(rec.pool as never, sites as never, "2026-11-13", "2026-11-13T00:00:00Z", {
       progress,
     });
-    expect(lines).toHaveLength(1);
-    expect(lines[0]).toMatch(/load-ev-chargers progress · file 2\/2 sites \(100%\)$/);
+    // BUG-368: the checkpoint line and the staging-cleared
+    // line join the file line — the closing file line is
+    // still the one carrying the genuine total.
+    expect(lines.some((l) => /file 2\/2 sites \(100%\)$/.test(l))).toBe(true);
     expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
   });
 
-  it("reports a filing failure with the file stage and the staged count, then still rolls back", async () => {
+  it("reports a filing failure with the file stage and the staged count, then still releases the client", async () => {
     const rec = recordingPool("INSERT INTO ev_stage");
     const { lines, log } = collect();
     const progress = createProgressLogger({ name: "load-ev-chargers", log });
@@ -771,9 +785,272 @@ describe("BUG-265 progress logging", () => {
     ).rejects.toThrow("forced failure");
     expect(lines).toContainEqual(
       expect.stringMatching(
-        /load-ev-chargers failed · file · filed 0 of 2 · forced failure: INSERT INTO ev_stage · resume from re-run from scratch \(the filing transaction rolls back\)$/,
+        /load-ev-chargers failed · file · filed 0 of 2 · forced failure: INSERT INTO ev_stage · resume from the start \(nothing staged yet\)$/,
       ),
     );
-    expect(rec.statements).toContain("ROLLBACK");
+    // BUG-368: no transaction is open during staging, so
+    // there is nothing to roll back — the staging stays as
+    // the next run's resume point.
+    expect(rec.statements).not.toContain("ROLLBACK");
+    expect(rec.statements).not.toContain("COMMIT");
+    expect(rec.released()).toBe(true);
+  });
+});
+
+describe("resume (BUG-368)", () => {
+  // A fake pool whose client tracks the staged rows, the
+  // live table and the loader_checkpoint row, with just
+  // enough SQL to run the filer.
+  type StagedRow = { registryId: string; seq: number };
+  type CheckpointRow = {
+    loader: string;
+    edition: string;
+    expected: number | null;
+    next_start_index: number;
+    read_count: number;
+    filed_count: number;
+    state: Record<string, unknown> | null;
+  };
+  function createFakePool() {
+    let staged: StagedRow[] = [];
+    let live: StagedRow[] = [];
+    const checkpoints = new Map<string, CheckpointRow>();
+    let insertCalls = 0;
+    let failAfterInserts: number | null = null;
+    let snapshot: {
+      staged: StagedRow[];
+      live: StagedRow[];
+      checkpoints: Map<string, CheckpointRow>;
+    } | null = null;
+    const client = {
+      async query(sql: string, params: unknown[] = []) {
+        const text = sql.replace(/\s+/g, " ");
+        if (text === "BEGIN") {
+          snapshot = { staged: [...staged], live: [...live], checkpoints: new Map(checkpoints) };
+          return { rows: [] };
+        }
+        if (text === "COMMIT") {
+          snapshot = null;
+          return { rows: [] };
+        }
+        if (text === "ROLLBACK") {
+          if (snapshot) {
+            staged = snapshot.staged;
+            live = snapshot.live;
+            checkpoints.clear();
+            for (const [k, v] of snapshot.checkpoints) checkpoints.set(k, v);
+          }
+          snapshot = null;
+          return { rows: [] };
+        }
+        if (/CREATE TABLE IF NOT EXISTS ev_stage/.test(text)) return { rows: [] };
+        if (/INSERT INTO ev_stage/.test(text)) {
+          insertCalls += 1;
+          if (failAfterInserts !== null && insertCalls > failAfterInserts)
+            throw new Error("simulated kill: the database connection dropped mid-insert");
+          for (let r = 0; r < params.length / 11; r++) {
+            const b = r * 11;
+            staged.push({ registryId: params[b] as string, seq: params[b + 10] as number });
+          }
+          return { rows: [], rowCount: params.length / 11 };
+        }
+        if (
+          /SELECT loader, edition, expected, next_start_index, read_count, filed_count, state, updated_at/.test(
+            text,
+          )
+        ) {
+          const row = checkpoints.get(params[0] as string);
+          return { rows: row ? [row] : [] };
+        }
+        if (/INSERT INTO loader_checkpoint/.test(text)) {
+          checkpoints.set(params[0] as string, {
+            loader: params[0] as string,
+            edition: params[1] as string,
+            expected: params[2] as number | null,
+            next_start_index: params[3] as number,
+            read_count: params[4] as number,
+            filed_count: params[5] as number,
+            state: JSON.parse(params[6] as string) as Record<string, unknown>,
+          });
+          return { rows: [] };
+        }
+        if (/DELETE FROM loader_checkpoint WHERE loader =/.test(text)) {
+          checkpoints.delete(params[0] as string);
+          return { rows: [] };
+        }
+        if (/SELECT count\(\*\)::int AS n, coalesce\(sum\(seq\)/.test(text)) {
+          return {
+            rows: [
+              {
+                n: staged.length,
+                s: staged.reduce((a, r) => a + r.seq, 0),
+                m: staged.length ? Math.max(...staged.map((r) => r.seq)) : 0,
+              },
+            ],
+          };
+        }
+        if (/DELETE FROM ev_stage WHERE seq >=/.test(text)) {
+          staged = staged.filter((r) => r.seq < (params[0] as number));
+          return { rows: [], rowCount: 0 };
+        }
+        if (/DELETE FROM ev_stage/.test(text)) {
+          staged = [];
+          return { rows: [] };
+        }
+        if (/SELECT count\(\*\)::int AS n FROM ev_stage/.test(text))
+          return { rows: [{ n: staged.length }] };
+        if (/DELETE FROM ev_points/.test(text)) {
+          live = [];
+          return { rows: [] };
+        }
+        if (/INSERT INTO ev_points/.test(text)) {
+          live = [...staged];
+          return { rows: [] };
+        }
+        throw new Error(`fake client: unhandled SQL: ${sql}`);
+      },
+      release() {},
+    };
+    return {
+      pool: { connect: async () => client },
+      staged: () => staged,
+      live: () => live,
+      checkpoints,
+      setFailAfterInserts: (n: number | null) => {
+        insertCalls = 0;
+        failAfterInserts = n;
+      },
+    };
+  }
+  type FakePool = ReturnType<typeof createFakePool>;
+  const EDITION = "2026-11-13:0123456789abcdef";
+  const makeSites = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      registryId: String(100000 + i),
+      name: `Site ${i}`,
+      lat: 51.5 + i * 0.0001,
+      lon: 0.02,
+      operator: "Operator",
+      connectorTypes: "Type 2",
+      chargingSpeed: "up to 22 kW",
+      detail: { usage_type: "Public", devices: 1 },
+    }));
+
+  it(
+    "kill mid-file resumes from the last flushed chunk and files every site exactly once",
+    { timeout: 60_000 },
+    async () => {
+      const fake = createFakePool();
+      const sites = makeSites(1200);
+      // The first 500-row flush lands and checkpoints at
+      // 500; the second flush (insert 2) dies — 500 staged,
+      // the checkpoint at 500.
+      const killLines: string[] = [];
+      const killProgress = createProgressLogger({
+        name: "load-ev-chargers",
+        log: (line: string) => killLines.push(line),
+      });
+      fake.setFailAfterInserts(1);
+      await expect(
+        fileEvPoints(fake.pool as never, sites as never, "2026-11-13", "2026-11-13T00:00:00Z", {
+          progress: killProgress,
+          edition: EDITION,
+        }),
+      ).rejects.toThrow(/simulated kill/);
+      expect(fake.staged().length).toBe(500);
+      expect(fake.checkpoints.get("load-ev-chargers")?.next_start_index).toBe(500);
+      expect(
+        killLines.some((l) =>
+          /checkpoint 500\/1,200 sites \(42%\) · staged 500 · resume from 500/.test(l),
+        ),
+      ).toBe(true);
+
+      fake.setFailAfterInserts(null);
+      const lines: string[] = [];
+      const progress = createProgressLogger({
+        name: "load-ev-chargers",
+        log: (line: string) => lines.push(line),
+      });
+      await fileEvPoints(fake.pool as never, sites as never, "2026-11-13", "2026-11-13T00:00:00Z", {
+        progress,
+        edition: EDITION,
+      });
+      expect(
+        lines.some((l) =>
+          /resuming from checkpoint · 500 rows staged · edition 2026-11-13:0123456789abcdef · resume from 500/.test(
+            l,
+          ),
+        ),
+      ).toBe(true);
+      expect(fake.live().length).toBe(1200);
+      expect(new Set(fake.live().map((r) => r.registryId)).size).toBe(1200);
+      expect(fake.staged().length).toBe(0);
+      expect(fake.checkpoints.get("load-ev-chargers")).toBeUndefined();
+    },
+  );
+
+  it(
+    "an edition change discards the staged rows and starts from zero",
+    { timeout: 60_000 },
+    async () => {
+      const fake = createFakePool();
+      fake.setFailAfterInserts(1);
+      await expect(
+        fileEvPoints(
+          fake.pool as never,
+          makeSites(1200) as never,
+          "2026-11-13",
+          "2026-11-13T00:00:00Z",
+          {
+            edition: EDITION,
+          },
+        ),
+      ).rejects.toThrow(/simulated kill/);
+      expect(fake.staged().length).toBe(500);
+
+      fake.setFailAfterInserts(null);
+      await fileEvPoints(
+        fake.pool as never,
+        makeSites(1200) as never,
+        "2026-11-13",
+        "2026-11-13T00:00:00Z",
+        {
+          edition: "2026-11-14:fedcba9876543210",
+        },
+      );
+      expect(fake.live().length).toBe(1200);
+      expect(fake.checkpoints.get("load-ev-chargers")).toBeUndefined();
+    },
+  );
+
+  it("--restart discards the checkpoint and starts from zero", { timeout: 60_000 }, async () => {
+    const fake = createFakePool();
+    fake.setFailAfterInserts(1);
+    await expect(
+      fileEvPoints(
+        fake.pool as never,
+        makeSites(1200) as never,
+        "2026-11-13",
+        "2026-11-13T00:00:00Z",
+        {
+          edition: EDITION,
+        },
+      ),
+    ).rejects.toThrow(/simulated kill/);
+    expect(fake.staged().length).toBe(500);
+
+    fake.setFailAfterInserts(null);
+    await fileEvPoints(
+      fake.pool as never,
+      makeSites(1200) as never,
+      "2026-11-13",
+      "2026-11-13T00:00:00Z",
+      {
+        edition: EDITION,
+        restart: true,
+      },
+    );
+    expect(fake.live().length).toBe(1200);
+    expect(fake.checkpoints.get("load-ev-chargers")).toBeUndefined();
   });
 });

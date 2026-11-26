@@ -64,6 +64,7 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 
 import {
+  beginPickingStaging,
   fileStagedExtract,
   homeKeyForParts,
   recordRejection,
@@ -217,15 +218,33 @@ export function partsFromRecord(record) {
 // Stream Price Paid lines → batched stage inserts.
 // `lines` is any async iterable of text lines (a file
 // stream, a web stream, or a test's array); `insertBatch`
-// receives arrays of stage rows. Nothing accumulates
-// beyond one batch.
-export async function streamPickingParts(lines, insertBatch, { progress = null } = {}) {
-  let rowsRead = 0;
-  let malformed = 0;
-  let unusable = 0;
+// receives arrays of stage rows, plus the read position
+// at the flush ({ rowsRead, malformed, unusable }) so a
+// resumable staging can checkpoint the chunk. Nothing
+// accumulates beyond one batch.
+//
+// BUG-368: a resumed run skips `skip` non-blank lines
+// (the checkpoint's input position) and seeds its
+// tallies from the checkpoint's state, so the returned
+// stats cover the whole read, seed included.
+export async function streamPickingParts(
+  lines,
+  insertBatch,
+  { progress = null, skip = 0, seed = null } = {},
+) {
+  let rowsRead = seed?.rowsRead ?? 0;
+  let malformed = seed?.malformed ?? 0;
+  let unusable = seed?.unusable ?? 0;
+  let skipped = 0;
   let batch = [];
   for await (const line of lines) {
     if (line.trim() === "") continue;
+    // The skipped lines were already counted by the run
+    // that staged them — they add nothing here.
+    if (skipped < skip) {
+      skipped += 1;
+      continue;
+    }
     rowsRead += 1;
     // BUG-204: a line every 1M transactions read — the
     // staging stream is the pass's long phase, and its
@@ -265,39 +284,93 @@ export async function streamPickingParts(lines, insertBatch, { progress = null }
     }
     batch.push({ ...parts, homeKey: homeKeyForParts(parts) });
     if (batch.length >= STAGE_BATCH_ROWS) {
-      await insertBatch(batch);
+      await insertBatch(batch, { rowsRead, malformed, unusable });
       batch = [];
     }
   }
-  if (batch.length > 0) await insertBatch(batch);
+  if (batch.length > 0) await insertBatch(batch, { rowsRead, malformed, unusable });
   return { rowsRead, malformed, unusable };
 }
 
 // The batched stage insert for the sales stage table.
-export function stageInsertFor(client) {
+// Rows carry seq, their ordinal in the staged set,
+// dense from 0 (BUG-368): the resume proof's prefix
+// check reads it, and a resumed run re-stages its
+// chunks under the same seqs.
+export function stageInsertFor(client, takeSeq = null) {
+  let next = 0;
+  const seqFor =
+    takeSeq ??
+    ((count) => {
+      const base = next;
+      next += count;
+      return base;
+    });
   return async (rows) => {
     const values = [];
     const params = [];
+    const base = seqFor(rows.length);
     rows.forEach((row, i) => {
-      const base = i * 6;
-      values.push(
-        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6})`,
-      );
-      params.push(row.postcode, row.paon, row.saon, row.street, row.town, row.homeKey);
+      const b = i * 7;
+      values.push(`($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7})`);
+      params.push(row.postcode, row.paon, row.saon, row.street, row.town, row.homeKey, base + i);
     });
     await client.query(
-      `INSERT INTO picking_sales_stage (postcode, paon, saon, street, town, home_key) VALUES ${values.join(", ")}`,
+      `INSERT INTO picking_sales_stage (postcode, paon, saon, street, town, home_key, seq) VALUES ${values.join(", ")}`,
       params,
     );
   };
 }
 
-// Stage a pass: truncate the stage, stream the lines
-// into it. Files nothing — the stage is scratch until
+// Stage a pass: stream the lines into the persistent
+// stage, checkpointing after each fully staged chunk
+// (BUG-368). With no staging handle this is a fresh
+// start (the old TRUNCATE semantics); the full pass
+// hands in its prepared handle, and the stream resumes
+// from the checkpoint instead of restarting. Files
+// nothing — the stage is scratch until
 // filePickingIndex swaps it in.
-export async function stagePickingIndex(client, lines, { progress = null } = {}) {
-  await client.query("TRUNCATE picking_sales_stage");
-  return streamPickingParts(lines, stageInsertFor(client), { progress });
+/**
+ * @param {any} client
+ * @param {any} lines
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, staging?: any, prep?: any }} [options]
+ */
+export async function stagePickingIndex(
+  client,
+  lines,
+  { progress = null, staging = null, prep = null } = {},
+) {
+  const s =
+    staging ?? (await beginPickingStaging(client, progress, { restart: true, source: "sales" }));
+  const p = prep ?? (await s.prepareResume("standalone"));
+  const seed = p.resumed ? p.checkpoint : null;
+  const skip = seed?.next_start_index ?? 0;
+  let staged = seed?.filed_count ?? 0;
+  const insert = stageInsertFor(client, (count) => s.takeSeq(count));
+  return streamPickingParts(
+    lines,
+    async (batch, pos) => {
+      await insert(batch);
+      staged += batch.length;
+      await s.checkpoint({
+        read: pos.rowsRead,
+        filed: staged,
+        state: { malformed: pos.malformed, unusable: pos.unusable },
+        unit: "transactions",
+      });
+    },
+    {
+      progress,
+      skip,
+      seed: seed
+        ? {
+            rowsRead: seed.read_count,
+            malformed: seed.state?.malformed ?? 0,
+            unusable: seed.state?.unusable ?? 0,
+          }
+        : null,
+    },
+  );
 }
 
 // File the staged pass: the shared tolerance proof,
@@ -306,7 +379,10 @@ export async function stagePickingIndex(client, lines, { progress = null } = {})
 // index. A refused re-extract records its refusal (so
 // the canary can report it) and throws; the filed
 // edition keeps serving.
-export async function filePickingIndex(client, { edition, log = () => {}, progress = null }) {
+export async function filePickingIndex(
+  client,
+  { edition, log = () => {}, progress = null, staging = null },
+) {
   // BUG-204: the rebuild's stage markers ride the
   // caller's log when no logger is handed in.
   const progressLogger = progress ?? createProgressLogger({ name: "load-picking-index", log });
@@ -331,6 +407,12 @@ export async function filePickingIndex(client, { edition, log = () => {}, progre
     });
     throw refusal;
   }
+  // BUG-368: the staged read is filed — clear staging +
+  // checkpoint now, before the golden proof, so a run
+  // that fails the proof still leaves nothing to resume
+  // from: the new edition is already serving, and a
+  // resumed run would stage a partial extract under it.
+  if (staging) await staging.clear();
   const rowsByPostcode = {};
   try {
     for (const golden of GOLDEN_PICKING_ROWS) {
@@ -362,29 +444,36 @@ export async function filePickingIndex(client, { edition, log = () => {}, progre
 
 // The whole pass over a line source. `edition` names the
 // source file's edition (the live file's Last-Modified
-// date; "fixture" for a fixture directory).
-export async function loadPickingIndexFromLines(client, lines, { edition, log }) {
+// date; "fixture" for a fixture directory). BUG-368: the
+// pass resumes from the last checkpointed chunk instead
+// of restarting; with no checkpoint this is a fresh start.
+export async function loadPickingIndexFromLines(client, lines, { edition, log, restart = false }) {
   // BUG-204: one logger for the pass — the staging
   // stream's count lines and the rebuild's markers.
   const progress = createProgressLogger({ name: "load-picking-index", log });
   // BUG-248: the staging stream fails before anything is
-  // filed — the stage is truncated and re-streamed on a
-  // re-run. The filing phase reports its own failures
-  // (tolerance proof, swap, golden proof), so it is not
-  // wrapped again here.
+  // filed — the staging + checkpoint stay, and the next
+  // run resumes from the checkpoint. The filing phase
+  // reports its own failures (tolerance proof, swap,
+  // golden proof), so it is not wrapped again here.
+  let staging = null;
   let stats;
   try {
-    stats = await stagePickingIndex(client, lines, { progress });
+    staging = await beginPickingStaging(client, progress, { restart, source: "sales" });
+    const prep = await staging.prepareResume(edition);
+    stats = await stagePickingIndex(client, lines, { progress, staging, prep });
   } catch (err) {
     progress.failed({
       stage: "staging",
       filed: 0,
       error: err,
-      resume: "re-run the pass from the start (the stage is truncated and re-streamed)",
+      resume: staging
+        ? staging.resumeNote()
+        : "re-run the pass from the start (nothing staged yet)",
     });
     throw err;
   }
-  const counts = await filePickingIndex(client, { edition, log, progress });
+  const counts = await filePickingIndex(client, { edition, log, progress, staging });
   log(
     `Picking index (sales parts) — edition ${edition}: ${formatCount(stats.rowsRead)} transactions read, ${formatCount(stats.malformed)} malformed lines skipped, ${formatCount(stats.unusable)} rows without a usable postcode or address skipped.`,
   );
@@ -406,11 +495,13 @@ async function* linesFromWeb(response) {
   for await (const line of rl) yield line;
 }
 
-// CLI: [--file <fixture directory>] and nothing else.
-// Any other argument is an error — see the header on
-// why no argument is ever silently dropped here.
+// CLI: [--file <fixture directory>] [--restart] and
+// nothing else. Any other argument is an error — see the
+// header on why no argument is ever silently dropped
+// here.
 export function parseArgs(argv) {
   let fileDir = null;
+  let restart = false;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--file") {
@@ -419,20 +510,22 @@ export function parseArgs(argv) {
         throw new Error("load-picking-index: --file needs a directory");
       }
       i += 1;
+    } else if (arg === "--restart") {
+      restart = true;
     } else {
       throw new Error(
         `load-picking-index: unexpected argument "${arg}" — the pass is the whole nation, or one --file fixture directory; it takes no postcodes`,
       );
     }
   }
-  return { fileDir };
+  return { fileDir, restart };
 }
 
 // The fixture-directory pass: read the directory's
 // pp-complete.csv as a stream and file it. Exported so
 // the specs drive the exact path the runner's fixture
 // pass runs.
-export async function loadPickingIndexFromFile(client, fileDir, { log }) {
+export async function loadPickingIndexFromFile(client, fileDir, { log, restart = false }) {
   const file = path.join(fileDir, PICKING_INDEX_FILE);
   if (!fs.existsSync(file)) {
     throw new Error(`load-picking-index: no ${PICKING_INDEX_FILE} in ${fileDir}`);
@@ -440,15 +533,20 @@ export async function loadPickingIndexFromFile(client, fileDir, { log }) {
   return loadPickingIndexFromLines(client, linesFromFile(file), {
     edition: "fixture",
     log,
+    restart,
   });
 }
 
-export async function loadPickingIndex({ fileDir = null, log = console.log } = {}) {
+export async function loadPickingIndex({
+  fileDir = null,
+  restart = false,
+  log = console.log,
+} = {}) {
   const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
   const client = await pool.connect();
   try {
     if (fileDir !== null) {
-      return await loadPickingIndexFromFile(client, fileDir, { log });
+      return await loadPickingIndexFromFile(client, fileDir, { log, restart });
     }
     const response = await fetch(FULL_FILE_URL);
     if (!response.ok || response.body === null) {
@@ -460,6 +558,7 @@ export async function loadPickingIndex({ fileDir = null, log = console.log } = {
     return await loadPickingIndexFromLines(client, linesFromWeb(response), {
       edition,
       log,
+      restart,
     });
   } finally {
     client.release();

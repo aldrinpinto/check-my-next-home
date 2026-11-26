@@ -9,6 +9,9 @@ import {
   GOLDEN_VALUES,
   HOUSEHOLDS_MISSING_LSOAS,
   buildTableQuery,
+  createRunStats,
+  createUcFiler,
+  createUcGoldenTally,
   discoverSchema,
   extendMonthList,
   fetchDiscovery,
@@ -363,11 +366,15 @@ describe("filing — statement order and the schema contract", () => {
     const statements: string[] = [];
     const calls: { sql: string; params: unknown[] }[] = [];
     let released = false;
+    let staged = 0;
     const client = {
       async query(sql: string, params: unknown[] = []) {
         const head = sql.trim().replace(/\s+/g, " ");
         statements.push(head);
         calls.push({ sql: head, params: [...params] });
+        if (/INSERT INTO uc_stage/.test(sql)) staged += params.length / 7;
+        if (/SELECT count\(\*\)::int AS n FROM uc_stage/.test(sql))
+          return { rows: [{ n: staged }], rowCount: 1 };
         if (failOn && head.startsWith(failOn)) throw new Error(`forced failure: ${failOn}`);
         return { rows: [], rowCount: 0 };
       },
@@ -378,14 +385,20 @@ describe("filing — statement order and the schema contract", () => {
     return { statements, calls, released: () => released, pool: { connect: async () => client } };
   }
 
-  it("stages, swaps each series-month with pct NULL, and prunes per series in one transaction", async () => {
+  it("stages into a persistent table, swaps each series-month with pct NULL, and prunes per series", async () => {
     const rows = await fixtureRows();
     const rec = recordingPool();
     await fileUc(rec.pool as never, rows, "2026-11-13T00:00:00.000Z");
     const at = (prefix: string) => rec.statements.findIndex((s) => s.startsWith(prefix));
-    expect(rec.statements[0]).toBe("BEGIN");
-    expect(at("CREATE TEMP TABLE uc_stage")).toBeGreaterThan(0);
-    expect(at("INSERT INTO uc_stage")).toBeGreaterThan(at("CREATE TEMP TABLE uc_stage"));
+    // BUG-368: the stage is persistent now — the CREATE
+    // TABLE IF NOT EXISTS opens the run (no BEGIN before
+    // it: staging commits per flush), and only the swap
+    // runs inside one transaction after the staging.
+    expect(rec.statements[0]).toBe(
+      "CREATE TABLE IF NOT EXISTS uc_stage ( lsoa_code text, lsoa_name text, series text, reference_month date, count integer, source_name text, seq bigint NOT NULL, UNIQUE (series, seq) )",
+    );
+    expect(at("INSERT INTO uc_stage")).toBeGreaterThan(at("CREATE TABLE IF NOT EXISTS uc_stage"));
+    expect(at("BEGIN")).toBeGreaterThan(at("INSERT INTO uc_stage"));
     const liveInserts = rec.calls.filter((c) => c.sql.startsWith("INSERT INTO benefits_stats"));
     // Six series-months in the real fixture: three months
     // per series, each swapped separately.
@@ -400,13 +413,16 @@ describe("filing — statement order and the schema contract", () => {
     expect(rec.released()).toBe(true);
   });
 
-  it("a failure mid-filing rolls back and still releases the client", async () => {
+  it("a failure mid-staging leaves the staged rows for the next run and still releases the client", async () => {
     const rows = await fixtureRows();
     const rec = recordingPool("INSERT INTO uc_stage");
     await expect(fileUc(rec.pool as never, rows, "2026-11-13T00:00:00.000Z")).rejects.toThrow(
       "forced failure",
     );
-    expect(rec.statements).toContain("ROLLBACK");
+    // BUG-368: staging is durable per flush — no ROLLBACK
+    // and no COMMIT: the checkpoint stands for the next
+    // run to resume from.
+    expect(rec.statements).not.toContain("ROLLBACK");
     expect(rec.statements).not.toContain("COMMIT");
     expect(rec.released()).toBe(true);
   });
@@ -499,5 +515,300 @@ describe("BUG-265 progress logging", () => {
     expect(lines).toContainEqual(
       expect.stringMatching(/load-dwp-uc progress · pull uc_households 6 rows$/),
     );
+  });
+});
+
+describe("resume (BUG-368)", () => {
+  // A stateful fake for benefits_stats: stage and live as
+  // in-memory row sets, per-series checkpoints, BEGIN
+  // snapshots, ROLLBACK restores, COMMIT keeps; the
+  // per-pair swaps and the 13-month prune are interpreted,
+  // not just recorded.
+  type StatRow = Record<string, unknown>;
+  type CheckpointRow = {
+    loader: string;
+    edition: string;
+    expected: number | null;
+    next_start_index: number;
+    read_count: number;
+    filed_count: number;
+    state: Record<string, unknown> | null;
+  };
+  function statefulPool({ failSecondSwap = false } = {}) {
+    let live: StatRow[] = [];
+    let stage: StatRow[] = [];
+    const checkpoints = new Map<string, CheckpointRow>();
+    let snapshot: StatRow[] | null = null;
+    let swaps = 0;
+    let insertCalls = 0;
+    let failAfterInserts: number | null = null;
+    const client = {
+      async query(sql: string, params: unknown[] = []) {
+        const head = sql.trim().replace(/\s+/g, " ");
+        if (head === "BEGIN") {
+          snapshot = structuredClone(live);
+          return { rows: [] };
+        }
+        if (head === "COMMIT") {
+          snapshot = null;
+          return { rows: [] };
+        }
+        if (head === "ROLLBACK") {
+          if (snapshot) live = snapshot;
+          snapshot = null;
+          return { rows: [] };
+        }
+        if (head.startsWith("CREATE TABLE IF NOT EXISTS uc_stage")) return { rows: [] };
+        if (head.startsWith("INSERT INTO uc_stage")) {
+          insertCalls += 1;
+          if (failAfterInserts !== null && insertCalls > failAfterInserts)
+            throw new Error("simulated kill: the database connection dropped mid-insert");
+          for (let at = 0; at < params.length; at += 7)
+            stage.push({
+              lsoa_code: params[at],
+              lsoa_name: params[at + 1],
+              series: params[at + 2],
+              reference_month: params[at + 3],
+              count: params[at + 4],
+              source_name: params[at + 5],
+              seq: params[at + 6],
+            });
+          return { rows: [], rowCount: params.length / 7 };
+        }
+        if (head.startsWith("SELECT count(*)::int AS n FROM uc_stage"))
+          return { rows: [{ n: stage.length }], rowCount: 1 };
+        if (head.startsWith("SELECT count(*)::int AS n, coalesce(sum(seq)")) {
+          const rows = params[0] ? stage.filter((r) => r.series === params[0]) : stage;
+          return {
+            rows: [
+              {
+                n: rows.length,
+                s: rows.reduce((a, r) => a + (r.seq as number), 0),
+                m: rows.length ? Math.max(...rows.map((r) => r.seq as number)) : 0,
+              },
+            ],
+            rowCount: 1,
+          };
+        }
+        if (head.startsWith("DELETE FROM uc_stage WHERE seq >=")) {
+          stage = stage.filter(
+            (r) => !((r.seq as number) >= (params[0] as number) && r.series === params[1]),
+          );
+          return { rows: [], rowCount: 0 };
+        }
+        if (head.startsWith("DELETE FROM uc_stage")) {
+          stage = params[0] ? stage.filter((r) => r.series !== params[0]) : [];
+          return { rows: [], rowCount: 0 };
+        }
+        if (head.startsWith("SELECT lsoa_code, lsoa_name, series, reference_month")) {
+          return {
+            rows: stage
+              .filter((r) => r.series === params[0])
+              .sort((a, b) => (a.seq as number) - (b.seq as number)),
+            rowCount: 0,
+          };
+        }
+        if (head.startsWith("SELECT loader, edition, expected")) {
+          const row = checkpoints.get(params[0] as string);
+          return { rows: row ? [row] : [], rowCount: 0 };
+        }
+        if (head.startsWith("INSERT INTO loader_checkpoint")) {
+          checkpoints.set(params[0] as string, {
+            loader: params[0] as string,
+            edition: params[1] as string,
+            expected: params[2] as number | null,
+            next_start_index: params[3] as number,
+            read_count: params[4] as number,
+            filed_count: params[5] as number,
+            state: JSON.parse(params[6] as string) as Record<string, unknown>,
+          });
+          return { rows: [], rowCount: 0 };
+        }
+        if (head.startsWith("DELETE FROM loader_checkpoint")) {
+          checkpoints.delete(params[0] as string);
+          return { rows: [], rowCount: 0 };
+        }
+        if (
+          head.startsWith("DELETE FROM benefits_stats WHERE series = $1 AND reference_month = $2")
+        ) {
+          live = live.filter((r) => !(r.series === params[0] && r.reference_month === params[1]));
+          return { rows: [], rowCount: 0 };
+        }
+        if (head.startsWith("INSERT INTO benefits_stats")) {
+          swaps += 1;
+          if (failSecondSwap && swaps === 2) throw new Error("forced failure: the second swap");
+          for (const row of stage.filter(
+            (r) => r.series === params[0] && r.reference_month === params[2],
+          ))
+            live.push({
+              ...row,
+              pct: null,
+              source_date: row.reference_month,
+              loaded_at: params[1],
+            });
+          return { rows: [], rowCount: 0 };
+        }
+        if (
+          head.startsWith("DELETE FROM benefits_stats WHERE series = $1 AND reference_month NOT IN")
+        ) {
+          const months = [
+            ...new Set(live.filter((r) => r.series === params[0]).map((r) => r.reference_month)),
+          ]
+            .sort()
+            .reverse()
+            .slice(0, 13);
+          live = live.filter((r) => r.series !== params[0] || months.includes(r.reference_month));
+          return { rows: [], rowCount: 0 };
+        }
+        throw new Error(`fake client: unhandled SQL: ${sql}`);
+      },
+      release() {},
+    };
+    return {
+      pool: { connect: async () => client },
+      live: () => live,
+      stage: () => stage,
+      checkpoints,
+      setFailAfterInserts: (n: number | null) => {
+        insertCalls = 0;
+        failAfterInserts = n;
+      },
+    };
+  }
+  // 1,500 rows: the 15 fixture rows repeated with distinct
+  // LSOA codes, series-grouped (900 uc_people, then 600
+  // uc_households) so the filer's 500-row flushes land as
+  // flush 1 (500 people), flush 2 (400 people + 100
+  // households), flush 3 (500 households).
+  async function bigRows() {
+    const base = await fixtureRows();
+    const people = base.filter((r) => r.series === "uc_people");
+    const households = base.filter((r) => r.series === "uc_households");
+    const rows: UcRow[] = [];
+    for (let k = 0; k < 100; k++)
+      for (const r of people)
+        rows.push({ ...r, lsoaCode: `E9${String(rows.length).padStart(7, "0")}` });
+    for (let k = 0; k < 100; k++)
+      for (const r of households)
+        rows.push({ ...r, lsoaCode: `E9${String(rows.length).padStart(7, "0")}` });
+    return rows;
+  }
+
+  it("kill mid-staging resumes per series and files every row exactly once", async () => {
+    const fake = statefulPool();
+    const rows = await bigRows();
+    fake.setFailAfterInserts(2);
+    await expect(
+      fileUc(fake.pool as never, rows as never, "2026-11-13T00:00:00.000Z"),
+    ).rejects.toThrow(/simulated kill/);
+    // Flush 1 (500 people) and flush 2's people group (400)
+    // staged and checkpointed; flush 2's households group
+    // never landed.
+    expect(fake.stage().filter((r) => r.series === "uc_people").length).toBe(900);
+    expect(fake.stage().filter((r) => r.series === "uc_households").length).toBe(0);
+    expect(fake.checkpoints.get("load-dwp-uc:uc_people")?.next_start_index).toBe(900);
+    expect(fake.checkpoints.get("load-dwp-uc:uc_households")).toBeUndefined();
+
+    fake.setFailAfterInserts(null);
+    await fileUc(fake.pool as never, rows as never, "2026-11-13T00:00:00.000Z");
+    expect(fake.live().length).toBe(1500);
+    const keys = fake.live().map((r) => `${r.lsoa_code}|${r.series}|${r.reference_month}`);
+    expect(new Set(keys).size).toBe(1500);
+    expect(fake.stage().length).toBe(0);
+    expect(fake.checkpoints.size).toBe(0);
+  });
+
+  it("a months change discards the staged rows and starts from zero", async () => {
+    const fake = statefulPool();
+    const rows = await bigRows();
+    fake.setFailAfterInserts(2);
+    await expect(
+      fileUc(fake.pool as never, rows as never, "2026-11-13T00:00:00.000Z"),
+    ).rejects.toThrow(/simulated kill/);
+    expect(fake.stage().length).toBe(900);
+    fake.setFailAfterInserts(null);
+    const moved = rows.map((r) => ({
+      ...r,
+      month: `${Number(r.month.slice(0, 4)) + 1}${r.month.slice(4)}`,
+    }));
+    await fileUc(fake.pool as never, moved as never, "2026-11-13T00:00:00.000Z");
+    expect(fake.live().length).toBe(1500);
+    expect(fake.live().every((r) => String(r.reference_month).startsWith("2027"))).toBe(true);
+    expect(fake.stage().length).toBe(0);
+    expect(fake.checkpoints.size).toBe(0);
+  });
+
+  it("--restart discards the checkpoints and starts from zero", async () => {
+    const fake = statefulPool();
+    const rows = await bigRows();
+    fake.setFailAfterInserts(2);
+    await expect(
+      fileUc(fake.pool as never, rows as never, "2026-11-13T00:00:00.000Z"),
+    ).rejects.toThrow(/simulated kill/);
+    expect(fake.stage().length).toBe(900);
+    fake.setFailAfterInserts(null);
+    await fileUc(fake.pool as never, rows as never, "2026-11-13T00:00:00.000Z", {
+      restart: true,
+    });
+    expect(fake.live().length).toBe(1500);
+    const keys = fake.live().map((r) => `${r.lsoa_code}|${r.series}|${r.reference_month}`);
+    expect(new Set(keys).size).toBe(1500);
+    expect(fake.stage().length).toBe(0);
+    expect(fake.checkpoints.size).toBe(0);
+  });
+
+  it("a mid-swap kill resumes the stream: staged rows seed the tally and the drain skips them", async () => {
+    const fake = statefulPool({ failSecondSwap: true });
+    const runStream = async (filer: Awaited<ReturnType<typeof createUcFiler>>) => {
+      const tally = createUcGoldenTally();
+      const stats = createRunStats();
+      const offered: unknown[] = [];
+      const onEdition = async ({ series, months }: { series: string; months: string[] }) => {
+        const prep = await filer.prepareResumeForSeries(series, months);
+        if (!prep.resumed) return { skip: 0 };
+        const staged = await filer.stagedRowsForSeries(series);
+        for (const row of staged) tally.offer(row as never);
+        stats.addRows(staged as never);
+        return { skip: prep.checkpoint.next_start_index };
+      };
+      await streamUcRows(
+        { kind: "dir", dir: FIXTURE_DIR } as never,
+        {},
+        async (batch: UcRow[]) => {
+          for (const row of batch) tally.offer(row as never);
+          stats.addRows(batch as never);
+          offered.push(...batch);
+          await filer.stageRows(batch as never);
+        },
+        { onEdition },
+      );
+      return { tally, stats, offered };
+    };
+    // Run 1: both series stage, then the swap fails at the
+    // second pair — live untouched, staging + checkpoints
+    // stand.
+    const first = await createUcFiler(fake.pool as never, "2026-11-23T00:00:00.000Z");
+    const run1 = await runStream(first);
+    expect(run1.offered).toHaveLength(15);
+    await expect(first.finishFiling()).rejects.toThrow("forced failure: the second swap");
+    await first.abortFiling();
+    expect(fake.live()).toHaveLength(0);
+    expect(fake.stage()).toHaveLength(15);
+    expect(fake.checkpoints.get("load-dwp-uc:uc_people")?.next_start_index).toBe(9);
+    expect(fake.checkpoints.get("load-dwp-uc:uc_households")?.next_start_index).toBe(6);
+
+    // Run 2: the drain skips every staged row, so nothing
+    // is offered twice — the tally and stats are seeded
+    // from the staged rows instead.
+    const second = await createUcFiler(fake.pool as never, "2026-11-23T00:00:00.000Z");
+    const run2 = await runStream(second);
+    expect(run2.offered).toHaveLength(0);
+    expect(run2.tally.failures({ full: false })).toEqual([]);
+    expect(run2.stats.summary(true)).toContain("uc_people: 9 areas");
+    expect(run2.stats.summary(true)).toContain("uc_households: 6 areas");
+    await second.finishFiling();
+    expect(fake.live()).toHaveLength(15);
+    expect(fake.stage()).toHaveLength(0);
+    expect(fake.checkpoints.size).toBe(0);
   });
 });

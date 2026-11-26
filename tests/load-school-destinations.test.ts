@@ -641,3 +641,249 @@ describe("progress logging (BUG-265)", () => {
     expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
   });
 });
+
+describe("resume (BUG-368)", () => {
+  // A fake pg client: the staged rows, the live table and the
+  // loader_checkpoint row as arrays, with just enough SQL to
+  // run the filer.
+  type CheckpointRow = {
+    loader: string;
+    edition: string;
+    expected: number | null;
+    next_start_index: number;
+    read_count: number;
+    filed_count: number;
+    state: Record<string, unknown> | null;
+  };
+  type StagedRow = { urn: string; stage: string; seq: number };
+  const record = (urn: string, stage: "ks4" | "ks5") => ({
+    urn,
+    stage,
+    cohortCount: 100,
+    version: "Provisional",
+    state: "served",
+    shares: {
+      overall: { value: 80, low: false },
+      education: { value: 60, low: false },
+      higher_education: { value: null, low: false },
+      apprenticeships: { value: 5, low: false },
+      employment: { value: 15, low: false },
+    },
+  });
+  const filing = (nPerStage = 250) => ({
+    published: "2026-10-15",
+    collections: {
+      ks4: {
+        cohortYear: "2023/24",
+        version: "Provisional",
+        filed: Array.from({ length: nPerStage }, (_, i) => record(`91000${i}`, "ks4")),
+      },
+      ks5: {
+        cohortYear: "2023/24",
+        version: "Provisional",
+        filed: Array.from({ length: nPerStage }, (_, i) => record(`92000${i}`, "ks5")),
+      },
+    },
+  });
+  function createFakeClient() {
+    let staged: StagedRow[] = [];
+    let live: StagedRow[] = [];
+    const checkpoints = new Map<string, CheckpointRow>();
+    let insertCalls = 0;
+    let failAfterInserts: number | null = null;
+    let snapshot: {
+      staged: StagedRow[];
+      live: StagedRow[];
+      checkpoints: Map<string, CheckpointRow>;
+    } | null = null;
+    const query = async (sql: string, params: unknown[] = []) => {
+      const text = sql.replace(/\s+/g, " ");
+      if (text === "BEGIN") {
+        snapshot = { staged: [...staged], live: [...live], checkpoints: new Map(checkpoints) };
+        return { rows: [] };
+      }
+      if (text === "COMMIT") {
+        snapshot = null;
+        return { rows: [] };
+      }
+      if (text === "ROLLBACK") {
+        if (snapshot) {
+          staged = snapshot.staged;
+          live = snapshot.live;
+          checkpoints.clear();
+          for (const [k, v] of snapshot.checkpoints) checkpoints.set(k, v);
+        }
+        snapshot = null;
+        return { rows: [] };
+      }
+      if (/CREATE TABLE IF NOT EXISTS school_destinations_stage/.test(text)) return { rows: [] };
+      if (/INSERT INTO school_destinations_stage/.test(text)) {
+        insertCalls += 1;
+        if (failAfterInserts !== null && insertCalls > failAfterInserts)
+          throw new Error("simulated kill: the database connection dropped mid-insert");
+        for (let r = 0; r < params.length / 19; r++) {
+          const b = r * 19;
+          staged.push({
+            urn: params[b] as string,
+            stage: params[b + 1] as string,
+            seq: params[b + 18] as number,
+          });
+        }
+        return { rows: [], rowCount: params.length / 19 };
+      }
+      if (
+        /SELECT loader, edition, expected, next_start_index, read_count, filed_count, state, updated_at/.test(
+          text,
+        )
+      ) {
+        const row = checkpoints.get(params[0] as string);
+        return { rows: row ? [row] : [] };
+      }
+      if (/INSERT INTO loader_checkpoint/.test(text)) {
+        checkpoints.set(params[0] as string, {
+          loader: params[0] as string,
+          edition: params[1] as string,
+          expected: params[2] as number | null,
+          next_start_index: params[3] as number,
+          read_count: params[4] as number,
+          filed_count: params[5] as number,
+          state: JSON.parse(params[6] as string) as Record<string, unknown>,
+        });
+        return { rows: [] };
+      }
+      if (/DELETE FROM loader_checkpoint WHERE loader =/.test(text)) {
+        checkpoints.delete(params[0] as string);
+        return { rows: [] };
+      }
+      if (/SELECT count\(\*\)::int AS n, coalesce\(sum\(seq\)/.test(text)) {
+        return {
+          rows: [
+            {
+              n: staged.length,
+              s: staged.reduce((a, r) => a + r.seq, 0),
+              m: staged.length ? Math.max(...staged.map((r) => r.seq)) : 0,
+            },
+          ],
+        };
+      }
+      if (/DELETE FROM school_destinations_stage WHERE seq >=/.test(text)) {
+        staged = staged.filter((r) => r.seq < (params[0] as number));
+        return { rows: [], rowCount: 0 };
+      }
+      if (/DELETE FROM school_destinations_stage/.test(text)) {
+        staged = [];
+        return { rows: [] };
+      }
+      if (/GROUP BY stage, cohort_year, version, source_date/.test(text)) return { rows: [] };
+      if (/SELECT count\(\*\)::int AS n FROM school_destinations_stage/.test(text))
+        return { rows: [{ n: staged.length }] };
+      if (/DELETE FROM school_destinations/.test(text)) {
+        live = [];
+        return { rows: [] };
+      }
+      if (/INSERT INTO school_destinations/.test(text)) {
+        live = [...staged];
+        return { rows: [] };
+      }
+      if (/SELECT count\(\*\)::int AS n FROM school_destinations/.test(text))
+        return { rows: [{ n: live.length }] };
+      throw new Error(`fake client: unhandled SQL: ${sql}`);
+    };
+    return {
+      query,
+      staged: () => staged,
+      live: () => live,
+      checkpoints,
+      setFailAfterInserts: (n: number | null) => {
+        failAfterInserts = n;
+      },
+    };
+  }
+  type FakeClient = ReturnType<typeof createFakeClient>;
+  async function runFiling(
+    fake: FakeClient,
+    f: ReturnType<typeof filing>,
+    { restart = false, lines = null as string[] | null } = {},
+  ) {
+    const captured: string[] = lines ?? [];
+    const progress = createProgressLogger({
+      name: "load-school-destinations",
+      log: (line: string) => captured.push(line),
+    });
+    const result = await fileDestinations(fake as never, f as never, {
+      enforceJoin: false,
+      progress,
+      resume: { restart },
+    });
+    return { result, lines: captured };
+  }
+
+  it("kill mid-staging resumes and files every row exactly once", async () => {
+    const fake = createFakeClient();
+    const f = filing();
+    // Kill after two 200-row chunks: 400 rows staged, the
+    // checkpoint at 400, the third chunk never landed.
+    const killLines: string[] = [];
+    fake.setFailAfterInserts(2);
+    await expect(runFiling(fake, f, { lines: killLines })).rejects.toThrow(/simulated kill/);
+    expect(fake.staged().length).toBe(400);
+    expect(fake.checkpoints.get("load-school-destinations")?.next_start_index).toBe(400);
+    expect(
+      killLines.some((l) =>
+        /checkpoint 400\/500 rows \(80%\) · staged 400 · resume from 400/.test(l),
+      ),
+    ).toBe(true);
+
+    fake.setFailAfterInserts(null);
+    const { result, lines } = await runFiling(fake, f);
+    expect(result).toEqual({ filed: true });
+    expect(
+      lines.some((l) =>
+        /resuming from checkpoint · 400 rows staged · edition 2023\/24\/Provisional\/2026-10-15 · resume from 400/.test(
+          l,
+        ),
+      ),
+    ).toBe(true);
+    expect(fake.live().length).toBe(500);
+    expect(new Set(fake.live().map((r) => `${r.stage}:${r.urn}`)).size).toBe(500);
+    // The swap cleared staging and the checkpoint together.
+    expect(fake.staged().length).toBe(0);
+    expect(fake.checkpoints.get("load-school-destinations")).toBeUndefined();
+  });
+
+  it("an edition change discards the staged rows and starts from zero", async () => {
+    const fake = createFakeClient();
+    const f = filing();
+    fake.setFailAfterInserts(2);
+    await expect(runFiling(fake, f)).rejects.toThrow(/simulated kill/);
+    expect(fake.staged().length).toBe(400);
+
+    // The spring Revised edition of the same cohort: a new
+    // edition, so the staged Provisional rows are discarded.
+    const revised = filing();
+    revised.collections.ks4.version = "Revised";
+    revised.collections.ks5.version = "Revised";
+    fake.setFailAfterInserts(null);
+    const { result } = await runFiling(fake, revised);
+    expect(result).toEqual({ filed: true });
+    expect(fake.live().length).toBe(500);
+    expect(fake.staged().length).toBe(0);
+    expect(fake.checkpoints.get("load-school-destinations")).toBeUndefined();
+  });
+
+  it("--restart discards the checkpoint and starts from zero", async () => {
+    const fake = createFakeClient();
+    const f = filing();
+    fake.setFailAfterInserts(2);
+    await expect(runFiling(fake, f)).rejects.toThrow(/simulated kill/);
+    expect(fake.staged().length).toBe(400);
+
+    fake.setFailAfterInserts(null);
+    const { result } = await runFiling(fake, f, { restart: true });
+    expect(result).toEqual({ filed: true });
+    expect(fake.live().length).toBe(500);
+    expect(new Set(fake.live().map((r) => `${r.stage}:${r.urn}`)).size).toBe(500);
+    expect(fake.staged().length).toBe(0);
+    expect(fake.checkpoints.get("load-school-destinations")).toBeUndefined();
+  });
+});

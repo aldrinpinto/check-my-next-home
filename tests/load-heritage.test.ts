@@ -1,6 +1,14 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import {
+  beginFiling,
+  heritageEdition,
+  parseCsv as loaderParseCsv,
+  processBuildings,
+  processPolygons,
+} from "../loaders/load-heritage.mjs";
+import { createProgressLogger } from "../loaders/progress.mjs";
 
 // Guards the heritage loader (plan step M5.2): listed buildings
 // file as NHLE-keyed points with grades validated against the
@@ -279,5 +287,334 @@ describe("progress — BUG-265", () => {
     expect(loader).toContain('label: "process listed-building"');
     expect(loader).toContain("progress.failed({");
     expect(loader).toContain("swap started — filing");
+  });
+});
+
+describe("resume (BUG-368)", () => {
+  // A fake pg client: the staged rows, the live tables and
+  // the loader_checkpoint rows as arrays, with just enough
+  // SQL to run the filer.
+  type ListedRow = { listEntryId: string; name: string; seq: number };
+  type PolygonRow = {
+    constraintType: string;
+    name: string;
+    reference: string;
+    seq: number;
+  };
+  type CheckpointRow = {
+    loader: string;
+    edition: string;
+    expected: number | null;
+    next_start_index: number;
+    read_count: number;
+    filed_count: number;
+    state: Record<string, unknown> | null;
+  };
+  function createFakeClient() {
+    let stagedListed: ListedRow[] = [];
+    let stagedPolygons: PolygonRow[] = [];
+    let liveListed: ListedRow[] = [];
+    let livePolygons: PolygonRow[] = [];
+    const checkpoints = new Map<string, CheckpointRow>();
+    let insertCalls = 0;
+    let failAfterInserts: number | null = null;
+    let snapshot: {
+      stagedListed: ListedRow[];
+      stagedPolygons: PolygonRow[];
+      liveListed: ListedRow[];
+      livePolygons: PolygonRow[];
+      checkpoints: Map<string, CheckpointRow>;
+    } | null = null;
+    const query = async (sql: string, params: unknown[] = []) => {
+      const text = sql.replace(/\s+/g, " ");
+      if (text === "BEGIN") {
+        snapshot = {
+          stagedListed: [...stagedListed],
+          stagedPolygons: [...stagedPolygons],
+          liveListed: [...liveListed],
+          livePolygons: [...livePolygons],
+          checkpoints: new Map(checkpoints),
+        };
+        return { rows: [] };
+      }
+      if (text === "COMMIT") {
+        snapshot = null;
+        return { rows: [] };
+      }
+      if (text === "ROLLBACK") {
+        if (snapshot) {
+          stagedListed = snapshot.stagedListed;
+          stagedPolygons = snapshot.stagedPolygons;
+          liveListed = snapshot.liveListed;
+          livePolygons = snapshot.livePolygons;
+          checkpoints.clear();
+          for (const [k, v] of snapshot.checkpoints) checkpoints.set(k, v);
+        }
+        snapshot = null;
+        return { rows: [] };
+      }
+      if (/CREATE TABLE IF NOT EXISTS heritage_(listed|polygon)_stage/.test(text))
+        return { rows: [] };
+      if (/INSERT INTO heritage_listed_stage/.test(text)) {
+        insertCalls += 1;
+        if (failAfterInserts !== null && insertCalls > failAfterInserts)
+          throw new Error("simulated kill: the database connection dropped mid-insert");
+        for (let r = 0; r < params.length / 10; r++) {
+          const b = r * 10;
+          stagedListed.push({
+            listEntryId: params[b] as string,
+            name: params[b + 1] as string,
+            seq: params[b + 9] as number,
+          });
+        }
+        return { rows: [], rowCount: params.length / 10 };
+      }
+      if (/INSERT INTO heritage_polygon_stage/.test(text)) {
+        insertCalls += 1;
+        if (failAfterInserts !== null && insertCalls > failAfterInserts)
+          throw new Error("simulated kill: the database connection dropped mid-insert");
+        for (let r = 0; r < params.length / 10; r++) {
+          const b = r * 10;
+          stagedPolygons.push({
+            constraintType: params[b] as string,
+            name: params[b + 1] as string,
+            reference: params[b + 3] as string,
+            seq: params[b + 9] as number,
+          });
+        }
+        return { rows: [], rowCount: params.length / 10 };
+      }
+      if (
+        /SELECT loader, edition, expected, next_start_index, read_count, filed_count, state, updated_at/.test(
+          text,
+        )
+      ) {
+        const row = checkpoints.get(params[0] as string);
+        return { rows: row ? [row] : [] };
+      }
+      if (/INSERT INTO loader_checkpoint/.test(text)) {
+        checkpoints.set(params[0] as string, {
+          loader: params[0] as string,
+          edition: params[1] as string,
+          expected: params[2] as number | null,
+          next_start_index: params[3] as number,
+          read_count: params[4] as number,
+          filed_count: params[5] as number,
+          state: JSON.parse(params[6] as string) as Record<string, unknown>,
+        });
+        return { rows: [] };
+      }
+      if (/DELETE FROM loader_checkpoint WHERE loader =/.test(text)) {
+        checkpoints.delete(params[0] as string);
+        return { rows: [] };
+      }
+      if (/SELECT count\(\*\)::int AS n, coalesce\(sum\(seq\)/.test(text)) {
+        const rows = /FROM heritage_listed_stage/.test(text) ? stagedListed : stagedPolygons;
+        return {
+          rows: [
+            {
+              n: rows.length,
+              s: rows.reduce((a, r) => a + r.seq, 0),
+              m: rows.length ? Math.max(...rows.map((r) => r.seq)) : 0,
+            },
+          ],
+        };
+      }
+      if (/DELETE FROM heritage_listed_stage WHERE seq >=/.test(text)) {
+        stagedListed = stagedListed.filter((r) => r.seq < (params[0] as number));
+        return { rows: [], rowCount: 0 };
+      }
+      if (/DELETE FROM heritage_polygon_stage WHERE seq >=/.test(text)) {
+        stagedPolygons = stagedPolygons.filter((r) => r.seq < (params[0] as number));
+        return { rows: [], rowCount: 0 };
+      }
+      if (/DELETE FROM heritage_listed_stage/.test(text)) {
+        stagedListed = [];
+        return { rows: [] };
+      }
+      if (/DELETE FROM heritage_polygon_stage/.test(text)) {
+        stagedPolygons = [];
+        return { rows: [] };
+      }
+      if (/SELECT count\(\*\)::int AS n FROM heritage_listed_stage/.test(text))
+        return { rows: [{ n: stagedListed.length }] };
+      if (/SELECT count\(\*\)::int AS n FROM heritage_polygon_stage/.test(text))
+        return { rows: [{ n: stagedPolygons.length }] };
+      if (/DELETE FROM listed_buildings/.test(text)) {
+        liveListed = [];
+        return { rows: [] };
+      }
+      if (/INSERT INTO listed_buildings/.test(text)) {
+        liveListed = [...stagedListed];
+        return { rows: [] };
+      }
+      if (/SELECT count\(\*\)::int AS n FROM listed_buildings/.test(text))
+        return { rows: [{ n: liveListed.length }] };
+      if (/DELETE FROM planning_layers WHERE constraint_type =/.test(text)) {
+        livePolygons = livePolygons.filter((r) => r.constraintType !== (params[0] as string));
+        return { rows: [] };
+      }
+      if (/INSERT INTO planning_layers/.test(text)) {
+        livePolygons = [...stagedPolygons];
+        return { rows: [] };
+      }
+      if (/SELECT count\(\*\)::int AS n FROM planning_layers WHERE constraint_type =/.test(text))
+        return {
+          rows: [
+            { n: livePolygons.filter((r) => r.constraintType === (params[0] as string)).length },
+          ],
+        };
+      throw new Error(`fake client: unhandled SQL: ${sql}`);
+    };
+    return {
+      query,
+      stagedListed: () => stagedListed,
+      stagedPolygons: () => stagedPolygons,
+      liveListed: () => liveListed,
+      livePolygons: () => livePolygons,
+      checkpoints,
+      setFailAfterInserts: (n: number | null) => {
+        failAfterInserts = n;
+      },
+    };
+  }
+  type FakeClient = ReturnType<typeof createFakeClient>;
+  const sourceDate = JSON.parse(readFileSync(join(fixtureDir, "fixture.json"), "utf8"))
+    .captured as string;
+
+  // The fixture's filed sets, exactly as main() builds them.
+  function fixtureSets() {
+    const lbText = readFileSync(join(fixtureDir, "listed-building.csv"), "utf8");
+    const smText = readFileSync(join(fixtureDir, "scheduled-monument.csv"), "utf8");
+    const lb = processBuildings(loaderParseCsv(lbText));
+    const sm = processPolygons(loaderParseCsv(smText), "scheduled-monument");
+    const newLayerTexts: string[] = [];
+    const newLayers = [
+      { dataset: "world-heritage-site", constraintType: "world_heritage_site" },
+      { dataset: "battlefield", constraintType: "battlefield" },
+      { dataset: "protected-wreck-site", constraintType: "protected_wreck_site" },
+      { dataset: "world-heritage-site-buffer-zone", constraintType: "world_heritage_buffer_zone" },
+    ].map((spec) => {
+      const text = readFileSync(join(fixtureDir, `${spec.dataset}.csv`), "utf8");
+      newLayerTexts.push(text);
+      return { ...spec, processed: processPolygons(loaderParseCsv(text), spec.dataset) };
+    });
+    const polygonSets = [
+      { constraintType: "scheduled_monument", filed: sm.filed },
+      ...newLayers.map((layer) => ({
+        constraintType: layer.constraintType,
+        filed: layer.processed.filed,
+      })),
+    ];
+    const polygonRows = polygonSets.flatMap((set) =>
+      set.filed.map((item) => ({ constraintType: set.constraintType, item })),
+    );
+    const edition = heritageEdition(sourceDate, [lbText, smText, ...newLayerTexts, ""]);
+    return { lb, polygonSets, polygonRows, edition };
+  }
+
+  async function runLoad(
+    fake: FakeClient,
+    { restart = false, lines = null as string[] | null } = {},
+  ) {
+    const capturedLines: string[] = lines ?? [];
+    const progress = createProgressLogger({
+      name: "load-heritage",
+      log: (line: string) => capturedLines.push(line),
+    });
+    const { lb, polygonSets, polygonRows, edition } = fixtureSets();
+    const expectedPolygons = polygonSets.reduce((sum, set) => sum + set.filed.length, 0);
+    const filer = await beginFiling(progress, { client: fake as never, restart });
+    const prep = await filer.prepareResume(edition, lb.filed.length, expectedPolygons);
+    const listedStart = prep.listed.resumed ? prep.listed.checkpoint.next_start_index : 0;
+    const polygonStart = prep.polygons.resumed ? prep.polygons.checkpoint.next_start_index : 0;
+    await filer.stageListed(lb.filed.slice(listedStart), sourceDate);
+    await filer.stagePolygons(polygonRows.slice(polygonStart), sourceDate);
+    await filer.finishFiling(lb.filed.length, expectedPolygons, polygonSets);
+    return { filer, lb, polygonSets, expectedPolygons, lines: capturedLines };
+  }
+
+  it(
+    "kill mid-polygons resumes the listed stream and files everything exactly once",
+    { timeout: 60_000 },
+    async () => {
+      const fake = createFakeClient();
+      // The 652 listed buildings stage in one chunk (insert
+      // 1) and checkpoint at 652; the first 25-polygon chunk
+      // (insert 2) dies — listed staged, polygons empty.
+      const killLines: string[] = [];
+      fake.setFailAfterInserts(1);
+      await expect(runLoad(fake, { lines: killLines })).rejects.toThrow(/simulated kill/);
+      expect(fake.stagedListed().length).toBe(652);
+      expect(fake.stagedPolygons().length).toBe(0);
+      expect(fake.checkpoints.get("load-heritage")?.next_start_index).toBe(652);
+      expect(fake.checkpoints.get("load-heritage-polygons")).toBeUndefined();
+      expect(
+        killLines.some((l) =>
+          /checkpoint 652\/652 rows \(100%\) · staged 652 · resume from 652/.test(l),
+        ),
+      ).toBe(true);
+
+      fake.setFailAfterInserts(null);
+      const { filer, lb, polygonSets, expectedPolygons, lines } = await runLoad(fake);
+      expect(filer.filedSoFar()).toBe(lb.filed.length + expectedPolygons);
+      expect(
+        lines.some((l) =>
+          /resuming from checkpoint · 652 rows staged · edition 2026-11-12:[0-9a-f]{16} · resume from 652/.test(
+            l,
+          ),
+        ),
+      ).toBe(true);
+      const expectedListed = lb.filed.map((b) => b.row.reference);
+      expect(
+        fake
+          .liveListed()
+          .map((r) => r.listEntryId)
+          .sort(),
+      ).toEqual(expectedListed.sort());
+      expect(fake.livePolygons().length).toBe(expectedPolygons);
+      expect(
+        new Set(fake.livePolygons().map((r) => `${r.constraintType}|${r.reference}`)).size,
+      ).toBe(expectedPolygons);
+      for (const set of polygonSets)
+        expect(
+          fake.livePolygons().filter((r) => r.constraintType === set.constraintType).length,
+        ).toBe(set.filed.length);
+      expect(fake.stagedListed().length).toBe(0);
+      expect(fake.stagedPolygons().length).toBe(0);
+      expect(fake.checkpoints.size).toBe(0);
+      expect(filer.resumeNote()).toBe("the start (nothing staged yet)");
+    },
+  );
+
+  it(
+    "an edition change discards the staged rows and starts from zero",
+    { timeout: 60_000 },
+    async () => {
+      const fake = createFakeClient();
+      fake.setFailAfterInserts(1);
+      await expect(runLoad(fake)).rejects.toThrow(/simulated kill/);
+      expect(fake.stagedListed().length).toBe(652);
+
+      const progress = createProgressLogger({ name: "load-heritage" });
+      const filer = await beginFiling(progress, { client: fake as never });
+      const prep = await filer.prepareResume("2099-01-01:deadbeefdeadbeef", 652, 50);
+      expect(prep.listed.resumed).toBe(false);
+      expect(prep.polygons.resumed).toBe(false);
+      expect(fake.stagedListed().length).toBe(0);
+      expect(fake.checkpoints.get("load-heritage")).toBeUndefined();
+    },
+  );
+
+  it("--restart discards the checkpoints and starts from zero", { timeout: 60_000 }, async () => {
+    const fake = createFakeClient();
+    fake.setFailAfterInserts(1);
+    await expect(runLoad(fake)).rejects.toThrow(/simulated kill/);
+    expect(fake.stagedListed().length).toBe(652);
+
+    fake.setFailAfterInserts(null);
+    const { lb, expectedPolygons } = await runLoad(fake, { restart: true });
+    expect(fake.liveListed().length).toBe(lb.filed.length);
+    expect(fake.livePolygons().length).toBe(expectedPolygons);
   });
 });

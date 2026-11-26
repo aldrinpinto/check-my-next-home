@@ -65,6 +65,7 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 
 import {
+  beginPickingStaging,
   fileStagedExtract,
   homeKeyForParts,
   recordRejection,
@@ -474,34 +475,82 @@ export function verifyGoldenEpcRows(rowsByPostcode) {
   }
 }
 
-export function stageInsertFor(client) {
+export function stageInsertFor(client, takeSeq = null) {
+  let next = 0;
+  const seqFor =
+    takeSeq ??
+    ((count) => {
+      const base = next;
+      next += count;
+      return base;
+    });
   return async (rows) => {
     const values = [];
     const params = [];
+    const base = seqFor(rows.length);
     rows.forEach((row, i) => {
-      const base = i * 6;
-      values.push(
-        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6})`,
-      );
-      params.push(row.postcode, row.paon, row.saon, row.street, row.town, row.homeKey);
+      const b = i * 7;
+      values.push(`($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7})`);
+      params.push(row.postcode, row.paon, row.saon, row.street, row.town, row.homeKey, base + i);
     });
     await client.query(
-      `INSERT INTO picking_epc_stage (postcode, paon, saon, street, town, home_key) VALUES ${values.join(", ")}`,
+      `INSERT INTO picking_epc_stage (postcode, paon, saon, street, town, home_key, seq) VALUES ${values.join(", ")}`,
       params,
     );
   };
 }
 
-// Stage a pass: truncate the stage, parse every
-// certificate, batch the parsed homes in. Refusals are
-// counted by reason and file nothing.
-export async function stageEpcIndex(client, certificates, { progress = null } = {}) {
-  await client.query("TRUNCATE picking_epc_stage");
-  const insertBatch = stageInsertFor(client);
-  let certificatesRead = 0;
-  const refusals = {};
+// Stage a pass: parse every certificate, batch the
+// parsed homes in, checkpointing after each fully
+// staged chunk (BUG-368). Refusals are counted by
+// reason and file nothing. With no staging handle this
+// is a fresh start (the old TRUNCATE semantics); the
+// full pass hands in its prepared handle, and the
+// stream resumes from the checkpoint — skipping the
+// certificates the killed run already consumed, and
+// seeding its refusal tallies from the checkpoint's
+// state — instead of restarting.
+/**
+ * @param {any} client
+ * @param {any} certificates
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, staging?: any, prep?: any }} [options]
+ */
+export async function stageEpcIndex(
+  client,
+  certificates,
+  { progress = null, staging = null, prep = null } = {},
+) {
+  const s =
+    staging ?? (await beginPickingStaging(client, progress, { restart: true, source: "epc" }));
+  const p = prep ?? (await s.prepareResume("standalone"));
+  const seed = p.resumed ? p.checkpoint : null;
+  const skip = seed?.next_start_index ?? 0;
+  const insertBatch = stageInsertFor(client, (count) => s.takeSeq(count));
+  let certificatesRead = seed?.read_count ?? 0;
+  const refusals = { ...(seed?.state?.refusals ?? {}) };
+  let staged = seed?.filed_count ?? 0;
+  let skipped = 0;
   let batch = [];
+  const flushBatch = async () => {
+    if (batch.length === 0) return;
+    const rows = batch;
+    batch = [];
+    await insertBatch(rows);
+    staged += rows.length;
+    await s.checkpoint({
+      read: certificatesRead,
+      filed: staged,
+      state: { refusals },
+      unit: "certificates",
+    });
+  };
   for await (const certificate of certificates) {
+    // The skipped certificates were already counted by
+    // the run that staged them — they add nothing here.
+    if (skipped < skip) {
+      skipped += 1;
+      continue;
+    }
     certificatesRead += 1;
     // BUG-204: a line every 500k certificates read — the
     // staging stream is the pass's long phase.
@@ -522,12 +571,9 @@ export async function stageEpcIndex(client, certificates, { progress = null } = 
       ...outcome.parts,
       homeKey: homeKeyForParts(outcome.parts),
     });
-    if (batch.length >= STAGE_BATCH_ROWS) {
-      await insertBatch(batch);
-      batch = [];
-    }
+    if (batch.length >= STAGE_BATCH_ROWS) await flushBatch();
   }
-  if (batch.length > 0) await insertBatch(batch);
+  await flushBatch();
   const refusedTotal = Object.values(refusals).reduce((a, b) => a + b, 0);
   return { certificatesRead, refusals, refusedTotal };
 }
@@ -535,7 +581,10 @@ export async function stageEpcIndex(client, certificates, { progress = null } = 
 // File the staged pass (the shared tolerance proof,
 // swap, union rebuild, edition record) and run the EPC
 // golden proof against the served index.
-export async function fileEpcIndex(client, { edition, log = () => {}, progress = null }) {
+export async function fileEpcIndex(
+  client,
+  { edition, log = () => {}, progress = null, staging = null },
+) {
   // BUG-204: the rebuild's stage markers ride the
   // caller's log when no logger is handed in.
   const progressLogger = progress ?? createProgressLogger({ name: "load-epc-index", log });
@@ -560,6 +609,12 @@ export async function fileEpcIndex(client, { edition, log = () => {}, progress =
     });
     throw refusal;
   }
+  // BUG-368: the staged read is filed — clear staging +
+  // checkpoint now, before the golden proof, so a run
+  // that fails the proof still leaves nothing to resume
+  // from: the new edition is already serving, and a
+  // resumed run would stage a partial extract under it.
+  if (staging) await staging.clear();
   const rowsByPostcode = {};
   try {
     for (const golden of GOLDEN_EPC_ROWS) {
@@ -589,28 +644,37 @@ export async function fileEpcIndex(client, { edition, log = () => {}, progress =
   return outcome.counts;
 }
 
-export async function loadEpcIndexFromCertificates(client, certificates, { edition, log }) {
+export async function loadEpcIndexFromCertificates(
+  client,
+  certificates,
+  { edition, log, restart = false },
+) {
   // BUG-204: one logger for the pass — the staging
   // stream's count lines and the rebuild's markers.
   const progress = createProgressLogger({ name: "load-epc-index", log });
   // BUG-248: the staging stream fails before anything is
-  // filed — the stage is truncated and re-streamed on a
-  // re-run. The filing phase reports its own failures
-  // (tolerance proof, swap, golden proof), so it is not
-  // wrapped again here.
+  // filed — the staging + checkpoint stay, and the next
+  // run resumes from the checkpoint. The filing phase
+  // reports its own failures (tolerance proof, swap,
+  // golden proof), so it is not wrapped again here.
+  let staging = null;
   let stats;
   try {
-    stats = await stageEpcIndex(client, certificates, { progress });
+    staging = await beginPickingStaging(client, progress, { restart, source: "epc" });
+    const prep = await staging.prepareResume(edition);
+    stats = await stageEpcIndex(client, certificates, { progress, staging, prep });
   } catch (err) {
     progress.failed({
       stage: "staging",
       filed: 0,
       error: err,
-      resume: "re-run the pass from the start (the stage is truncated and re-streamed)",
+      resume: staging
+        ? staging.resumeNote()
+        : "re-run the pass from the start (nothing staged yet)",
     });
     throw err;
   }
-  const counts = await fileEpcIndex(client, { edition, log, progress });
+  const counts = await fileEpcIndex(client, { edition, log, progress, staging });
   const refusalDetail = Object.entries(stats.refusals)
     .map(([reason, count]) => `${reason} ${formatCount(count)}`)
     .join(", ");
@@ -628,12 +692,13 @@ async function* textChunksFromFile(file) {
   for await (const chunk of stream) yield chunk;
 }
 
-// CLI: --file <directory> | --kill-switch, and nothing
-// else. As with the sales pass, no argument is ever
-// silently dropped.
+// CLI: --file <directory> | --kill-switch | --restart,
+// and nothing else. As with the sales pass, no argument
+// is ever silently dropped.
 export function parseArgs(argv) {
   let fileDir = null;
   let killSwitch = false;
+  let restart = false;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--file") {
@@ -644,6 +709,8 @@ export function parseArgs(argv) {
       i += 1;
     } else if (arg === "--kill-switch") {
       killSwitch = true;
+    } else if (arg === "--restart") {
+      restart = true;
     } else {
       throw new Error(
         `load-epc-index: unexpected argument "${arg}" — the pass files one --file directory of register data, or runs --kill-switch; it takes no postcodes`,
@@ -653,23 +720,31 @@ export function parseArgs(argv) {
   if (killSwitch && fileDir !== null) {
     throw new Error("load-epc-index: --kill-switch runs alone, without --file");
   }
-  return { fileDir, killSwitch };
+  if (killSwitch && restart) {
+    throw new Error("load-epc-index: --kill-switch runs alone, without --restart");
+  }
+  return { fileDir, killSwitch, restart };
 }
 
 // The fixture/dropped-file pass: stream the directory's
 // certificates.csv and file it. Exported so the specs
 // drive the exact path the runner's fixture pass runs.
-export async function loadEpcIndexFromFile(client, fileDir, { log }) {
+export async function loadEpcIndexFromFile(client, fileDir, { log, restart = false }) {
   const file = path.join(fileDir, EPC_INDEX_FILE);
   if (!fs.existsSync(file)) {
     throw new Error(`load-epc-index: no ${EPC_INDEX_FILE} in ${fileDir}`);
   }
   const edition = fs.statSync(file).mtime.toISOString().slice(0, 10);
   const certificates = streamCertificates(streamCsvRecords(textChunksFromFile(file)));
-  return loadEpcIndexFromCertificates(client, certificates, { edition, log });
+  return loadEpcIndexFromCertificates(client, certificates, { edition, log, restart });
 }
 
-export async function loadEpcIndex({ fileDir = null, killSwitch = false, log = console.log } = {}) {
+export async function loadEpcIndex({
+  fileDir = null,
+  killSwitch = false,
+  restart = false,
+  log = console.log,
+} = {}) {
   const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
   const client = await pool.connect();
   try {
@@ -693,7 +768,7 @@ export async function loadEpcIndex({ fileDir = null, killSwitch = false, log = c
     if (!fs.existsSync(file)) {
       throw new Error(`load-epc-index: no ${EPC_INDEX_FILE} in ${fileDir}`);
     }
-    return await loadEpcIndexFromFile(client, fileDir, { log });
+    return await loadEpcIndexFromFile(client, fileDir, { log, restart });
   } finally {
     client.release();
     await pool.end();

@@ -56,6 +56,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { createLoaderResume } from "./loader-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -180,6 +181,289 @@ async function fetchJson(url) {
   throw new Error("unreachable");
 }
 
+// One postcode's count over the window — the per-postcode
+// unit the resume stages (see beginFiling): the fetch is the
+// run's long phase (12 monthly API reads per postcode), and
+// the staged answer is what a resumed run reuses instead of
+// counting again. onMonth fires after each month is counted
+// with its record count and fetch duration, so the caller
+// owns the tally, heartbeat and slow-fetch warning.
+/**
+ * @param {{ client?: any, fixture?: any, fileDir?: string | null, pc: string, months: string[], latest: string, onMonth?: ((args: { pc: string, month: string, count: number, tookMs: number }) => void) | null }} options
+ */
+export async function countPostcodeAnswer({
+  client = null,
+  fixture = null,
+  fileDir = null,
+  pc,
+  months,
+  latest,
+  onMonth = null,
+}) {
+  let point;
+  if (fixture) {
+    point = fixture.points[pc];
+    if (!point)
+      throw new Error(
+        `${pc}: no point in the fixture (fixture covers ${Object.keys(fixture.points).join(", ")})`,
+      );
+  } else {
+    const res = await client.query(
+      "SELECT latitude, longitude FROM postcode_cache WHERE postcode = $1",
+      [pc],
+    );
+    if (res.rows.length === 0)
+      throw new Error(
+        `${pc}: not in the postcode directory — run the postcode loader (step M4.1) first`,
+      );
+    point = { lat: res.rows[0].latitude, lng: res.rows[0].longitude };
+  }
+  if (!point) throw new Error(`${pc}: no point available`);
+  const perMonth = [];
+  const categories = {};
+  for (const month of months) {
+    const fetchStarted = Date.now();
+    const records = fixture
+      ? JSON.parse(await readFile(join(fileDir, `${point.prefix}-${month}.json`), "utf8"))
+      : await fetchJson(`${CRIMES_URL}?lat=${point.lat}&lng=${point.lng}&date=${month}`);
+    const tookMs = Date.now() - fetchStarted;
+    if (!Array.isArray(records))
+      throw new Error(`${pc} ${month}: Police.uk response is not a list`);
+    perMonth.push({ month, count: records.length });
+    for (const record of records) {
+      const category = record.category ?? "unknown";
+      categories[category] = (categories[category] ?? 0) + 1;
+    }
+    await onMonth?.({ pc, month, count: records.length, tookMs });
+    if (!fixture) await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  const total = perMonth.reduce((sum, m) => sum + m.count, 0);
+  if (fixture && APPROVED_TOTALS[pc] !== undefined && total !== APPROVED_TOTALS[pc])
+    throw new Error(
+      `${pc}: fixture total is ${total}, but the approved report says ${APPROVED_TOTALS[pc]} — the counting basis has changed`,
+    );
+  const answer = {
+    total,
+    windowFrom: months[0],
+    windowTo: latest,
+    months: perMonth,
+    categories,
+    basis: "Street-level crimes recorded within 1 mile of the postcode point (Police.uk API)",
+    sourceName: SOURCE_NAME,
+    sourceDate: latest,
+    loadedAt: new Date().toISOString(),
+  };
+  // M6.20 (D39): the calibration populations file with
+  // the counts, in the same artefact. Fixture mode takes
+  // the pinned basis from the fixture and NEVER computes
+  // one (CI's lsoa_bases fixture holds only the three
+  // golden rows — a computation there silently degrades
+  // to the rejected own-LSOA basis); a postcode with no
+  // pin files no basis. Live mode computes Basis B from
+  // the filed directory + lsoa_bases.
+  if (fixture) {
+    const pinned = fixture.basisResidents?.[pc];
+    if (typeof pinned === "number") answer.basisResidents = pinned;
+  } else {
+    const basisResidents = await computeBasisResidents(client, point);
+    if (basisResidents !== null) answer.basisResidents = basisResidents;
+  }
+  // The England embedding: the window's filed national
+  // figure, or null while any month is uncounted (the
+  // national loader refreshes it later as months land).
+  if (client) answer.national = await nationalForWindow(client, months);
+  return answer;
+}
+
+// --- filing ------------------------------------------------------------
+
+// Stage, merge — with resume support (BUG-368): each
+// postcode's counted answer is staged into the PERSISTENT
+// crime_stage table as it lands (migration 0048 — the parent
+// adds the table at merge time; beginFiling still creates it,
+// so the loader works on a database the migration has not
+// yet reached), and a loader_checkpoint row records the last
+// fully staged postcode, so a killed run resumes from the
+// next unstaged postcode instead of re-counting the API.
+//
+// THE RESUME UNITS. The edition is the window's latest month:
+// the window rolls forward only when Police.uk publishes, so
+// a resumed run inside the same window reuses its staged
+// answers, and a run after a new month publishes discards
+// them and counts the new window. The expected count is the
+// run's postcode list, known up front. The staging is per
+// postcode (one row, seq = the postcode's ordinal in the
+// staged set), so a run with the same length but a different
+// postcode set still reuses exactly the staged postcodes it
+// shares with the earlier run and counts the rest. The filing
+// merge itself is unchanged: one transaction merging the
+// crime key into each postcode's answers, read back and
+// checked before commit, and a successful merge clears
+// staging + checkpoint together (BUG-248 atomicity unchanged:
+// the live answers change only on that complete, verified
+// merge).
+/**
+ * Open the filing run's database client and resume handle
+ * (BUG-368). The client is injectable so the resume tests
+ * can file against a fake database; production passes none
+ * and a real client is opened as before. The caller owns the
+ * client when one is injected — only an owned client is
+ * closed here.
+ *
+ * @param {import("./progress.mjs").ProgressLogger | null} [progress]
+ * @param {{ restart?: boolean, client?: any }} [options]
+ */
+export async function beginFiling(
+  progress = null,
+  { restart = false, client: injectedClient = null } = {},
+) {
+  const client = injectedClient ?? new pg.Client({ connectionString: process.env.DATABASE_URL });
+  const ownsClient = !injectedClient;
+  if (ownsClient) await client.connect();
+  try {
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS crime_stage (
+         postcode text, answer jsonb NOT NULL,
+         seq bigint NOT NULL, UNIQUE (seq)
+       )`,
+    );
+  } catch (error) {
+    if (ownsClient) await client.end().catch(() => {});
+    throw error;
+  }
+  const resume = createLoaderResume(client, {
+    loader: "load-crime",
+    stageTable: "crime_stage",
+    progress,
+    restart,
+  });
+  let staged = 0;
+  let seqNext = 0;
+  let edition = null;
+  let expected = null;
+  /** @type {{ resumed: boolean, reason?: string, checkpoint?: any, prefix?: boolean }} */
+  let resumePrep = { resumed: false };
+  let stagedRows = [];
+  return {
+    resumePrep: () => resumePrep,
+    resumeNote: () => resume.resumeNote(),
+    // The staged answers the resumed run reuses — loaded by
+    // prepareResume. The caller validates them against its
+    // own context (the fixture totals, where they apply).
+    stagedAnswers: () => stagedRows,
+    // Decide, from the window's latest month and the staged
+    // rows, whether this run resumes or starts from zero.
+    // Called once, before the first postcode is counted.
+    async prepareResume(ed, expectedCount) {
+      edition = ed;
+      expected = expectedCount;
+      resumePrep = await resume.prepare({ edition, expected });
+      stagedRows = [];
+      if (resumePrep.resumed) {
+        const cp = resumePrep.checkpoint;
+        staged = cp.filed_count;
+        seqNext = cp.filed_count;
+        const { rows } = await client.query(
+          "SELECT postcode, answer FROM crime_stage ORDER BY seq",
+        );
+        for (const row of rows) {
+          const answer = typeof row.answer === "string" ? JSON.parse(row.answer) : row.answer;
+          stagedRows.push({ postcode: row.postcode, answer });
+        }
+      }
+      return resumePrep;
+    },
+    // Stage one postcode's counted answer and checkpoint it —
+    // one progress line per committed postcode, never per
+    // month. The insert and the checkpoint are separate
+    // statements (the AQMA shape): a kill between them leaves
+    // a staged row past the checkpoint, which prepare() trims,
+    // so the resumed run re-counts exactly that postcode.
+    async stageAnswer(pc, answer) {
+      const seq = seqNext;
+      seqNext += 1;
+      await client.query(
+        "INSERT INTO crime_stage (postcode, answer, seq) VALUES ($1, $2::jsonb, $3)",
+        [pc, JSON.stringify(answer), seq],
+      );
+      staged += 1;
+      if (edition) {
+        await resume.checkpoint({
+          edition,
+          expected,
+          nextStartIndex: staged,
+          read: staged,
+          filed: staged,
+          state: {},
+          unit: "postcodes",
+        });
+      }
+    },
+    // File every answer in the map — the merge the loader
+    // always ran, unchanged except that it now clears the
+    // staging + checkpoint on success, and its failure line
+    // carries the resume note.
+    async finishFiling(postcodes, answers, latest) {
+      progress?.stage(`filing ${formatCount(postcodes.length)} crime answers`);
+      await client.query("BEGIN");
+      try {
+        for (const pc of postcodes) {
+          const res = await client.query(
+            "UPDATE postcode_cache SET answers = answers || $1::jsonb WHERE postcode = $2",
+            [JSON.stringify({ crime: answers.get(pc) }), pc],
+          );
+          if (res.rowCount === 0)
+            throw new Error(
+              `${pc}: not in the postcode directory — run the postcode loader (step M4.1) first`,
+            );
+        }
+        for (const pc of postcodes) {
+          const res = await client.query(
+            "SELECT answers->'crime' AS crime FROM postcode_cache WHERE postcode = $1",
+            [pc],
+          );
+          const filed = res.rows[0]?.crime;
+          const expectedAnswer = answers.get(pc);
+          if (
+            !filed ||
+            filed.total !== expectedAnswer.total ||
+            filed.windowTo !== latest ||
+            filed.months?.length !== WINDOW_MONTHS ||
+            filed.basisResidents !== expectedAnswer.basisResidents
+          )
+            throw new Error(
+              `${pc}: the filed crime answer does not match the counted figures — rolling back`,
+            );
+        }
+        await client.query("COMMIT");
+      } catch (error) {
+        // BUG-265: the filing transaction rolls back, so
+        // nothing is filed on failure.
+        progress?.failed({
+          stage: "file",
+          filed: 0,
+          total: postcodes.length,
+          error,
+          resume: resume.resumeNote(),
+        });
+        await client.query("ROLLBACK");
+        throw error;
+      }
+      // The run is complete: staging + checkpoint go together,
+      // so nothing is left behind for the next window.
+      await resume.clear();
+      if (ownsClient) await client.end().catch(() => {});
+    },
+    async abortFiling() {
+      // The staging + checkpoint STAY: they are the next run's
+      // resume point. A run that never prepared leaves whatever
+      // a previous run left, and the next run's prepare()
+      // validates or discards it.
+      if (ownsClient) await client.end().catch(() => {});
+    },
+  };
+}
+
 async function main() {
   const startedAt = Date.now();
   const args = process.argv.slice(2);
@@ -213,35 +497,18 @@ async function main() {
     );
   const months = windowMonths(latest);
 
-  // Points: fixture.json in fixture mode; the directory otherwise.
-  let client = null;
-  const getPoint = async (pc) => {
-    if (fixture) {
-      const point = fixture.points[pc];
-      if (!point)
-        throw new Error(
-          `${pc}: no point in the fixture (fixture covers ${Object.keys(fixture.points).join(", ")})`,
-        );
-      return point;
-    }
-    const res = await client.query(
-      "SELECT latitude, longitude FROM postcode_cache WHERE postcode = $1",
-      [pc],
-    );
-    if (res.rows.length === 0)
-      throw new Error(
-        `${pc}: not in the postcode directory — run the postcode loader (step M4.1) first`,
-      );
-    return { lat: res.rows[0].latitude, lng: res.rows[0].longitude };
-  };
-
   const connectionString = process.env.DATABASE_URL;
+  // BUG-368: resume from the last staged postcode instead of
+  // re-counting the API; with no checkpoint this is a fresh
+  // start. Verify-only never stages (as before — it files
+  // nothing).
+  const restart = args.includes("--restart");
+  let client = null;
   if (!fixture || !verifyOnly) {
     if (!connectionString) throw new Error("DATABASE_URL is not set (see .env.example, Key K6)");
     client = new pg.Client({ connectionString });
     await client.connect();
   }
-
   // BUG-265: one logger for the run — a stage marker per
   // postcode, a tally over the postcode-month fetches, and
   // the filing stage below.
@@ -259,83 +526,83 @@ async function main() {
   // mislabelling a filing failure as a fetch failure.
   let fileFailed = false;
   let countedPostcodes = 0;
+  // The filer shares the run's client (it closes only a
+  // client it opened itself): the count loop needs the same
+  // client for directory points and the national embedding.
+  let filer = null;
+  if (!verifyOnly && client) filer = await beginFiling(progress, { restart, client });
+
+  // One month's tally tick, heartbeat and slow-fetch warning
+  // — the count loop's per-month bookkeeping, owned here so
+  // the extracted counter stays a pure count.
+  const onMonth = async ({ pc, month, count, tookMs }) => {
+    const { averageMs, slow } = fetchWatch.observe(tookMs);
+    fetchedMonths += 1;
+    fetchTally.tick(fetchedMonths, `${pc} ${formatCount(count)} crimes in ${month}`);
+    progress.heartbeat({
+      stage: "fetch",
+      done: fetchedMonths,
+      total: postcodes.length * months.length,
+      every: months.length,
+    });
+    if (slow && tookMs >= 1000) {
+      progress.warning({
+        what: "month fetch duration",
+        value: `${pc} ${month} took ${formatDuration(tookMs)}`,
+        threshold: `3x recent average ${formatDuration(averageMs)}`,
+      });
+    }
+  };
 
   try {
     // 2 — count, per postcode.
     const answers = new Map();
+    if (filer) {
+      const prep = await filer.prepareResume(latest, postcodes.length);
+      if (prep.resumed) {
+        for (const staged of filer.stagedAnswers()) {
+          if (!postcodes.includes(staged.postcode)) continue;
+          // The staged answer stands — but a fixture run
+          // still proves it against the approved totals.
+          if (
+            fixture &&
+            APPROVED_TOTALS[staged.postcode] !== undefined &&
+            staged.answer.total !== APPROVED_TOTALS[staged.postcode]
+          )
+            throw new Error(
+              `${staged.postcode}: staged total is ${staged.answer.total}, but the approved report says ${APPROVED_TOTALS[staged.postcode]} — the counting basis has changed`,
+            );
+          answers.set(staged.postcode, staged.answer);
+        }
+      }
+    }
     for (const pc of postcodes) {
-      progress.stage(`counting ${pc} — ${months.length} months within 1 mile`);
-      const point = fixture ? fixture.points[pc] : await getPoint(pc);
-      if (!point) throw new Error(`${pc}: no point available`);
-      const perMonth = [];
-      const categories = {};
-      for (const month of months) {
-        const fetchStarted = Date.now();
-        const records = fixture
-          ? JSON.parse(await readFile(join(fileDir, `${point.prefix}-${month}.json`), "utf8"))
-          : await fetchJson(`${CRIMES_URL}?lat=${point.lat}&lng=${point.lng}&date=${month}`);
-        const { tookMs, averageMs, slow } = fetchWatch.observe(Date.now() - fetchStarted);
-        if (!Array.isArray(records))
-          throw new Error(`${pc} ${month}: Police.uk response is not a list`);
-        perMonth.push({ month, count: records.length });
-        for (const record of records) {
-          const category = record.category ?? "unknown";
-          categories[category] = (categories[category] ?? 0) + 1;
-        }
-        fetchedMonths += 1;
-        fetchTally.tick(fetchedMonths, `${pc} ${formatCount(records.length)} crimes in ${month}`);
-        progress.heartbeat({
-          stage: "fetch",
-          done: fetchedMonths,
-          total: postcodes.length * months.length,
-          every: months.length,
-        });
-        if (slow && tookMs >= 1000) {
-          progress.warning({
-            what: "month fetch duration",
-            value: `${pc} ${month} took ${formatDuration(tookMs)}`,
-            threshold: `3x recent average ${formatDuration(averageMs)}`,
-          });
-        }
-        if (!fixture) await new Promise((resolve) => setTimeout(resolve, 250));
-      }
-      const total = perMonth.reduce((sum, m) => sum + m.count, 0);
-      if (fixture && APPROVED_TOTALS[pc] !== undefined && total !== APPROVED_TOTALS[pc])
-        throw new Error(
-          `${pc}: fixture total is ${total}, but the approved report says ${APPROVED_TOTALS[pc]} — the counting basis has changed`,
+      if (answers.has(pc)) {
+        // Resumed: the staged answer stands, so its 12
+        // months count toward the fetch tally without a
+        // re-read.
+        progress.stage(`counting ${pc} — resumed from staging`);
+        fetchedMonths += months.length;
+        fetchTally.tick(
+          fetchedMonths,
+          `${pc} ${formatCount(answers.get(pc).total)} crimes (resumed)`,
         );
-      const answer = {
-        total,
-        windowFrom: months[0],
-        windowTo: latest,
-        months: perMonth,
-        categories,
-        basis: "Street-level crimes recorded within 1 mile of the postcode point (Police.uk API)",
-        sourceName: SOURCE_NAME,
-        sourceDate: latest,
-        loadedAt: new Date().toISOString(),
-      };
-      // M6.20 (D39): the calibration populations file with
-      // the counts, in the same artefact. Fixture mode takes
-      // the pinned basis from the fixture and NEVER computes
-      // one (CI's lsoa_bases fixture holds only the three
-      // golden rows — a computation there silently degrades
-      // to the rejected own-LSOA basis); a postcode with no
-      // pin files no basis. Live mode computes Basis B from
-      // the filed directory + lsoa_bases.
-      if (fixture) {
-        const pinned = fixture.basisResidents?.[pc];
-        if (typeof pinned === "number") answer.basisResidents = pinned;
-      } else {
-        const basisResidents = await computeBasisResidents(client, point);
-        if (basisResidents !== null) answer.basisResidents = basisResidents;
+        countedPostcodes += 1;
+        continue;
       }
-      // The England embedding: the window's filed national
-      // figure, or null while any month is uncounted (the
-      // national loader refreshes it later as months land).
-      if (client) answer.national = await nationalForWindow(client, months);
+      progress.stage(`counting ${pc} — ${months.length} months within 1 mile`);
+      const answer = await countPostcodeAnswer({
+        client,
+        fixture,
+        fileDir,
+        pc,
+        months,
+        latest,
+        onMonth,
+      });
       answers.set(pc, answer);
       countedPostcodes += 1;
+      if (filer) await filer.stageAnswer(pc, answer);
     }
     fetchTally.finish(fetchedMonths);
 
@@ -353,65 +620,29 @@ async function main() {
 
     // 3 — file it: merge the crime key into each postcode's answers,
     // in one transaction, and read back before commit.
-    progress.stage(`filing ${formatCount(postcodes.length)} crime answers`);
-    await client.query("BEGIN");
     try {
-      for (const pc of postcodes) {
-        const res = await client.query(
-          "UPDATE postcode_cache SET answers = answers || $1::jsonb WHERE postcode = $2",
-          [JSON.stringify({ crime: answers.get(pc) }), pc],
-        );
-        if (res.rowCount === 0)
-          throw new Error(
-            `${pc}: not in the postcode directory — run the postcode loader (step M4.1) first`,
-          );
-      }
-      for (const pc of postcodes) {
-        const res = await client.query(
-          "SELECT answers->'crime' AS crime FROM postcode_cache WHERE postcode = $1",
-          [pc],
-        );
-        const filed = res.rows[0]?.crime;
-        const expected = answers.get(pc);
-        if (
-          !filed ||
-          filed.total !== expected.total ||
-          filed.windowTo !== latest ||
-          filed.months?.length !== WINDOW_MONTHS ||
-          filed.basisResidents !== expected.basisResidents
-        )
-          throw new Error(
-            `${pc}: the filed crime answer does not match the counted figures — rolling back`,
-          );
-      }
-      await client.query("COMMIT");
+      await filer.finishFiling(postcodes, answers, latest);
     } catch (error) {
-      // BUG-265: the filing transaction rolls back, so
-      // nothing is filed on failure.
+      // BUG-265: the filing failure is reported by
+      // finishFiling itself.
       fileFailed = true;
-      progress.failed({
-        stage: "file",
-        filed: 0,
-        total: postcodes.length,
-        error,
-        resume: "re-run from scratch (the filing transaction rolls back)",
-      });
-      await client.query("ROLLBACK");
       throw error;
     }
     console.log(`${summary()} · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`);
   } catch (err) {
-    // BUG-265: a fetch/count failure files nothing — the
-    // resume is a clean re-run. (A filing failure is
-    // reported by the inner catch above.)
+    // BUG-265: a fetch/count failure files nothing. (A filing
+    // failure is reported by the inner catch above.)
     if (!fileFailed) {
       progress.failed({
         stage: "fetch",
         filed: countedPostcodes,
         total: postcodes.length,
         error: err,
-        resume: "re-run from scratch (nothing is filed until the filing step)",
+        resume: filer
+          ? filer.resumeNote()
+          : "re-run from scratch (nothing is filed until the filing step)",
       });
+      if (filer) await filer.abortFiling();
     }
     throw err;
   } finally {

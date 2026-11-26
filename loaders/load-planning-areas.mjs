@@ -46,9 +46,12 @@
 // (miles = degrees latitude), the prep's basis; inside tests are
 // point-in-polygon on the published shapes.
 
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { createLoaderResume } from "./loader-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -74,7 +77,7 @@ const ORG_TOWER_HAMLETS = "350";
 
 // One CSV parser, quote-aware and header-keyed (the house copy —
 // geometry fields are quoted WKT containing commas).
-function parseCsv(text) {
+export function parseCsv(text) {
   const rows = [];
   let row = [];
   let field = "";
@@ -259,7 +262,7 @@ function requireHeaders(rows, dataset, extra = []) {
 // geometry-less current rows counted, never filed (the shelf's
 // shape column cannot hold them, and dropping them silently is
 // exactly the L3 failure); unparseable geometry fails the run.
-function processPolygons(rows, dataset) {
+export function processPolygons(rows, dataset) {
   let ended = 0;
   let geoless = 0;
   let invalid = 0;
@@ -316,7 +319,7 @@ function processPolygons(rows, dataset) {
   };
 }
 
-function toLayer(item, constraintType) {
+export function toLayer(item, constraintType) {
   return {
     constraintType,
     name: item.row.name || null,
@@ -409,10 +412,254 @@ function checkGolden(ca, a4, publishers) {
   if (fails.length > 0) throw new Error(`golden checks failed:\n - ${fails.join("\n - ")}`);
 }
 
+// --- filing ------------------------------------------------------------
+
+// Stage, count, swap — with resume support (BUG-368): the
+// layer staging is a PERSISTENT table now (migration 0048)
+// and one loader_checkpoint row records the last fully
+// staged 25-row chunk, so a killed run re-reads and
+// re-processes the three files (fast and deterministic)
+// and stages only the layers past the checkpoint. The
+// Article 4 gate is NOT resumed: its rows are few and
+// derive from the same in-memory processed set, so
+// finishFiling clears the gate stage and re-inserts them
+// fresh before the swap. BUG-248 atomicity is unchanged:
+// live tables change ONLY on a complete, verified swap, in
+// its own transaction; staging + checkpoint are dropped
+// (clear()) after a successful swap, and stay on failure.
+/**
+ * @param {import("./progress.mjs").ProgressLogger | null} [progress]
+ * @param {{ restart?: boolean, client?: any }} [options]
+ */
+export async function beginFiling(
+  progress = null,
+  { restart = false, client: injectedClient = null } = {},
+) {
+  // The client is injectable so the resume tests can file
+  // against a fake database; production passes none and a
+  // real client is opened as before.
+  const client = injectedClient ?? new pg.Client({ connectionString: process.env.DATABASE_URL });
+  const ownsClient = !injectedClient;
+  if (ownsClient) await client.connect();
+  try {
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS planning_areas_stage (
+         constraint_type text, name text, geom geometry(MultiPolygon, 4326),
+         source_reference text, organisation text, quality text, detail text,
+         source_name text, source_date date,
+         loaded_at timestamptz NOT NULL DEFAULT now(),
+         seq bigint NOT NULL, UNIQUE (seq)
+       )`,
+    );
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS article4_gate_stage (
+         organisation_entity text, current_areas integer, areas_with_geometry integer,
+         source_name text, source_date date,
+         loaded_at timestamptz NOT NULL DEFAULT now()
+       )`,
+    );
+  } catch (error) {
+    if (ownsClient) await client.end().catch(() => {});
+    throw error;
+  }
+  const resume = createLoaderResume(client, {
+    loader: "load-planning-areas",
+    stageTable: "planning_areas_stage",
+    progress,
+    restart,
+  });
+  let edition = null;
+  let expected = null;
+  let staged = 0;
+  // The failure line's resume note: the last checkpoint
+  // written (prepare seeds it with the resumed checkpoint,
+  // the staging loop advances it).
+  let lastNote = "the start (nothing staged yet)";
+  return {
+    resumeNote: () => lastNote,
+    filedSoFar: () => staged,
+    // Decide, from the edition and the staged rows, whether
+    // the run resumes or starts from zero. Returns the
+    // prepare result; the caller slices the layers array
+    // from its checkpoint's next_start_index.
+    async prepareResume(ed, exp) {
+      edition = ed;
+      expected = exp;
+      const prep = await resume.prepare({ edition: ed, expected: exp });
+      if (prep.resumed) {
+        staged = prep.checkpoint.filed_count;
+        lastNote = resume.resumeNote();
+      }
+      return prep;
+    },
+    // Stage the layers the caller passes (already sliced
+    // from the resume offset), in the house chunks of 25,
+    // checkpointing per chunk. The BUG-265 tally, the
+    // heartbeat and the slow-chunk warning ride as before.
+    async stageLayers(items, sourceDate) {
+      const CHUNK = 25;
+      const layerChunks = Math.ceil(items.length / CHUNK);
+      const layerTally = progress?.tally({
+        label: "stage layers",
+        total: layerChunks,
+        every: Math.max(1, Math.ceil(layerChunks / 20)),
+        unit: "chunks",
+      });
+      const layerWatch = createBatchWatch();
+      let chunkNo = 0;
+      for (let at = 0; at < items.length; at += CHUNK) {
+        const started = Date.now();
+        const chunk = items.slice(at, at + CHUNK);
+        const values = [];
+        const params = [];
+        const base = resume.takeSeq(chunk.length);
+        chunk.forEach((layer, i) => {
+          const b = i * 10;
+          values.push(
+            `($${b + 1},$${b + 2},ST_Multi(ST_GeomFromText($${b + 3}, 4326)),$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8},$${b + 9},$${b + 10})`,
+          );
+          params.push(
+            layer.constraintType,
+            layer.name,
+            layer.wkt,
+            layer.reference,
+            layer.organisation,
+            layer.quality,
+            layer.detail,
+            SOURCE_AREAS,
+            sourceDate,
+            base + i,
+          );
+        });
+        await client.query(
+          `INSERT INTO planning_areas_stage (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, seq)
+           VALUES ${values.join(",")}`,
+          params,
+        );
+        staged += chunk.length;
+        await resume.checkpoint({
+          edition,
+          expected,
+          nextStartIndex: staged,
+          read: staged,
+          filed: staged,
+          unit: "layers",
+        });
+        lastNote = resume.resumeNote();
+        chunkNo += 1;
+        const { tookMs, averageMs, slow } = layerWatch.observe(Date.now() - started);
+        layerTally?.tick(chunkNo);
+        progress?.heartbeat({ stage: "stage layers", done: chunkNo, total: layerChunks });
+        if (slow) {
+          progress?.warning({
+            what: "stage chunk duration",
+            value: `chunk ${chunkNo} took ${formatDuration(tookMs)}`,
+            threshold: `3x recent average ${formatDuration(averageMs)}`,
+          });
+        }
+      }
+      layerTally?.finish(layerChunks);
+    },
+    // Count-check the staged layers, re-stage the Article 4
+    // gate fresh from the processed publishers map, then
+    // swap both tables in one transaction and verify the
+    // filed counts. Staging + checkpoint go together after
+    // a successful swap.
+    async finishFiling(expectedLayers, publishers, sourceDate) {
+      try {
+        const stagedRes = await client.query("SELECT count(*)::int AS n FROM planning_areas_stage");
+        if (stagedRes.rows[0].n !== expectedLayers)
+          throw new Error("the staged layer count does not match — rolling back");
+        // The gate is the small tail of the same filing:
+        // cleared and re-inserted fresh (one multi-row
+        // INSERT) before the swap transaction. A kill here
+        // leaves the layer staging checkpointed and the
+        // next run re-stages the gate the same way.
+        await client.query("DELETE FROM article4_gate_stage");
+        if (publishers.size > 0) {
+          const values = [];
+          const params = [];
+          let i = 0;
+          for (const [org, entry] of publishers) {
+            const b = i * 5;
+            values.push(`($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5})`);
+            params.push(org, entry.currentAreas, entry.areasWithGeometry, SOURCE_AREAS, sourceDate);
+            i += 1;
+          }
+          await client.query(
+            `INSERT INTO article4_gate_stage (organisation_entity, current_areas, areas_with_geometry, source_name, source_date)
+             VALUES ${values.join(",")}`,
+            params,
+          );
+        }
+        progress?.count({
+          label: "stage gate",
+          done: publishers.size,
+          total: publishers.size,
+          unit: "organisations",
+        });
+        await client.query("BEGIN");
+        try {
+          await client.query(
+            "DELETE FROM planning_layers WHERE constraint_type IN ('conservation_area', 'article_4_area')",
+          );
+          await client.query(
+            `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
+             SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM planning_areas_stage`,
+          );
+          await client.query("DELETE FROM article4_publishers");
+          await client.query(
+            `INSERT INTO article4_publishers (organisation_entity, current_areas, areas_with_geometry, source_name, source_date, loaded_at)
+             SELECT organisation_entity, current_areas, areas_with_geometry, source_name, source_date, loaded_at FROM article4_gate_stage`,
+          );
+          const filedCount = await client.query(
+            "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type IN ('conservation_area', 'article_4_area')",
+          );
+          if (filedCount.rows[0].n !== expectedLayers)
+            throw new Error("the filed layer count does not match — rolling back");
+          const gateCount = await client.query(
+            "SELECT count(*)::int AS n FROM article4_publishers",
+          );
+          if (gateCount.rows[0].n !== publishers.size)
+            throw new Error("the filed gate count does not match — rolling back");
+          await client.query("COMMIT");
+        } catch (error) {
+          await client.query("ROLLBACK").catch(() => {});
+          throw error;
+        }
+        await resume.clear();
+        lastNote = "the start (nothing staged yet)";
+      } finally {
+        if (ownsClient) await client.end().catch(() => {});
+      }
+    },
+    async abortFiling() {
+      // The staging + checkpoint STAY: they are the next
+      // run's resume point.
+      if (ownsClient) await client.end().catch(() => {});
+    },
+  };
+}
+
+// The edition for a run: the retrieval date plus a hash of
+// every file text read, in dataset order — the files carry
+// no edition date, so the date guards a next-day resume
+// (staged rows would otherwise carry mixed source_dates)
+// and the hash guards a same-day republication. Each
+// segment is length-prefixed so the join is unambiguous.
+export function planningAreasEdition(sourceDate, texts) {
+  const hash = createHash("sha256");
+  for (const text of texts) hash.update(`${text.length}:${text}`);
+  return `${sourceDate}:${hash.digest("hex").slice(0, 16)}`;
+}
+
 async function main() {
   const startedAt = Date.now();
   const args = process.argv.slice(2);
   const verifyOnly = args.includes("--verify-only");
+  // BUG-368: resume from the last checkpointed chunk instead
+  // of restarting; with no checkpoint this is a fresh start.
+  const restart = args.includes("--restart");
   const fileAt = args.indexOf("--file");
   const fixtureMode = fileAt !== -1;
   const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
@@ -433,9 +680,12 @@ async function main() {
     ? JSON.parse(await readFile(join(fixtureDir, "fixture.json"), "utf8")).captured
     : new Date().toISOString().slice(0, 10);
 
-  const caRows = parseCsv(await readDataset("conservation-area"));
-  const a4Rows = parseCsv(await readDataset("article-4-direction-area"));
-  const dirRows = parseCsv(await readDataset("article-4-direction"));
+  const caText = await readDataset("conservation-area");
+  const caRows = parseCsv(caText);
+  const a4Text = await readDataset("article-4-direction-area");
+  const a4Rows = parseCsv(a4Text);
+  const dirText = await readDataset("article-4-direction");
+  const dirRows = parseCsv(dirText);
   requireHeaders(caRows, "conservation-area");
   requireHeaders(a4Rows, "article-4-direction-area", [
     "article-4-direction",
@@ -517,140 +767,42 @@ async function main() {
   if (!process.env.DATABASE_URL)
     throw new Error("DATABASE_URL is not set — filing requires a database");
 
-  const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
-  await client.connect();
-  // BUG-265: the staged counter lives outside the try so the
-  // failure line can read it even when the error lands before
-  // the staging loop.
-  let stagedLayers = 0;
+  // BUG-368: the filing is resumable — the edition is the
+  // retrieval date plus a hash of every file text read, so
+  // a kill mid-stage resumes from the last checkpointed
+  // chunk instead of re-staging the whole file.
+  const filer = await beginFiling(progress, { restart });
+  const edition = planningAreasEdition(sourceDate, [caText, a4Text, dirText]);
   try {
-    await client.query("BEGIN");
-    await client.query(
-      `CREATE TEMP TABLE planning_stage (
-         constraint_type text, name text, geom geometry(MultiPolygon, 4326),
-         source_reference text, organisation text, quality text, detail text,
-         source_name text, source_date date,
-         loaded_at timestamptz NOT NULL DEFAULT now()
-       ) ON COMMIT DROP`,
-    );
-    await client.query(
-      `CREATE TEMP TABLE gate_stage (
-         organisation_entity text, current_areas integer, areas_with_geometry integer,
-         source_name text, source_date date,
-         loaded_at timestamptz NOT NULL DEFAULT now()
-       ) ON COMMIT DROP`,
-    );
-    const CHUNK = 25;
-    // BUG-265: the layer staging loop is the run's long
-    // phase — a line every twentieth of the chunks, a
-    // heartbeat, and a warning for a chunk over 3x the
-    // recent average.
-    const layerChunks = Math.ceil(layers.length / CHUNK);
-    const layerTally = progress.tally({
-      label: "stage layers",
-      total: layerChunks,
-      every: Math.max(1, Math.ceil(layerChunks / 20)),
-      unit: "chunks",
-    });
-    const layerWatch = createBatchWatch();
-    for (let at = 0; at < layers.length; at += CHUNK) {
-      const started = Date.now();
-      const chunk = layers.slice(at, at + CHUNK);
-      const values = [];
-      const params = [];
-      chunk.forEach((layer, i) => {
-        const base = i * 9;
-        values.push(
-          `($${base + 1},$${base + 2},ST_Multi(ST_GeomFromText($${base + 3}, 4326)),$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8},$${base + 9})`,
-        );
-        params.push(
-          layer.constraintType,
-          layer.name,
-          layer.wkt,
-          layer.reference,
-          layer.organisation,
-          layer.quality,
-          layer.detail,
-          SOURCE_AREAS,
-          sourceDate,
-        );
-      });
-      await client.query(
-        `INSERT INTO planning_stage (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date)
-         VALUES ${values.join(",")}`,
-        params,
-      );
-      stagedLayers += chunk.length;
-      const chunkNo = at / CHUNK + 1;
-      const { tookMs, averageMs, slow } = layerWatch.observe(Date.now() - started);
-      layerTally.tick(chunkNo);
-      progress.heartbeat({ stage: "stage layers", done: chunkNo, total: layerChunks });
-      if (slow) {
-        progress.warning({
-          what: "stage chunk duration",
-          value: `chunk ${chunkNo} took ${formatDuration(tookMs)}`,
-          threshold: `3x recent average ${formatDuration(averageMs)}`,
-        });
-      }
-    }
-    layerTally.finish(layerChunks);
-    for (const [org, entry] of publishers) {
-      await client.query(
-        `INSERT INTO gate_stage (organisation_entity, current_areas, areas_with_geometry, source_name, source_date)
-         VALUES ($1,$2,$3,$4,$5)`,
-        [org, entry.currentAreas, entry.areasWithGeometry, SOURCE_AREAS, sourceDate],
-      );
-    }
-    progress.count({
-      label: "stage gate",
-      done: publishers.size,
-      total: publishers.size,
-      unit: "organisations",
-    });
-    const staged = await client.query("SELECT count(*)::int AS n FROM planning_stage");
-    if (staged.rows[0].n !== layers.length)
-      throw new Error("the staged layer count does not match — rolling back");
+    const prep = await filer.prepareResume(edition, layers.length);
+    const startOffset = prep.resumed ? prep.checkpoint.next_start_index : 0;
+    await filer.stageLayers(layers.slice(startOffset), sourceDate);
     progress.stage(
       `swap started — filing ${formatCount(layers.length)} staged layers into planning_layers`,
     );
-    await client.query(
-      "DELETE FROM planning_layers WHERE constraint_type IN ('conservation_area', 'article_4_area')",
-    );
-    await client.query(
-      `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
-       SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM planning_stage`,
-    );
-    await client.query("DELETE FROM article4_publishers");
-    await client.query(
-      `INSERT INTO article4_publishers (organisation_entity, current_areas, areas_with_geometry, source_name, source_date, loaded_at)
-       SELECT organisation_entity, current_areas, areas_with_geometry, source_name, source_date, loaded_at FROM gate_stage`,
-    );
-    const filedCount = await client.query(
-      "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type IN ('conservation_area', 'article_4_area')",
-    );
-    if (filedCount.rows[0].n !== layers.length)
-      throw new Error("the filed layer count does not match — rolling back");
-    const gateCount = await client.query("SELECT count(*)::int AS n FROM article4_publishers");
-    if (gateCount.rows[0].n !== publishers.size)
-      throw new Error("the filed gate count does not match — rolling back");
-    await client.query("COMMIT");
+    await filer.finishFiling(layers.length, publishers, sourceDate);
   } catch (error) {
+    // BUG-368: the failure line carries the resume note,
+    // so it names the point the next run resumes from.
+    // The filing is not one transaction any more — on a
+    // failure the live tables are untouched and the
+    // staging stays as the resume point.
     progress.failed({
       stage: "file",
-      filed: stagedLayers,
+      filed: filer.filedSoFar(),
       total: layers.length,
       error,
-      resume: "re-run from scratch (filing is one transaction; nothing was swapped)",
+      resume: filer.resumeNote(),
     });
-    await client.query("ROLLBACK").catch(() => {});
+    await filer.abortFiling();
     throw error;
-  } finally {
-    await client.end();
   }
   console.log(`${summary()} · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`);
 }
 
-main().catch((error) => {
-  console.error(`load-planning-areas FAILED: ${error.message}`);
-  process.exitCode = 1;
-});
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(`load-planning-areas FAILED: ${error.message}`);
+    process.exitCode = 1;
+  });
+}

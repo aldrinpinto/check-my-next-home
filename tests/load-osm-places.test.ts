@@ -473,11 +473,17 @@ describe("the fixture recomputation — the golden figures", () => {
   });
 
   it("files through a stage-table swap, with the detail column among the filed columns (T12)", () => {
-    expect(loaderSource).toContain("CREATE TEMP TABLE osm_places_stage");
+    // BUG-368: the stage is persistent now — the TEMP
+    // table and its ON COMMIT DROP are gone; the swap
+    // still deletes the live table and inserts from the
+    // stage, and the staging-clear is the resume clear.
+    expect(loaderSource).toContain("CREATE TABLE IF NOT EXISTS osm_places_stage");
     expect(loaderSource).toContain("DELETE FROM osm_points");
     expect(loaderSource).toContain("source_date");
     expect(loaderSource).toContain("detail");
-    expect(loaderSource).toContain("ON COMMIT DROP");
+    expect(loaderSource).not.toContain("CREATE TEMP TABLE osm_places_stage");
+    expect(loaderSource).not.toContain("ON COMMIT DROP");
+    expect(loaderSource).toContain("resume.clear()");
   });
 });
 
@@ -496,21 +502,28 @@ describe("filing — the stage-table transaction", () => {
   // ON COMMIT DROP stage BEFORE its BEGIN, so in autocommit
   // the stage was dropped again by the end of its own CREATE
   // statement and the first staged insert found no table.
-  // The sandbox proofs were all verify-only, so the filing
-  // path had never run, and the source-shape test above can
-  // only see that the statements exist — never their order.
+  // BUG-368: the stage is persistent now, so that
+  // discipline is gone — the CREATE TABLE IF NOT EXISTS
+  // opens the run, staging commits per flush with a
+  // checkpoint line each, and only the swap runs inside
+  // one transaction (BEGIN after the staged inserts,
+  // COMMIT last, then the staging-clear COMMIT). A
+  // mid-staging failure leaves the staged rows +
+  // checkpoint for the next run instead of rolling back.
   // No Postgres exists in the sandbox (CI is the proof
   // environment), so the contract is pinned here against a
-  // recording fake pool: ONE transaction — BEGIN before the
-  // stage create, the swap after the staged inserts, COMMIT
-  // last — and a mid-filing failure rolls back.
+  // recording fake pool.
   function recordingPool(failOn?: string) {
     const statements: string[] = [];
     let released = false;
+    let staged = 0;
     const client = {
-      async query(sql: string) {
+      async query(sql: string, params: unknown[] = []) {
         const head = sql.trim().replace(/\s+/g, " ");
         statements.push(head);
+        if (/INSERT INTO osm_places_stage/.test(sql)) staged += params.length / 9;
+        if (/SELECT count\(\*\)::int AS n FROM osm_places_stage/.test(sql))
+          return { rows: [{ n: staged }], rowCount: 1 };
         if (failOn && head.startsWith(failOn)) throw new Error(`forced failure: ${failOn}`);
         return { rows: [], rowCount: 0 };
       },
@@ -542,27 +555,32 @@ describe("filing — the stage-table transaction", () => {
     },
   ];
 
-  it("stages and swaps inside one transaction — BEGIN before the stage create, COMMIT last", async () => {
+  it("stages into a persistent table and swaps in its own transaction — CREATE first, COMMIT last", async () => {
     const rec = recordingPool();
     await filePlaces(rec.pool as never, rows as never, "2026-11-13T00:00:00Z");
     const at = (prefix: string) => rec.statements.findIndex((s) => s.startsWith(prefix));
-    expect(rec.statements[0]).toBe("BEGIN");
-    expect(at("CREATE TEMP TABLE osm_places_stage")).toBeGreaterThan(0);
-    expect(at("INSERT INTO osm_places_stage")).toBeGreaterThan(
-      at("CREATE TEMP TABLE osm_places_stage"),
+    expect(rec.statements[0]).toBe(
+      "CREATE TABLE IF NOT EXISTS osm_places_stage ( osm_id bigint, name text, place_type text, detail text, latitude double precision, longitude double precision, source_name text, source_date date, seq bigint NOT NULL, UNIQUE (seq) )",
     );
-    expect(at("DELETE FROM osm_points")).toBeGreaterThan(at("INSERT INTO osm_places_stage"));
+    expect(at("INSERT INTO osm_places_stage")).toBeGreaterThan(
+      at("CREATE TABLE IF NOT EXISTS osm_places_stage"),
+    );
+    expect(at("BEGIN")).toBeGreaterThan(at("INSERT INTO osm_places_stage"));
+    expect(at("DELETE FROM osm_points")).toBeGreaterThan(at("BEGIN"));
     expect(at("INSERT INTO osm_points")).toBeGreaterThan(at("DELETE FROM osm_points"));
     expect(rec.statements.at(-1)).toBe("COMMIT");
     expect(rec.released()).toBe(true);
   });
 
-  it("a failure mid-filing rolls the transaction back and still releases the client", async () => {
+  it("a failure mid-staging leaves the staged rows for the next run and still releases the client", async () => {
     const rec = recordingPool("INSERT INTO osm_places_stage");
     await expect(
       filePlaces(rec.pool as never, rows as never, "2026-11-13T00:00:00Z"),
     ).rejects.toThrow("forced failure");
-    expect(rec.statements).toContain("ROLLBACK");
+    // BUG-368: staging is durable per flush — no ROLLBACK,
+    // and no COMMIT either: the checkpoint stands for the
+    // next run to resume from.
+    expect(rec.statements).not.toContain("ROLLBACK");
     expect(rec.statements).not.toContain("COMMIT");
     expect(rec.released()).toBe(true);
   });
@@ -633,9 +651,13 @@ describe("filing — the schema contract", () => {
 
   function recordingPool() {
     const statements: string[] = [];
+    let staged = 0;
     const client = {
-      async query(sql: string) {
+      async query(sql: string, params: unknown[] = []) {
         statements.push(sql.trim().replace(/\s+/g, " "));
+        if (/INSERT INTO osm_places_stage/.test(sql)) staged += params.length / 9;
+        if (/SELECT count\(\*\)::int AS n FROM osm_places_stage/.test(sql))
+          return { rows: [{ n: staged }], rowCount: 1 };
         return { rows: [], rowCount: 0 };
       },
       release() {},
@@ -681,9 +703,9 @@ describe("filing — the schema contract", () => {
     const rec = recordingPool();
     await filePlaces(rec.pool as never, rows as never, "2026-11-13T00:00:00Z");
     const stageCreate = rec.statements.find((s) =>
-      s.startsWith("CREATE TEMP TABLE osm_places_stage"),
+      s.startsWith("CREATE TABLE IF NOT EXISTS osm_places_stage"),
     )!;
-    const stageDefs = /\((.+)\) ON COMMIT DROP/.exec(stageCreate)![1];
+    const stageDefs = /\((.+)\)/.exec(stageCreate)![1];
     const stageCols = stageDefs.split(",").map((def) => def.trim().split(/\s+/)[0]);
     const stagedInsert = rec.statements.find((s) =>
       s.startsWith("INSERT INTO osm_places_stage ("),
@@ -713,10 +735,14 @@ describe("progress — BUG-265", () => {
   function recordingPool(failOn?: string) {
     const statements: string[] = [];
     let released = false;
+    let staged = 0;
     const client = {
-      async query(sql: string) {
+      async query(sql: string, params: unknown[] = []) {
         const head = sql.trim().replace(/\s+/g, " ");
         statements.push(head);
+        if (/INSERT INTO osm_places_stage/.test(sql)) staged += params.length / 9;
+        if (/SELECT count\(\*\)::int AS n FROM osm_places_stage/.test(sql))
+          return { rows: [{ n: staged }], rowCount: 1 };
         if (failOn && head.startsWith(failOn)) throw new Error(`forced failure: ${failOn}`);
         return { rows: [], rowCount: 0 };
       },
@@ -767,10 +793,211 @@ describe("progress — BUG-265", () => {
     ).rejects.toThrow("forced failure");
     expect(
       lines.some((l) =>
-        /failed · file · filed 0 of 2 · forced failure: INSERT INTO osm_places_stage · resume from re-run from scratch/.test(
+        /failed · file · filed 0 of 2 · forced failure: INSERT INTO osm_places_stage · resume from the start \(nothing staged yet\)/.test(
           l,
         ),
       ),
     ).toBe(true);
+  });
+});
+
+describe("resume (BUG-368)", () => {
+  // A fake pg pool: the staged rows, the live points and
+  // the loader_checkpoint row as arrays, with just enough
+  // SQL to run the filer.
+  type StagedRow = { osmId: number; sourceDate: string; seq: number };
+  type CheckpointRow = {
+    loader: string;
+    edition: string;
+    expected: number | null;
+    next_start_index: number;
+    read_count: number;
+    filed_count: number;
+    state: Record<string, unknown> | null;
+  };
+  function createFakePool() {
+    let staged: StagedRow[] = [];
+    let live: StagedRow[] = [];
+    const checkpoints = new Map<string, CheckpointRow>();
+    let insertCalls = 0;
+    let failAfterInserts: number | null = null;
+    let snapshot: { staged: StagedRow[]; live: StagedRow[] } | null = null;
+    const query = async (sql: string, params: unknown[] = []) => {
+      const text = sql.replace(/\s+/g, " ");
+      if (text === "BEGIN") {
+        snapshot = { staged: [...staged], live: [...live] };
+        return { rows: [] };
+      }
+      if (text === "COMMIT") {
+        snapshot = null;
+        return { rows: [] };
+      }
+      if (text === "ROLLBACK") {
+        if (snapshot) {
+          staged = snapshot.staged;
+          live = snapshot.live;
+        }
+        snapshot = null;
+        return { rows: [] };
+      }
+      if (/CREATE TABLE IF NOT EXISTS osm_places_stage/.test(text)) return { rows: [] };
+      if (/INSERT INTO osm_places_stage/.test(text)) {
+        insertCalls += 1;
+        if (failAfterInserts !== null && insertCalls > failAfterInserts)
+          throw new Error("simulated kill: the database connection dropped mid-insert");
+        for (let r = 0; r < params.length / 9; r++)
+          staged.push({
+            osmId: params[r * 9] as number,
+            sourceDate: params[r * 9 + 7] as string,
+            seq: params[r * 9 + 8] as number,
+          });
+        return { rows: [], rowCount: params.length / 9 };
+      }
+      if (/SELECT loader, edition, expected, next_start_index/.test(text)) {
+        const row = checkpoints.get(params[0] as string);
+        return { rows: row ? [row] : [] };
+      }
+      if (/INSERT INTO loader_checkpoint/.test(text)) {
+        checkpoints.set(params[0] as string, {
+          loader: params[0] as string,
+          edition: params[1] as string,
+          expected: params[2] as number | null,
+          next_start_index: params[3] as number,
+          read_count: params[4] as number,
+          filed_count: params[5] as number,
+          state: JSON.parse(params[6] as string) as Record<string, unknown>,
+        });
+        return { rows: [] };
+      }
+      if (/DELETE FROM loader_checkpoint WHERE loader =/.test(text)) {
+        checkpoints.delete(params[0] as string);
+        return { rows: [] };
+      }
+      if (/SELECT count\(\*\)::int AS n, coalesce\(sum\(seq\)/.test(text)) {
+        return {
+          rows: [
+            {
+              n: staged.length,
+              s: staged.reduce((a, r) => a + r.seq, 0),
+              m: staged.length ? Math.max(...staged.map((r) => r.seq)) : 0,
+            },
+          ],
+        };
+      }
+      if (/DELETE FROM osm_places_stage WHERE seq >=/.test(text)) {
+        staged = staged.filter((r) => r.seq < (params[0] as number));
+        return { rows: [], rowCount: 0 };
+      }
+      if (/DELETE FROM osm_places_stage/.test(text)) {
+        staged = [];
+        return { rows: [] };
+      }
+      if (/SELECT count\(\*\)::int AS n FROM osm_places_stage/.test(text))
+        return { rows: [{ n: staged.length }] };
+      if (/DELETE FROM osm_points/.test(text)) {
+        live = [];
+        return { rows: [] };
+      }
+      if (/INSERT INTO osm_points/.test(text)) {
+        live = [...staged];
+        return { rows: [] };
+      }
+      throw new Error(`fake client: unhandled SQL: ${sql}`);
+    };
+    const client = { query, release: () => {} };
+    return {
+      pool: { connect: async () => client },
+      staged: () => staged,
+      live: () => live,
+      checkpoints,
+      setFailAfterInserts: (n: number | null) => {
+        insertCalls = 0;
+        failAfterInserts = n;
+      },
+    };
+  }
+  const rows1200 = () =>
+    Array.from({ length: 1200 }, (_, i) => ({
+      osmId: 100000 + i,
+      name: `Place ${i}`,
+      placeType: "vet",
+      detail: null,
+      lat: 51.5,
+      lon: 0.02,
+      sourceDate: "2026-11-12",
+    }));
+
+  it("kill mid-staging resumes and files every place exactly once", async () => {
+    const fake = createFakePool();
+    const lines: string[] = [];
+    const progress = createProgressLogger({
+      name: "load-osm-places",
+      log: (...args: unknown[]) => lines.push(args.join(" ")),
+    });
+    fake.setFailAfterInserts(1);
+    await expect(
+      filePlaces(fake.pool as never, rows1200() as never, "2026-11-13T00:00:00Z", { progress }),
+    ).rejects.toThrow(/simulated kill/);
+    expect(fake.staged().length).toBe(500);
+    expect(fake.checkpoints.get("load-osm-places")?.next_start_index).toBe(500);
+    expect(
+      lines.some((l) =>
+        /checkpoint 500\/1,200 rows \(42%\) · staged 500 · resume from 500/.test(l),
+      ),
+    ).toBe(true);
+
+    fake.setFailAfterInserts(null);
+    const resumeLines: string[] = [];
+    const resumeProgress = createProgressLogger({
+      name: "load-osm-places",
+      log: (...args: unknown[]) => resumeLines.push(args.join(" ")),
+    });
+    await filePlaces(fake.pool as never, rows1200() as never, "2026-11-13T00:00:00Z", {
+      progress: resumeProgress,
+    });
+    expect(
+      resumeLines.some((l) =>
+        /resuming from checkpoint · 500 rows staged · edition osm-2026-11-12 · resume from 500/.test(
+          l,
+        ),
+      ),
+    ).toBe(true);
+    expect(fake.live().length).toBe(1200);
+    expect(new Set(fake.live().map((r) => r.osmId)).size).toBe(1200);
+    expect(fake.staged().length).toBe(0);
+    expect(fake.checkpoints.get("load-osm-places")).toBeUndefined();
+  });
+
+  it("an extract-date change discards the staged rows and starts from zero", async () => {
+    const fake = createFakePool();
+    fake.setFailAfterInserts(1);
+    await expect(
+      filePlaces(fake.pool as never, rows1200() as never, "2026-11-13T00:00:00Z"),
+    ).rejects.toThrow(/simulated kill/);
+    expect(fake.staged().length).toBe(500);
+    fake.setFailAfterInserts(null);
+    const rowsNew = rows1200().map((r) => ({ ...r, sourceDate: "2026-11-19" }));
+    await filePlaces(fake.pool as never, rowsNew as never, "2026-11-20T00:00:00Z");
+    expect(fake.live().length).toBe(1200);
+    expect(fake.live().every((r) => r.sourceDate === "2026-11-19")).toBe(true);
+    expect(fake.staged().length).toBe(0);
+    expect(fake.checkpoints.get("load-osm-places")).toBeUndefined();
+  });
+
+  it("--restart discards the checkpoint and starts from zero", async () => {
+    const fake = createFakePool();
+    fake.setFailAfterInserts(1);
+    await expect(
+      filePlaces(fake.pool as never, rows1200() as never, "2026-11-13T00:00:00Z"),
+    ).rejects.toThrow(/simulated kill/);
+    expect(fake.staged().length).toBe(500);
+    fake.setFailAfterInserts(null);
+    await filePlaces(fake.pool as never, rows1200() as never, "2026-11-13T00:00:00Z", {
+      restart: true,
+    });
+    expect(fake.live().length).toBe(1200);
+    expect(new Set(fake.live().map((r) => r.osmId)).size).toBe(1200);
+    expect(fake.staged().length).toBe(0);
+    expect(fake.checkpoints.get("load-osm-places")).toBeUndefined();
   });
 });

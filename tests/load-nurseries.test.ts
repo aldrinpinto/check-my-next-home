@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildSettings } from "../loaders/load-nurseries.mjs";
+import { buildSettings, beginFiling } from "../loaders/load-nurseries.mjs";
 import { createProgressLogger } from "../loaders/progress.mjs";
 
 // Guards the nurseries loader (plan step M5.17): the Ofsted
@@ -244,5 +244,265 @@ describe("progress logging (BUG-265)", () => {
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatch(/progress · build 341\/341 rows \(100%\)$/);
     expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+  });
+});
+
+// BUG-368: the filing resumes instead of restarting — the
+// build re-runs whole and deterministic, the staging loop
+// skips the settings the checkpoint already covers.
+describe("resume (BUG-368)", () => {
+  // 2,501 synthetic group settings: past two 1,000-setting
+  // checkpoints, with a tail. Every one is positioned by the
+  // fixture's postcode list, cycled so no single postcode
+  // carries the whole run.
+  const postcodeKeys = Object.keys(postcodes);
+  const settingRecord = (i: number): Record<string, string> => ({
+    "Provider URN": `EY${String(i).padStart(6, "0")}`,
+    "Provider type": "Childcare on non-domestic premises",
+    "Provider subtype": "Full day care",
+    "Provider status": "Active",
+    "Provider name": `Nursery EY${String(i).padStart(6, "0")}`,
+    "Provider Early Years Register flag": "Y",
+    "Provider address line 1": "1 Test Street",
+    "Provider address line 2": "",
+    "Provider address line 3": "",
+    "Provider town": "Testville",
+    "Provider postcode": postcodeKeys[i % postcodeKeys.length],
+  });
+  const { settings } = buildSettings(
+    Array.from({ length: 2501 }, (_, i) => settingRecord(i)),
+    (pc: string) => postcodes[(pc ?? "").trim().toUpperCase()] ?? null,
+  );
+  const EDITION = "2026-06-30";
+
+  // A fake pg client: the staged rows, the live table and the
+  // loader_checkpoint row as arrays, with just enough SQL to
+  // run the filer.
+  type StagedRow = { urn: string; seq: number };
+  type CheckpointRow = {
+    loader: string;
+    edition: string;
+    expected: number | null;
+    next_start_index: number;
+    read_count: number;
+    filed_count: number;
+    state: Record<string, unknown> | null;
+  };
+  function createFakeClient() {
+    let staged: StagedRow[] = [];
+    let live: StagedRow[] = [];
+    const checkpoints = new Map<string, CheckpointRow>();
+    let insertCalls = 0;
+    let failAfterInserts: number | null = null;
+    let snapshot: {
+      staged: StagedRow[];
+      live: StagedRow[];
+      checkpoints: Map<string, CheckpointRow>;
+    } | null = null;
+    const query = async (sql: string, params: unknown[] = []) => {
+      const text = sql.replace(/\s+/g, " ");
+      if (text === "BEGIN") {
+        snapshot = { staged: [...staged], live: [...live], checkpoints: new Map(checkpoints) };
+        return { rows: [] };
+      }
+      if (text === "COMMIT") {
+        snapshot = null;
+        return { rows: [] };
+      }
+      if (text === "ROLLBACK") {
+        if (snapshot) {
+          staged = snapshot.staged;
+          live = snapshot.live;
+          checkpoints.clear();
+          for (const [k, v] of snapshot.checkpoints) checkpoints.set(k, v);
+        }
+        snapshot = null;
+        return { rows: [] };
+      }
+      if (/CREATE TABLE IF NOT EXISTS nurseries_stage/.test(text)) return { rows: [] };
+      if (/INSERT INTO loader_checkpoint/.test(text)) {
+        checkpoints.set(params[0] as string, {
+          loader: params[0] as string,
+          edition: params[1] as string,
+          expected: params[2] as number | null,
+          next_start_index: params[3] as number,
+          read_count: params[4] as number,
+          filed_count: params[5] as number,
+          state: JSON.parse(params[6] as string) as Record<string, unknown>,
+        });
+        return { rows: [] };
+      }
+      if (
+        /SELECT loader, edition, expected, next_start_index, read_count, filed_count, state, updated_at/.test(
+          text,
+        )
+      ) {
+        const row = checkpoints.get(params[0] as string);
+        return { rows: row ? [row] : [] };
+      }
+      if (/DELETE FROM loader_checkpoint WHERE loader =/.test(text)) {
+        checkpoints.delete(params[0] as string);
+        return { rows: [] };
+      }
+      if (/SELECT count\(\*\)::int AS n, coalesce\(sum\(seq\)/.test(text)) {
+        return {
+          rows: [
+            {
+              n: staged.length,
+              s: staged.reduce((a, r) => a + r.seq, 0),
+              m: staged.length ? Math.max(...staged.map((r) => r.seq)) : 0,
+            },
+          ],
+        };
+      }
+      if (/DELETE FROM nurseries_stage WHERE seq >=/.test(text)) {
+        const before = staged.length;
+        staged = staged.filter((r) => r.seq < (params[0] as number));
+        return { rows: [], rowCount: before - staged.length };
+      }
+      if (text === "DELETE FROM nurseries_stage") {
+        staged = [];
+        return { rows: [] };
+      }
+      if (/INSERT INTO nurseries_stage/.test(text)) {
+        insertCalls += 1;
+        if (failAfterInserts !== null && insertCalls > failAfterInserts)
+          throw new Error("simulated kill: the database connection dropped mid-insert");
+        staged.push({ urn: params[0] as string, seq: params[9] as number });
+        return { rows: [], rowCount: 1 };
+      }
+      if (/SELECT count\(\*\)::int AS n FROM nurseries_stage/.test(text))
+        return { rows: [{ n: staged.length }] };
+      if (/DELETE FROM nurseries/.test(text)) {
+        live = [];
+        return { rows: [] };
+      }
+      if (/INSERT INTO nurseries/.test(text)) {
+        live = [...staged].sort((a, b) => a.seq - b.seq);
+        return { rows: [] };
+      }
+      if (/SELECT count\(\*\)::int AS n FROM nurseries/.test(text))
+        return { rows: [{ n: live.length }] };
+      throw new Error(`fake client: unhandled SQL: ${sql}`);
+    };
+    return {
+      query,
+      staged: () => staged,
+      liveUrns: () => live.map((r) => r.urn),
+      checkpoints,
+      setFailAfterInserts: (n: number | null) => {
+        insertCalls = 0;
+        failAfterInserts = n;
+      },
+    };
+  }
+  type FakeClient = ReturnType<typeof createFakeClient>;
+  async function runLoad(
+    fake: FakeClient,
+    {
+      restart = false,
+      lines = null as string[] | null,
+    }: { restart?: boolean; lines?: string[] | null } = {},
+  ) {
+    const captured: string[] = lines ?? [];
+    const progress = createProgressLogger({
+      name: "load-nurseries",
+      log: (line: string) => captured.push(line),
+    });
+    const filer = await beginFiling(progress, { client: fake as never, restart });
+    await filer.prepareResume(EDITION, settings.length);
+    await filer.stageSettings(settings, EDITION);
+    return { filer, lines: captured };
+  }
+
+  it("builds 2,501 synthetic settings to file", () => {
+    expect(settings).toHaveLength(2501);
+    expect(new Set(settings.map((s) => s.urn)).size).toBe(2501);
+  });
+
+  it(
+    "kill mid-filing resumes and files every setting exactly once",
+    { timeout: 30_000 },
+    async () => {
+      const fake = createFakeClient();
+      // Kill after 1,500 inserts: 1,500 rows staged, the
+      // checkpoint at 1,000, the second chunk's tail unflushed
+      // past it.
+      const killLines: string[] = [];
+      fake.setFailAfterInserts(1500);
+      await expect(runLoad(fake, { lines: killLines })).rejects.toThrow(/simulated kill/);
+      expect(fake.staged().length).toBe(1500);
+      expect(fake.checkpoints.get("load-nurseries")?.next_start_index).toBe(1000);
+      expect(
+        killLines.some((l) =>
+          /checkpoint 1,000\/2,501 settings \(40%\) · staged 1,000 · resume from 1,000/.test(l),
+        ),
+      ).toBe(true);
+
+      fake.setFailAfterInserts(null);
+      const { filer, lines } = await runLoad(fake);
+      expect(
+        lines.some((l) =>
+          /resuming from checkpoint · 1,000 rows staged · edition 2026-06-30 · resume from 1,000/.test(
+            l,
+          ),
+        ),
+      ).toBe(true);
+      expect(
+        lines.some((l) =>
+          /checkpoint 2,501\/2,501 settings \(100%\) · staged 2,501 · resume from 2,501/.test(l),
+        ),
+      ).toBe(true);
+      await filer.finishFiling(settings);
+      expect(fake.liveUrns()).toHaveLength(2501);
+      expect(new Set(fake.liveUrns()).size).toBe(2501);
+      expect(fake.liveUrns().sort()).toEqual(settings.map((s) => s.urn).sort());
+      // The swap cleared staging and the checkpoint together.
+      expect(fake.staged().length).toBe(0);
+      expect(fake.checkpoints.get("load-nurseries")).toBeUndefined();
+      expect(filer.resumeNote()).toBe("the start (nothing staged yet)");
+    },
+  );
+
+  it(
+    "an edition change discards the staged rows and starts from zero",
+    { timeout: 30_000 },
+    async () => {
+      const fake = createFakeClient();
+      fake.setFailAfterInserts(1500);
+      await expect(runLoad(fake)).rejects.toThrow(/simulated kill/);
+      expect(fake.staged().length).toBe(1500);
+
+      const progress = createProgressLogger({ name: "load-nurseries", log: () => {} });
+      const filer = await beginFiling(progress, { client: fake as never });
+      const prep = await filer.prepareResume("2026-12-31", settings.length);
+      expect(prep.resumed).toBe(false);
+      expect(fake.staged().length).toBe(0);
+      expect(fake.checkpoints.get("load-nurseries")).toBeUndefined();
+      // The fresh start files the whole read.
+      fake.setFailAfterInserts(null);
+      await filer.stageSettings(settings, "2026-12-31");
+      await filer.finishFiling(settings);
+      expect(fake.liveUrns()).toHaveLength(2501);
+      expect(new Set(fake.liveUrns()).size).toBe(2501);
+    },
+  );
+
+  it("--restart discards the checkpoint and starts from zero", { timeout: 30_000 }, async () => {
+    const fake = createFakeClient();
+    fake.setFailAfterInserts(1500);
+    await expect(runLoad(fake)).rejects.toThrow(/simulated kill/);
+    expect(fake.staged().length).toBe(1500);
+
+    fake.setFailAfterInserts(null);
+    const { filer, lines } = await runLoad(fake, { restart: true });
+    expect(lines.some((l) => /restart requested — discarding checkpoint and staging/.test(l))).toBe(
+      true,
+    );
+    await filer.finishFiling(settings);
+    expect(fake.liveUrns()).toHaveLength(2501);
+    expect(new Set(fake.liveUrns()).size).toBe(2501);
+    expect(fake.staged().length).toBe(0);
+    expect(fake.checkpoints.get("load-nurseries")).toBeUndefined();
   });
 });

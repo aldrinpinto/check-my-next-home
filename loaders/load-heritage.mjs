@@ -67,9 +67,12 @@
 // not-filed state. See PARK_AND_GARDEN_DATASET below for
 // why it does not join NEW_LAYER_DATASETS.
 
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { createLoaderResume } from "./loader-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -135,7 +138,7 @@ const ENDED_LB_REFERENCE = "1338507";
 
 // One CSV parser, quote-aware and header-keyed (the house copy —
 // geometry fields are quoted WKT containing commas).
-function parseCsv(text) {
+export function parseCsv(text) {
   const rows = [];
   let row = [];
   let field = "";
@@ -342,7 +345,7 @@ function requireHeaders(rows, dataset, extra = []) {
 // Current entities only: ended excluded and counted;
 // geometry-less current rows counted, never filed; unparseable
 // geometry fails the run.
-function processPolygons(rows, dataset) {
+export function processPolygons(rows, dataset) {
   let ended = 0;
   let geoless = 0;
   let invalid = 0;
@@ -397,7 +400,7 @@ function processPolygons(rows, dataset) {
 // published vocabulary (anything else is quarantined and
 // counted); buildings with no published point are counted,
 // never placed at a guessed position.
-function processBuildings(rows) {
+export function processBuildings(rows) {
   let ended = 0;
   let quarantined = 0;
   let noPoint = 0;
@@ -568,6 +571,342 @@ function checkGoldenParks(parks) {
     throw new Error("golden checks failed:\n - park-and-garden: no shapes filed");
 }
 
+// --- filing ------------------------------------------------------------
+
+// Stage, count, swap — with resume support (BUG-368): staging
+// is two PERSISTENT tables now (migration 0048), one per
+// filing stream, each with its own loader_checkpoint row, so
+// a killed run resumes instead of restarting the ~380k
+// building stage. The two handles share one edition — the
+// retrieval date plus a hash of every file text read — so a
+// same-day republication or a next-day re-run discards
+// staging that belongs to another edition. BUG-248
+// atomicity is unchanged: live tables change ONLY on a
+// complete, verified swap, in its own transaction; staging +
+// checkpoints are dropped (clear()) after a successful swap,
+// and stay on any failure.
+/**
+ * @param {import("./progress.mjs").ProgressLogger | null} [progress]
+ * @param {{ restart?: boolean, client?: any }} [options]
+ */
+export async function beginFiling(
+  progress = null,
+  { restart = false, client: injectedClient = null } = {},
+) {
+  // The client is injectable so the resume tests can file
+  // against a fake database; production passes none and a
+  // real client is opened as before.
+  const client = injectedClient ?? new pg.Client({ connectionString: process.env.DATABASE_URL });
+  const ownsClient = !injectedClient;
+  if (ownsClient) await client.connect();
+  try {
+    // Stage tables are spelled out rather than copied with LIKE
+    // (M4.7's lesson: LIKE carries the id column's NOT NULL but
+    // not its identity default). listed_buildings' geom is a
+    // generated column and is never inserted.
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS heritage_listed_stage (
+         list_entry_id text, name text, grade text, address text, postcode text,
+         latitude double precision, longitude double precision,
+         source_name text, source_date date,
+         loaded_at timestamptz NOT NULL DEFAULT now(),
+         seq bigint NOT NULL, UNIQUE (seq)
+       )`,
+    );
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS heritage_polygon_stage (
+         constraint_type text, name text, geom geometry(MultiPolygon, 4326),
+         source_reference text, organisation text, quality text, detail text,
+         source_name text, source_date date,
+         loaded_at timestamptz NOT NULL DEFAULT now(),
+         seq bigint NOT NULL, UNIQUE (seq)
+       )`,
+    );
+  } catch (error) {
+    if (ownsClient) await client.end().catch(() => {});
+    throw error;
+  }
+  const listedResume = createLoaderResume(client, {
+    loader: "load-heritage",
+    stageTable: "heritage_listed_stage",
+    progress,
+    restart,
+  });
+  const polygonResume = createLoaderResume(client, {
+    loader: "load-heritage-polygons",
+    stageTable: "heritage_polygon_stage",
+    progress,
+    restart,
+  });
+  const editions = {};
+  const expecteds = {};
+  let listedStaged = 0;
+  let polygonStaged = 0;
+  // The failure line's resume note: the last checkpoint
+  // written by either handle (prepare seeds it with the
+  // resumed checkpoint, the staging loops advance it).
+  let lastNote = "the start (nothing staged yet)";
+  const listedRow = (b, sourceDate) => ({
+    listEntryId: b.row.reference || null,
+    name: b.row.name || null,
+    grade: b.grade,
+    address: null,
+    postcode: null,
+    lat: b.lat,
+    lng: b.lng,
+    sourceName: SOURCE_HERITAGE,
+    sourceDate,
+  });
+  const polygonRow = (constraintType, item, sourceDate) => ({
+    constraintType,
+    name: item.row.name || null,
+    wkt: (item.row.geometry ?? "").trim(),
+    reference: item.row.reference || null,
+    organisation: item.row["organisation-entity"] || null,
+    quality: item.row.quality || null,
+    detail: null,
+    sourceName: SOURCE_HERITAGE,
+    sourceDate,
+  });
+  return {
+    resumeNote: () => lastNote,
+    filedSoFar: () => listedStaged + polygonStaged,
+    // Decide, from the edition and the staged rows, whether
+    // each stream resumes or starts from zero. Returns the
+    // two prepare results; the caller slices each filed
+    // array from its checkpoint's next_start_index.
+    async prepareResume(edition, expectedListed, expectedPolygons) {
+      editions.listed = edition;
+      editions.polygons = edition;
+      expecteds.listed = expectedListed;
+      expecteds.polygons = expectedPolygons;
+      const listed = await listedResume.prepare({ edition, expected: expectedListed });
+      const polygons = await polygonResume.prepare({ edition, expected: expectedPolygons });
+      if (listed.resumed) {
+        listedStaged = listed.checkpoint.filed_count;
+        lastNote = listedResume.resumeNote();
+      }
+      if (polygons.resumed) {
+        polygonStaged = polygons.checkpoint.filed_count;
+        lastNote = polygonResume.resumeNote();
+      }
+      return { listed, polygons };
+    },
+    // Stage the listed buildings the caller passes (already
+    // sliced from the resume offset), in the house chunks of
+    // 1000, checkpointing per chunk. The BUG-265 tally, the
+    // heartbeat and the slow-chunk warning ride as before.
+    async stageListed(items, sourceDate) {
+      const LB_CHUNK = 1000;
+      const chunks = Math.ceil(items.length / LB_CHUNK);
+      const tally = progress?.tally({
+        label: "stage listed buildings",
+        total: chunks,
+        every: Math.max(1, Math.ceil(chunks / 20)),
+        unit: "chunks",
+      });
+      const watch = createBatchWatch();
+      for (let at = 0; at < items.length; at += LB_CHUNK) {
+        const started = Date.now();
+        const chunk = items.slice(at, at + LB_CHUNK).map((b) => listedRow(b, sourceDate));
+        const values = [];
+        const params = [];
+        const base = listedResume.takeSeq(chunk.length);
+        chunk.forEach((row, i) => {
+          const b = i * 10;
+          values.push(
+            `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8},$${b + 9},$${b + 10})`,
+          );
+          params.push(
+            row.listEntryId,
+            row.name,
+            row.grade,
+            row.address,
+            row.postcode,
+            row.lat,
+            row.lng,
+            row.sourceName,
+            row.sourceDate,
+            base + i,
+          );
+        });
+        await client.query(
+          `INSERT INTO heritage_listed_stage (list_entry_id, name, grade, address, postcode, latitude, longitude, source_name, source_date, seq)
+           VALUES ${values.join(",")}`,
+          params,
+        );
+        listedStaged += chunk.length;
+        await listedResume.checkpoint({
+          edition: editions.listed,
+          expected: expecteds.listed,
+          nextStartIndex: listedStaged,
+          read: listedStaged,
+          filed: listedStaged,
+          unit: "rows",
+        });
+        lastNote = listedResume.resumeNote();
+        const chunkNo = at / LB_CHUNK + 1;
+        const { tookMs, averageMs, slow } = watch.observe(Date.now() - started);
+        tally?.tick(chunkNo);
+        progress?.heartbeat({ stage: "stage listed buildings", done: chunkNo, total: chunks });
+        if (slow) {
+          progress?.warning({
+            what: "stage chunk duration",
+            value: `chunk ${chunkNo} took ${formatDuration(tookMs)}`,
+            threshold: `3x recent average ${formatDuration(averageMs)}`,
+          });
+        }
+      }
+      tally?.finish(chunks);
+    },
+    // Stage the flattened polygon rows the caller passes
+    // (already sliced from the resume offset), in the house
+    // chunks of 25, checkpointing per chunk. All five
+    // polygon sets stage together, each row tagged with its
+    // constraint type; the swap below is per type, so a
+    // failure in any one rolls the whole filing back.
+    async stagePolygons(rows, sourceDate) {
+      const SM_CHUNK = 25;
+      const chunks = Math.ceil(rows.length / SM_CHUNK);
+      const tally = progress?.tally({
+        label: "stage polygons",
+        total: chunks,
+        every: Math.max(1, Math.ceil(chunks / 20)),
+        unit: "chunks",
+      });
+      const watch = createBatchWatch();
+      for (let at = 0; at < rows.length; at += SM_CHUNK) {
+        const started = Date.now();
+        const chunk = rows
+          .slice(at, at + SM_CHUNK)
+          .map(({ constraintType, item }) => polygonRow(constraintType, item, sourceDate));
+        const values = [];
+        const params = [];
+        const base = polygonResume.takeSeq(chunk.length);
+        chunk.forEach((row, i) => {
+          const b = i * 10;
+          values.push(
+            `($${b + 1},$${b + 2},ST_Multi(ST_GeomFromText($${b + 3}, 4326)),$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8},$${b + 9},$${b + 10})`,
+          );
+          params.push(
+            row.constraintType,
+            row.name,
+            row.wkt,
+            row.reference,
+            row.organisation,
+            row.quality,
+            row.detail,
+            row.sourceName,
+            row.sourceDate,
+            base + i,
+          );
+        });
+        await client.query(
+          `INSERT INTO heritage_polygon_stage (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, seq)
+           VALUES ${values.join(",")}`,
+          params,
+        );
+        polygonStaged += chunk.length;
+        await polygonResume.checkpoint({
+          edition: editions.polygons,
+          expected: expecteds.polygons,
+          nextStartIndex: polygonStaged,
+          read: polygonStaged,
+          filed: polygonStaged,
+          unit: "rows",
+        });
+        lastNote = polygonResume.resumeNote();
+        const chunkNo = at / SM_CHUNK + 1;
+        const { tookMs, averageMs, slow } = watch.observe(Date.now() - started);
+        tally?.tick(chunkNo);
+        progress?.heartbeat({ stage: "stage polygons", done: chunkNo, total: chunks });
+        if (slow) {
+          progress?.warning({
+            what: "stage chunk duration",
+            value: `chunk ${chunkNo} took ${formatDuration(tookMs)}`,
+            threshold: `3x recent average ${formatDuration(averageMs)}`,
+          });
+        }
+      }
+      tally?.finish(chunks);
+    },
+    // Count-check both stage tables, then swap both streams
+    // in one transaction and verify the filed counts per
+    // type. Staging + checkpoints go together after a
+    // successful swap.
+    async finishFiling(expectedListed, expectedPolygons, polygonSets) {
+      try {
+        const stagedListed = await client.query(
+          "SELECT count(*)::int AS n FROM heritage_listed_stage",
+        );
+        if (stagedListed.rows[0].n !== expectedListed)
+          throw new Error("the staged listed-building count does not match — rolling back");
+        const stagedPolygons = await client.query(
+          "SELECT count(*)::int AS n FROM heritage_polygon_stage",
+        );
+        if (stagedPolygons.rows[0].n !== expectedPolygons)
+          throw new Error("the staged polygon count does not match — rolling back");
+        await client.query("BEGIN");
+        try {
+          await client.query("DELETE FROM listed_buildings");
+          await client.query(
+            `INSERT INTO listed_buildings (list_entry_id, name, grade, address, postcode, latitude, longitude, source_name, source_date, loaded_at)
+             SELECT list_entry_id, name, grade, address, postcode, latitude, longitude, source_name, source_date, loaded_at FROM heritage_listed_stage`,
+          );
+          for (const set of polygonSets) {
+            await client.query("DELETE FROM planning_layers WHERE constraint_type = $1", [
+              set.constraintType,
+            ]);
+          }
+          await client.query(
+            `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
+             SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM heritage_polygon_stage`,
+          );
+          const filedListed = await client.query("SELECT count(*)::int AS n FROM listed_buildings");
+          if (filedListed.rows[0].n !== expectedListed)
+            throw new Error("the filed listed-building count does not match — rolling back");
+          for (const set of polygonSets) {
+            const filedSet = await client.query(
+              "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type = $1",
+              [set.constraintType],
+            );
+            if (filedSet.rows[0].n !== set.filed.length)
+              throw new Error(
+                `the filed ${set.constraintType} count does not match — rolling back`,
+              );
+          }
+          await client.query("COMMIT");
+        } catch (error) {
+          await client.query("ROLLBACK").catch(() => {});
+          throw error;
+        }
+        await listedResume.clear();
+        await polygonResume.clear();
+        lastNote = "the start (nothing staged yet)";
+      } finally {
+        if (ownsClient) await client.end().catch(() => {});
+      }
+    },
+    async abortFiling() {
+      // The staging + checkpoints STAY: they are the next
+      // run's resume point.
+      if (ownsClient) await client.end().catch(() => {});
+    },
+  };
+}
+
+// The edition for a run: the retrieval date plus a hash of
+// every file text read, in dataset order — the files carry
+// no edition date, so the date guards a next-day resume
+// (staged rows would otherwise carry mixed source_dates)
+// and the hash guards a same-day republication. Each
+// segment is length-prefixed so the join is unambiguous.
+export function heritageEdition(sourceDate, texts) {
+  const hash = createHash("sha256");
+  for (const text of texts) hash.update(`${text.length}:${text}`);
+  return `${sourceDate}:${hash.digest("hex").slice(0, 16)}`;
+}
+
 async function main() {
   const startedAt = Date.now();
   const args = process.argv.slice(2);
@@ -592,8 +931,10 @@ async function main() {
     ? JSON.parse(await readFile(join(fixtureDir, "fixture.json"), "utf8")).captured
     : new Date().toISOString().slice(0, 10);
 
-  const lbRows = parseCsv(await readDataset("listed-building"));
-  const smRows = parseCsv(await readDataset("scheduled-monument"));
+  const lbText = await readDataset("listed-building");
+  const lbRows = parseCsv(lbText);
+  const smText = await readDataset("scheduled-monument");
+  const smRows = parseCsv(smText);
   requireHeaders(lbRows, "listed-building", ["listed-building-grade"]);
   requireHeaders(smRows, "scheduled-monument");
 
@@ -614,8 +955,11 @@ async function main() {
 
   // The M6.21 layers, through the same polygon path.
   const newLayers = [];
+  const newLayerTexts = [];
   for (const spec of NEW_LAYER_DATASETS) {
-    const rows = parseCsv(await readDataset(spec.dataset));
+    const text = await readDataset(spec.dataset);
+    newLayerTexts.push(text);
+    const rows = parseCsv(text);
     requireHeaders(rows, spec.dataset);
     const processed = processPolygons(rows, spec.dataset);
     progress.count({
@@ -700,216 +1044,60 @@ async function main() {
   if (!process.env.DATABASE_URL)
     throw new Error("DATABASE_URL is not set — filing requires a database");
 
-  const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
-  await client.connect();
-  // BUG-265: the filing counters live outside the try so
-  // the failure line can read them even when the error
-  // lands before the staging loops.
-  let stagedListedRows = 0;
-  let stagedPolygonRows = 0;
-  let expectedPolygons = 0;
+  // BUG-368: the filing is resumable — the edition is the
+  // retrieval date plus a hash of every file text read, so
+  // a kill mid-stage resumes from the last checkpointed
+  // chunk instead of re-staging ~380k buildings.
+  const restart = args.includes("--restart");
+  const filer = await beginFiling(progress, { restart });
+  // All five polygon sets stage together, each row tagged
+  // with its constraint type; the swap below is per type,
+  // so a failure in any one rolls the whole filing back.
+  const polygonSets = [
+    { constraintType: "scheduled_monument", filed: sm.filed },
+    ...newLayers.map((layer) => ({
+      constraintType: layer.constraintType,
+      filed: layer.processed.filed,
+    })),
+    // Parks & gardens file only where the dataset was
+    // read (M8.10): a fixture run without a cut leaves
+    // any filed parks rows exactly as they stand.
+    ...(parks ? [{ constraintType: parks.constraintType, filed: parks.processed.filed }] : []),
+  ];
+  const expectedPolygons = polygonSets.reduce((sum, set) => sum + set.filed.length, 0);
+  const polygonRows = polygonSets.flatMap((set) =>
+    set.filed.map((item) => ({ constraintType: set.constraintType, item })),
+  );
+  const edition = heritageEdition(sourceDate, [lbText, smText, ...newLayerTexts, parksText ?? ""]);
   try {
-    await client.query("BEGIN");
-    // Stage tables are spelled out rather than copied with LIKE
-    // (M4.7's lesson: LIKE carries the id column's NOT NULL but
-    // not its identity default). listed_buildings' geom is a
-    // generated column and is never inserted.
-    await client.query(
-      `CREATE TEMP TABLE listed_stage (
-         list_entry_id text, name text, grade text, address text, postcode text,
-         latitude double precision, longitude double precision,
-         source_name text, source_date date,
-         loaded_at timestamptz NOT NULL DEFAULT now()
-       ) ON COMMIT DROP`,
-    );
-    await client.query(
-      `CREATE TEMP TABLE planning_stage (
-         constraint_type text, name text, geom geometry(MultiPolygon, 4326),
-         source_reference text, organisation text, quality text, detail text,
-         source_name text, source_date date,
-         loaded_at timestamptz NOT NULL DEFAULT now()
-       ) ON COMMIT DROP`,
-    );
-    const LB_CHUNK = 1000;
-    // BUG-265: the staging loops are the run's long phase
-    // (~380k buildings in 1,000-row chunks, ~20k polygons
-    // in 25-row chunks) — a line every twentieth of each
-    // loop's chunks, a heartbeat, and a warning for a chunk
-    // over 3x the recent average.
-    const lbChunks = Math.ceil(lb.filed.length / LB_CHUNK);
-    const lbTally = progress.tally({
-      label: "stage listed buildings",
-      total: lbChunks,
-      every: Math.max(1, Math.ceil(lbChunks / 20)),
-      unit: "chunks",
-    });
-    const lbWatch = createBatchWatch();
-    stagedListedRows = 0;
-    for (let at = 0; at < lb.filed.length; at += LB_CHUNK) {
-      const started = Date.now();
-      const chunk = lb.filed.slice(at, at + LB_CHUNK);
-      const values = [];
-      const params = [];
-      chunk.forEach((b, i) => {
-        const base = i * 9;
-        values.push(
-          `($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8},$${base + 9})`,
-        );
-        params.push(
-          b.row.reference || null,
-          b.row.name || null,
-          b.grade,
-          null,
-          null,
-          b.lat,
-          b.lng,
-          SOURCE_HERITAGE,
-          sourceDate,
-        );
-      });
-      await client.query(
-        `INSERT INTO listed_stage (list_entry_id, name, grade, address, postcode, latitude, longitude, source_name, source_date)
-         VALUES ${values.join(",")}`,
-        params,
-      );
-      stagedListedRows += chunk.length;
-      const lbChunkNo = at / LB_CHUNK + 1;
-      const { tookMs, averageMs, slow } = lbWatch.observe(Date.now() - started);
-      lbTally.tick(lbChunkNo);
-      progress.heartbeat({ stage: "stage listed buildings", done: lbChunkNo, total: lbChunks });
-      if (slow) {
-        progress.warning({
-          what: "stage chunk duration",
-          value: `chunk ${lbChunkNo} took ${formatDuration(tookMs)}`,
-          threshold: `3x recent average ${formatDuration(averageMs)}`,
-        });
-      }
-    }
-    lbTally.finish(lbChunks);
-    // All five polygon sets stage together, each row tagged
-    // with its constraint type; the swap below is per type,
-    // so a failure in any one rolls the whole filing back.
-    const polygonSets = [
-      { constraintType: "scheduled_monument", filed: sm.filed },
-      ...newLayers.map((layer) => ({
-        constraintType: layer.constraintType,
-        filed: layer.processed.filed,
-      })),
-      // Parks & gardens file only where the dataset was
-      // read (M8.10): a fixture run without a cut leaves
-      // any filed parks rows exactly as they stand.
-      ...(parks ? [{ constraintType: parks.constraintType, filed: parks.processed.filed }] : []),
-    ];
-    expectedPolygons = polygonSets.reduce((sum, set) => sum + set.filed.length, 0);
-    const SM_CHUNK = 25;
-    const smChunks = polygonSets.reduce(
-      (sum, set) => sum + Math.ceil(set.filed.length / SM_CHUNK),
-      0,
-    );
-    const smTally = progress.tally({
-      label: "stage polygons",
-      total: smChunks,
-      every: Math.max(1, Math.ceil(smChunks / 20)),
-      unit: "chunks",
-    });
-    const smWatch = createBatchWatch();
-    let smChunkNo = 0;
-    stagedPolygonRows = 0;
-    for (const set of polygonSets) {
-      for (let at = 0; at < set.filed.length; at += SM_CHUNK) {
-        const started = Date.now();
-        const chunk = set.filed.slice(at, at + SM_CHUNK);
-        const values = [];
-        const params = [];
-        chunk.forEach((item, i) => {
-          const base = i * 9;
-          values.push(
-            `($${base + 1},$${base + 2},ST_Multi(ST_GeomFromText($${base + 3}, 4326)),$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8},$${base + 9})`,
-          );
-          params.push(
-            set.constraintType,
-            item.row.name || null,
-            (item.row.geometry ?? "").trim(),
-            item.row.reference || null,
-            item.row["organisation-entity"] || null,
-            item.row.quality || null,
-            null,
-            SOURCE_HERITAGE,
-            sourceDate,
-          );
-        });
-        await client.query(
-          `INSERT INTO planning_stage (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date)
-           VALUES ${values.join(",")}`,
-          params,
-        );
-        stagedPolygonRows += chunk.length;
-        smChunkNo += 1;
-        const { tookMs, averageMs, slow } = smWatch.observe(Date.now() - started);
-        smTally.tick(smChunkNo);
-        progress.heartbeat({ stage: "stage polygons", done: smChunkNo, total: smChunks });
-        if (slow) {
-          progress.warning({
-            what: "stage chunk duration",
-            value: `chunk ${smChunkNo} took ${formatDuration(tookMs)}`,
-            threshold: `3x recent average ${formatDuration(averageMs)}`,
-          });
-        }
-      }
-    }
-    smTally.finish(smChunks);
-    const stagedListed = await client.query("SELECT count(*)::int AS n FROM listed_stage");
-    if (stagedListed.rows[0].n !== lb.filed.length)
-      throw new Error("the staged listed-building count does not match — rolling back");
-    const stagedPolygons = await client.query("SELECT count(*)::int AS n FROM planning_stage");
-    if (stagedPolygons.rows[0].n !== expectedPolygons)
-      throw new Error("the staged polygon count does not match — rolling back");
+    const prep = await filer.prepareResume(edition, lb.filed.length, expectedPolygons);
+    const listedStart = prep.listed.resumed ? prep.listed.checkpoint.next_start_index : 0;
+    const polygonStart = prep.polygons.resumed ? prep.polygons.checkpoint.next_start_index : 0;
+    await filer.stageListed(lb.filed.slice(listedStart), sourceDate);
+    await filer.stagePolygons(polygonRows.slice(polygonStart), sourceDate);
     progress.stage(
       `swap started — filing ${formatCount(lb.filed.length + expectedPolygons)} staged rows into the live tables`,
     );
-    await client.query("DELETE FROM listed_buildings");
-    await client.query(
-      `INSERT INTO listed_buildings (list_entry_id, name, grade, address, postcode, latitude, longitude, source_name, source_date, loaded_at)
-       SELECT list_entry_id, name, grade, address, postcode, latitude, longitude, source_name, source_date, loaded_at FROM listed_stage`,
-    );
-    for (const set of polygonSets) {
-      await client.query("DELETE FROM planning_layers WHERE constraint_type = $1", [
-        set.constraintType,
-      ]);
-    }
-    await client.query(
-      `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
-       SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM planning_stage`,
-    );
-    const filedListed = await client.query("SELECT count(*)::int AS n FROM listed_buildings");
-    if (filedListed.rows[0].n !== lb.filed.length)
-      throw new Error("the filed listed-building count does not match — rolling back");
-    for (const set of polygonSets) {
-      const filedSet = await client.query(
-        "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type = $1",
-        [set.constraintType],
-      );
-      if (filedSet.rows[0].n !== set.filed.length)
-        throw new Error(`the filed ${set.constraintType} count does not match — rolling back`);
-    }
-    await client.query("COMMIT");
+    await filer.finishFiling(lb.filed.length, expectedPolygons, polygonSets);
   } catch (error) {
+    // BUG-368: the failure line carries the resume note,
+    // so it names the point the next run resumes from.
     progress.failed({
       stage: "file",
-      filed: stagedListedRows + stagedPolygonRows,
+      filed: filer.filedSoFar(),
       total: lb.filed.length + expectedPolygons,
       error,
-      resume: "re-run from scratch (filing is one transaction; nothing was swapped)",
+      resume: filer.resumeNote(),
     });
-    await client.query("ROLLBACK").catch(() => {});
+    await filer.abortFiling();
     throw error;
-  } finally {
-    await client.end();
   }
   console.log(`${summary()} · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`);
 }
 
-main().catch((error) => {
-  console.error(`load-heritage FAILED: ${error.message}`);
-  process.exitCode = 1;
-});
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(`load-heritage FAILED: ${error.message}`);
+    process.exitCode = 1;
+  });
+}

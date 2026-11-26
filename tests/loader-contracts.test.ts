@@ -283,7 +283,13 @@ describe("loader contracts — the guard's own sight", () => {
   it("stage-create discovery finds the ON COMMIT DROP creates across the loaders", () => {
     let total = 0;
     for (const source of sources.values()) total += onCommitDropCreates(source).length;
-    expect(total).toBeGreaterThanOrEqual(18);
+    // BUG-368: most stage tables are persistent now, so the
+    // TEMP creates are down to the seven that remain — census
+    // (out of scope), the dual-mode loaders' non-resume path
+    // (council-tax, imd, lsoa-bases, mobile, pvgis,
+    // school-destinations). The floor tracks that count; a
+    // future conversion lowers it again.
+    expect(total).toBeGreaterThanOrEqual(7);
   });
 
   it("the schema check bites: a column the DDL does not define is reported", () => {

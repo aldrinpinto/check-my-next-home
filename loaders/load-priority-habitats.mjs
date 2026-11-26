@@ -26,12 +26,11 @@
 //     Pages are processed one at a time and never held whole:
 //     golden tallies are computed per patch and dropped, and in
 //     filing mode each page stages into the database as it
-//     arrives. Staging rides inside the one transaction because
-//     the read itself is the long pole — the swap is still
-//     atomic and count-verified, and any failure (a broken page,
-//     a failed golden check) rolls the whole load back, so a
-//     failed load files nothing, exactly as the house pattern
-//     requires.
+//     arrives. Staging is persistent and checkpointed (BUG-368):
+//     a kill mid-read resumes from the last checkpointed flush
+//     instead of restarting, and the swap is still atomic and
+//     count-verified — a failed load files nothing, exactly as
+//     the house pattern requires.
 //
 // BUG-195 (23 Nov 2026): the live read already streamed; the
 // one whole-set read left in this loader was the FIXTURE
@@ -62,6 +61,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { createLoaderResume } from "./loader-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -383,10 +383,20 @@ export async function readPhiPages(
   layerUrl,
   expected,
   onBatch,
-  { delaysMs = RETRY_DELAYS_MS, log = () => {}, progress = null } = {},
+  {
+    delaysMs = RETRY_DELAYS_MS,
+    log = () => {},
+    progress = null,
+    // BUG-368: a resumed run starts paging at the
+    // checkpoint's input position instead of zero, with the
+    // OBJECTID order check seeded from the last feature the
+    // killed run consumed (checkpoint state).
+    startOffset = 0,
+    lastObjectId: seededLastObjectId = null,
+  } = {},
 ) {
-  let offset = 0;
-  let lastObjectId = null;
+  let offset = startOffset;
+  let lastObjectId = seededLastObjectId;
   let pages = 0;
   // BUG-265: a line every twentieth of the read, and a
   // closing line — the service's count is the total, so
@@ -431,7 +441,11 @@ export async function readPhiPages(
 // part is parsed, handed to onFeature feature by feature,
 // and released before the next part is read — the parts
 // are never concatenated into one array.
-export async function streamPhiFixture(fixtureDir, onFeature) {
+//
+// BUG-368: startOffset skips the features a resumed run
+// already consumed (the checkpoint's input position); the
+// returned count still covers the whole fixture.
+export async function streamPhiFixture(fixtureDir, onFeature, { startOffset = 0 } = {}) {
   const stem = "priority-habitats";
   const entries = await readdir(fixtureDir);
   const partNames = entries
@@ -440,10 +454,15 @@ export async function streamPhiFixture(fixtureDir, onFeature) {
   const names = entries.includes(`${stem}.geojson`) ? [`${stem}.geojson`] : partNames;
   if (names.length === 0) throw new Error("contract failure: no priority-habitats fixture file");
   let count = 0;
+  let skipped = 0;
   for (const name of names) {
     const body = JSON.parse(await readFile(join(fixtureDir, name), "utf8"));
     for (const feature of body.features ?? []) {
       count += 1;
+      if (skipped < startOffset) {
+        skipped += 1;
+        continue;
+      }
       await onFeature(feature);
     }
   }
@@ -452,10 +471,436 @@ export async function streamPhiFixture(fixtureDir, onFeature) {
   return { count };
 }
 
+// The inventory version of the fixture's first feature —
+// the edition a fixture run resumes on (the live run
+// peeks the same field with a one-row query, below).
+export async function peekPhiFixtureVersion(fixtureDir) {
+  const stem = "priority-habitats";
+  const entries = await readdir(fixtureDir);
+  const partNames = entries
+    .filter((name) => new RegExp(`^${stem}-\\d+\\.geojson$`).test(name))
+    .sort();
+  const names = entries.includes(`${stem}.geojson`) ? [`${stem}.geojson`] : partNames;
+  if (names.length === 0) throw new Error("contract failure: no priority-habitats fixture file");
+  const body = JSON.parse(await readFile(join(fixtureDir, names[0]), "utf8"));
+  const version = body.features?.[0]?.properties?.Version;
+  if (typeof version !== "string" || version === "")
+    throw new Error("contract failure: the fixture's first feature carries no Version");
+  return version;
+}
+
+// The inventory version of one live patch — the edition
+// a live run resumes on. A single one-row query up front:
+// the version is uniform across the inventory (the
+// versions.size === 1 contract below), so one patch names
+// the edition for the whole read.
+async function peekPhiLiveVersion(layerUrl) {
+  const body = await fetchJson(
+    `${layerUrl}/query?where=1%3D1&outFields=Version&returnGeometry=false&resultRecordCount=1&f=json`,
+    "the PHI version peek",
+  );
+  const version = body.features?.[0]?.properties?.Version;
+  if (typeof version !== "string" || version === "")
+    throw new Error("contract failure: the PHI service's first patch carries no Version");
+  return version;
+}
+
+// --- filing ------------------------------------------------------------
+
+// Stage, count, swap — streamed (BUG-195), with resume
+// support (BUG-368): staging is a PERSISTENT table now
+// (migration 0048), and a loader_checkpoint row records the
+// last fully staged 500-row flush, so a killed run resumes
+// instead of restarting. beginFiling opens the staging
+// table; stageRow buffers rows into the house 500-row
+// flushes, checkpointing after each flush; finishFiling
+// runs the counts and the swap exactly as the one-shot
+// filer did, in its own transaction. The single-layer
+// swap's atomicity is unchanged: staging rides outside
+// the swap transaction now, and a failed run leaves the
+// last good filing serving untouched.
+//
+// THE RESUME UNITS. The read is paged by resultOffset and
+// the processor never reorders a feature, so the resume
+// point is the count of features consumed whose filed rows
+// have committed (state.read at flush time) — the pending
+// tail is offered but NOT staged, so it never counts and
+// a resume skips exactly the staged rows. The checkpoint's
+// state carries the run's scalars (geoless, duplicates,
+// invalid, the inventory version, the last OBJECTID
+// consumed, the per-home golden tallies), so a resumed
+// run's counts and golden checks cover the whole read;
+// the UID dedupe set is rebuilt from the staged rows
+// (stagedUids), so a duplicate spanning the kill is still
+// caught. The golden tallies seed from the checkpoint
+// state, never from a re-scan.
+/**
+ * @param {import("./progress.mjs").ProgressLogger | null} [progress]
+ * @param {{ restart?: boolean, client?: any }} [options]
+ */
+export async function beginFiling(
+  progress = null,
+  { restart = false, client: injectedClient = null } = {},
+) {
+  const client = injectedClient ?? new pg.Client({ connectionString: process.env.DATABASE_URL });
+  const ownsClient = !injectedClient;
+  if (ownsClient) await client.connect();
+  try {
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS phi_stage (
+         constraint_type text, name text, geom geometry(MultiPolygon, 4326),
+         source_reference text, organisation text, quality text, detail text,
+         source_name text, source_date date,
+         loaded_at timestamptz NOT NULL DEFAULT now(),
+         seq bigint NOT NULL, UNIQUE (seq)
+       )`,
+    );
+  } catch (error) {
+    if (ownsClient) await client.end().catch(() => {});
+    throw error;
+  }
+  const resume = createLoaderResume(client, {
+    loader: "load-priority-habitats",
+    stageTable: "phi_stage",
+    progress,
+    restart,
+  });
+  const CHUNK = 500;
+  const pending = [];
+  let staged = 0;
+  let edition = null;
+  let expected = null;
+  let stageTally = null;
+  const stageWatch = createBatchWatch();
+  let latestRead = 0;
+  let latestState = {};
+  /** @type {{ resumed: boolean, reason?: string, checkpoint?: any, prefix?: boolean }} */
+  let resumePrep = { resumed: false };
+  async function flushPending(flushTail = false) {
+    if (pending.length === 0) return false;
+    // A flush is one INSERT per 500-row chunk; the
+    // checkpoint below records the read count at the
+    // moment the chunk committed, so the resume point
+    // always sits on a feature boundary.
+    while (pending.length >= CHUNK || (flushTail && pending.length > 0)) {
+      const chunk = pending.splice(0, Math.min(CHUNK, pending.length));
+      const values = [];
+      const params = [];
+      const base = resume.takeSeq(chunk.length);
+      chunk.forEach((row, i) => {
+        const b = i * 9;
+        values.push(
+          `($${b + 1},$${b + 2},ST_Multi(ST_GeomFromText($${b + 3}, 4326)),$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8},$${b + 9},$${b + 10})`,
+        );
+        params.push(
+          "priority_habitat",
+          row.name,
+          row.wkt,
+          row.reference,
+          ORGANISATION,
+          null,
+          row.detail,
+          SOURCE_NAME,
+          row.sourceDate,
+          base + i,
+        );
+      });
+      const started = Date.now();
+      await client.query(
+        `INSERT INTO phi_stage (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, seq)
+         VALUES ${values.join(",")}`,
+        params,
+      );
+      staged += chunk.length;
+      const { tookMs, averageMs, slow } = stageWatch.observe(Date.now() - started);
+      stageTally?.tick(staged);
+      if (slow) {
+        progress?.warning({
+          what: "stage flush duration",
+          value: `flush of ${formatCount(chunk.length)} patches took ${formatDuration(tookMs)}`,
+          threshold: `3x recent average ${formatDuration(averageMs)}`,
+        });
+      }
+      if (edition) {
+        await resume.checkpoint({
+          edition,
+          expected,
+          nextStartIndex: latestRead,
+          read: latestRead,
+          filed: staged,
+          state: latestState,
+          unit: "patches",
+        });
+      }
+    }
+    return true;
+  }
+  return {
+    stagedCount: () => staged,
+    resumePrep: () => resumePrep,
+    resumeNote: () => resume.resumeNote(),
+    // Decide, from the edition and the staged rows, whether
+    // this run resumes or starts from zero. Called once the
+    // read has resolved the inventory version (and the
+    // service count, live), before the first patch is read.
+    async prepareResume(ed, exp = null) {
+      edition = ed;
+      expected = exp;
+      resumePrep = await resume.prepare({ edition, expected });
+      if (resumePrep.resumed) {
+        staged = resumePrep.checkpoint.filed_count;
+        latestRead = resumePrep.checkpoint.next_start_index;
+      }
+      // BUG-265: the staging tally, against the service's
+      // own count — the same total the read tally uses.
+      // Filing mode only: verify-only stages nothing, so
+      // it earns no staging line.
+      stageTally =
+        expected !== null && expected !== undefined
+          ? progress?.tally({
+              label: "staging",
+              total: expected,
+              every: Math.max(1, Math.ceil(expected / 20)),
+              unit: "patches",
+            })
+          : progress?.tally({ label: "staging", every: 500, unit: "patches" });
+      return resumePrep;
+    },
+    // Every staged UID — the dedupe set a resumed run
+    // rebuilds from, so a duplicate spanning the kill is
+    // still caught. Called after prepareResume, which has
+    // already trimmed the staged tail past the checkpoint.
+    async stagedUids() {
+      const { rows } = await client.query(`SELECT source_reference FROM phi_stage`);
+      return rows.map((r) => r.source_reference);
+    },
+    async stageRow(row, { read, state = {} } = {}) {
+      latestRead = read;
+      latestState = state;
+      pending.push(row);
+      if (pending.length >= CHUNK) await flushPending();
+    },
+    // Flush the pending tail and checkpoint it, so the
+    // staged read stands complete before the golden
+    // checks judge it. Called once, after the read ends.
+    /**
+     * @param {{ read?: number, state?: any }} [options]
+     */
+    async flushTail({ read, state = {} } = {}) {
+      latestRead = read;
+      latestState = state;
+      await flushPending(true);
+      stageTally?.finish(staged);
+    },
+    async finishFiling(expectedFiled) {
+      try {
+        await flushPending(true);
+        const stagedRes = await client.query("SELECT count(*)::int AS n FROM phi_stage");
+        if (stagedRes.rows[0].n !== expectedFiled)
+          throw new Error("the staged patch count does not match — rolling back");
+        await client.query("BEGIN");
+        try {
+          await client.query(
+            "DELETE FROM planning_layers WHERE constraint_type = 'priority_habitat'",
+          );
+          await client.query(
+            `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
+             SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM phi_stage`,
+          );
+          const filedCount = await client.query(
+            "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type = 'priority_habitat'",
+          );
+          if (filedCount.rows[0].n !== expectedFiled)
+            throw new Error("the filed patch count does not match — rolling back");
+          await client.query("COMMIT");
+        } catch (error) {
+          await client.query("ROLLBACK").catch(() => {});
+          throw error;
+        }
+        // The run is complete: staging + checkpoint go together,
+        // so nothing is left behind for the next edition.
+        await resume.clear();
+      } finally {
+        if (ownsClient) await client.end().catch(() => {});
+      }
+    },
+    async abortFiling() {
+      // The staging + checkpoint STAY: they are the next run's
+      // resume point. A run that never prepared leaves whatever
+      // a previous run left, and the next run's prepare()
+      // validates or discards it.
+      if (ownsClient) await client.end().catch(() => {});
+    },
+  };
+}
+
+// The per-patch processor (BUG-368): the run's counters,
+// the UID dedupe set, the per-home golden tallies and the
+// checkpoint snapshot, owned by one object so the filing
+// run and the resume tests drive the same path. main()
+// wires onRow to the filer's stageRow; verify-only runs
+// pass none and stage nothing.
+/**
+ * @param {{ onRow?: ((row: { name: string | null, wkt: string, reference: string, detail: string | null, sourceDate: string }, ctx: { read: number, state: Record<string, unknown> }) => Promise<void>) | null }} [options]
+ */
+export function createPhiProcessor({ onRow = null } = {}) {
+  const state = {
+    read: 0,
+    geoless: 0,
+    invalid: 0,
+    duplicates: 0,
+    filed: 0,
+    uids: new Set(),
+    versions: new Map(),
+    // The OBJECTID of the last feature consumed — the
+    // order check's seed on a resumed read.
+    lastObjectId: null,
+    homes: Object.fromEntries(
+      Object.keys(HOMES).map((pc) => [
+        pc,
+        { inside: 0, nearestName: null, nearestMiles: Infinity, within1: 0 },
+      ]),
+    ),
+  };
+  // The checkpoint's state: the run's scalars, in a
+  // JSON-plain shape (nearestMiles Infinity rides as
+  // null; the versions Map rides as its keys).
+  const checkpointState = () => ({
+    geoless: state.geoless,
+    duplicates: state.duplicates,
+    invalid: state.invalid,
+    lastObjectId: state.lastObjectId,
+    versions: [...state.versions.keys()],
+    homes: Object.fromEntries(
+      Object.entries(state.homes).map(([pc, t]) => [
+        pc,
+        {
+          inside: t.inside,
+          nearestName: t.nearestName,
+          nearestMiles: Number.isFinite(t.nearestMiles) ? t.nearestMiles : null,
+          within1: t.within1,
+        },
+      ]),
+    ),
+  });
+  return {
+    state,
+    checkpointState,
+    // Seed the run's scalars from a resumed checkpoint, and
+    // rebuild the UID dedupe set from the staged rows — the
+    // staged prefix is the durable record of what the killed
+    // run consumed.
+    async seedFromCheckpoint(cp, stagedUids) {
+      state.read = cp.read_count;
+      state.filed = cp.filed_count;
+      state.geoless = cp.state?.geoless ?? 0;
+      state.duplicates = cp.state?.duplicates ?? 0;
+      state.invalid = cp.state?.invalid ?? 0;
+      state.lastObjectId = cp.state?.lastObjectId ?? null;
+      for (const v of cp.state?.versions ?? []) state.versions.set(v, 1);
+      for (const [pc, tally] of Object.entries(cp.state?.homes ?? {})) {
+        if (!state.homes[pc]) continue;
+        state.homes[pc].inside = tally.inside ?? 0;
+        state.homes[pc].nearestName = tally.nearestName ?? null;
+        state.homes[pc].nearestMiles = tally.nearestMiles ?? Infinity;
+        state.homes[pc].within1 = tally.within1 ?? 0;
+      }
+      for (const uid of stagedUids) state.uids.add(uid);
+    },
+    // One patch: validate, dedupe by UID, tally against the
+    // golden homes, and (in filing mode) hand the row to
+    // onRow. Failures accumulate in state and are judged
+    // after the read completes.
+    async processFeature(feature) {
+      state.read += 1;
+      const props = {};
+      for (const [k, v] of Object.entries(feature.properties ?? {}))
+        props[k] = typeof v === "string" ? v.trim() : v;
+      // Every consumed feature advances the order check's
+      // seed, filed or not.
+      if (Number.isFinite(props.OBJECTID)) state.lastObjectId = props.OBJECTID;
+      const uid = props.UID;
+      if (!uid) throw new Error("contract failure: a PHI patch carries no UID");
+      if (state.uids.has(uid)) {
+        state.duplicates += 1;
+        return;
+      }
+      state.uids.add(uid);
+      state.versions.set(props.Version, (state.versions.get(props.Version) ?? 0) + 1);
+      let polygons = null;
+      try {
+        polygons = geojsonPolygons(feature.geometry);
+      } catch {
+        state.invalid += 1;
+        return;
+      }
+      if (polygons === null) {
+        state.geoless += 1;
+        return;
+      }
+      const bbox = bboxOf(polygons);
+      for (const [postcode, home] of Object.entries(HOMES)) {
+        const tally = state.homes[postcode];
+        // A point inside the patch would force the bound to 0,
+        // so a bound over a mile settles all three tallies.
+        if (bboxLowerBoundMiles(bbox, home) > 1.0) continue;
+        const miles = geometryDistanceMiles(polygons, home);
+        if (miles === 0) tally.inside += 1;
+        if (miles <= 1.0) tally.within1 += 1;
+        if (miles < tally.nearestMiles) {
+          tally.nearestMiles = miles;
+          tally.nearestName = props.MainHabs || null;
+        }
+      }
+      state.filed += 1;
+      if (onRow) {
+        await onRow(
+          {
+            name: props.MainHabs || null,
+            wkt: polygonsToWkt(polygons),
+            reference: uid,
+            detail:
+              [props.HabCodes, props.AddHabs, props.PrimSource]
+                .filter((p) => p !== "" && p != null)
+                .join(" · ") || null,
+            sourceDate: versionDate(parseVersion(props.Version)),
+          },
+          { read: state.read, state: checkpointState() },
+        );
+      }
+    },
+    checkGolden() {
+      const fails = [];
+      for (const [postcode, golden] of Object.entries(GOLDEN)) {
+        const tally = state.homes[postcode];
+        if (tally.inside !== 0)
+          fails.push(
+            `${postcode}: the point falls inside ${tally.inside} habitat patches — the golden reads say inside none`,
+          );
+        if (
+          tally.nearestName !== golden.nearestName ||
+          Math.abs(tally.nearestMiles - golden.nearestMiles) > 0.02
+        )
+          fails.push(
+            `${postcode}: nearest patch should be ${golden.nearestName} at ${golden.nearestMiles} mi, got ${tally.nearestName} at ${tally.nearestMiles.toFixed(3)} mi`,
+          );
+        if (tally.within1 !== golden.within1)
+          fails.push(
+            `${postcode}: expected ${golden.within1} patches within a mile, got ${tally.within1}`,
+          );
+      }
+      if (fails.length > 0) throw new Error(`golden checks failed:\n - ${fails.join("\n - ")}`);
+    },
+  };
+}
+
 async function main() {
   const startedAt = Date.now();
   const args = process.argv.slice(2);
   const verifyOnly = args.includes("--verify-only");
+  // BUG-368: resume from the last checkpointed flush instead of
+  // restarting; with no checkpoint this is a fresh start.
+  const restart = args.includes("--restart");
   const fileAt = args.indexOf("--file");
   const fixtureMode = fileAt !== -1;
   const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
@@ -471,165 +916,29 @@ async function main() {
   // total, and the staging tally's.
   let expected = null;
 
-  const state = {
-    read: 0,
-    geoless: 0,
-    invalid: 0,
-    duplicates: 0,
-    filed: 0,
-    uids: new Set(),
-    versions: new Map(),
-    homes: Object.fromEntries(
-      Object.keys(HOMES).map((pc) => [
-        pc,
-        { inside: 0, nearestName: null, nearestMiles: Infinity, within1: 0 },
-      ]),
-    ),
-  };
-
-  let client = null;
-  let stageBuffer = [];
-  // BUG-265: the staging tally — created once the total is
-  // known (the live count) or without one (the fixture, whose
-  // size is unknown until read), ticked per stage flush.
-  let stageTally = null;
-  const stageWatch = createBatchWatch();
-  const flushStage = async () => {
-    if (!client || stageBuffer.length === 0) return;
-    const chunk = stageBuffer;
-    stageBuffer = [];
-    const started = Date.now();
-    const values = [];
-    const params = [];
-    chunk.forEach((row, i) => {
-      const base = i * 9;
-      values.push(
-        `($${base + 1},$${base + 2},ST_Multi(ST_GeomFromText($${base + 3}, 4326)),$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8},$${base + 9})`,
-      );
-      params.push(
-        "priority_habitat",
-        row.name,
-        row.wkt,
-        row.reference,
-        ORGANISATION,
-        null,
-        row.detail,
-        SOURCE_NAME,
-        row.sourceDate,
-      );
-    });
-    await client.query(
-      `INSERT INTO planning_stage (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date)
-       VALUES ${values.join(",")}`,
-      params,
-    );
-    const { tookMs, averageMs, slow } = stageWatch.observe(Date.now() - started);
-    stageTally?.tick(state.filed);
-    if (slow) {
-      progress.warning({
-        what: "stage flush duration",
-        value: `flush of ${formatCount(chunk.length)} patches took ${formatDuration(tookMs)}`,
-        threshold: `3x recent average ${formatDuration(averageMs)}`,
-      });
-    }
-  };
-
-  // One patch: validate, dedupe by UID, tally against the
-  // golden homes, and (in filing mode) stage it. Returns
-  // nothing; failures accumulate in state and are judged after
-  // the read completes.
-  const processFeature = async (feature) => {
-    state.read += 1;
-    const props = {};
-    for (const [k, v] of Object.entries(feature.properties ?? {}))
-      props[k] = typeof v === "string" ? v.trim() : v;
-    const uid = props.UID;
-    if (!uid) throw new Error("contract failure: a PHI patch carries no UID");
-    if (state.uids.has(uid)) {
-      state.duplicates += 1;
-      return;
-    }
-    state.uids.add(uid);
-    state.versions.set(props.Version, (state.versions.get(props.Version) ?? 0) + 1);
-    let polygons = null;
-    try {
-      polygons = geojsonPolygons(feature.geometry);
-    } catch {
-      state.invalid += 1;
-      return;
-    }
-    if (polygons === null) {
-      state.geoless += 1;
-      return;
-    }
-    const bbox = bboxOf(polygons);
-    for (const [postcode, home] of Object.entries(HOMES)) {
-      const tally = state.homes[postcode];
-      // A point inside the patch would force the bound to 0,
-      // so a bound over a mile settles all three tallies.
-      if (bboxLowerBoundMiles(bbox, home) > 1.0) continue;
-      const miles = geometryDistanceMiles(polygons, home);
-      if (miles === 0) tally.inside += 1;
-      if (miles <= 1.0) tally.within1 += 1;
-      if (miles < tally.nearestMiles) {
-        tally.nearestMiles = miles;
-        tally.nearestName = props.MainHabs || null;
-      }
-    }
-    state.filed += 1;
-    if (client) {
-      stageBuffer.push({
-        name: props.MainHabs || null,
-        wkt: polygonsToWkt(polygons),
-        reference: uid,
-        detail:
-          [props.HabCodes, props.AddHabs, props.PrimSource]
-            .filter((p) => p !== "" && p != null)
-            .join(" · ") || null,
-        sourceDate: versionDate(parseVersion(props.Version)),
-      });
-      if (stageBuffer.length >= 500) await flushStage();
-    }
-  };
-
-  const checkGolden = () => {
-    const fails = [];
-    for (const [postcode, golden] of Object.entries(GOLDEN)) {
-      const tally = state.homes[postcode];
-      if (tally.inside !== 0)
-        fails.push(
-          `${postcode}: the point falls inside ${tally.inside} habitat patches — the golden reads say inside none`,
-        );
-      if (
-        tally.nearestName !== golden.nearestName ||
-        Math.abs(tally.nearestMiles - golden.nearestMiles) > 0.02
-      )
-        fails.push(
-          `${postcode}: nearest patch should be ${golden.nearestName} at ${golden.nearestMiles} mi, got ${tally.nearestName} at ${tally.nearestMiles.toFixed(3)} mi`,
-        );
-      if (tally.within1 !== golden.within1)
-        fails.push(
-          `${postcode}: expected ${golden.within1} patches within a mile, got ${tally.within1}`,
-        );
-    }
-    if (fails.length > 0) throw new Error(`golden checks failed:\n - ${fails.join("\n - ")}`);
-  };
+  // BUG-368: the filing run's filer — persistent staging +
+  // checkpoint, opened ahead of the read so a failure
+  // before any staging still names the resume point.
+  let filer = null;
+  // The run's processor: counters, dedupe, tallies. Its
+  // onRow stages each filed patch through the filer.
+  const run = createPhiProcessor({
+    onRow: async (row, ctx) => {
+      if (filer) await filer.stageRow(row, ctx);
+    },
+  });
+  const state = run.state;
 
   try {
+    // A filing run streams the reads into persistent
+    // staging as they land (BUG-368), so the database
+    // check moves ahead of the read: without DATABASE_URL a
+    // filing run now fails before fetching instead of after
+    // it. Verify-only never opens the database.
     if (!verifyOnly) {
       if (!process.env.DATABASE_URL)
         throw new Error("DATABASE_URL is not set — filing requires a database");
-      client = new pg.Client({ connectionString: process.env.DATABASE_URL });
-      await client.connect();
-      await client.query("BEGIN");
-      await client.query(
-        `CREATE TEMP TABLE planning_stage (
-           constraint_type text, name text, geom geometry(MultiPolygon, 4326),
-           source_reference text, organisation text, quality text, detail text,
-           source_name text, source_date date,
-           loaded_at timestamptz NOT NULL DEFAULT now()
-         ) ON COMMIT DROP`,
-      );
+      filer = await beginFiling(progress, { restart });
     }
 
     if (fixtureMode) {
@@ -637,24 +946,37 @@ async function main() {
       // against, so its progress is a stage marker, a
       // staging tally without a total, and a closing count.
       progress.stage("reading the fixture patches");
-      // Filing mode only: verify-only stages nothing, so
-      // it earns no staging line.
-      if (client) stageTally = progress.tally({ label: "staging", every: 500, unit: "patches" });
+      // BUG-368: the edition fires the resume decision —
+      // the filer prepares (resume or fresh start) and the
+      // read skips the features the checkpoint covers.
+      const edition = await peekPhiFixtureVersion(fixtureDir);
+      let startOffset = 0;
+      if (filer) {
+        const prep = await filer.prepareResume(edition, null);
+        if (prep.resumed) {
+          startOffset = prep.checkpoint.next_start_index;
+          await run.seedFromCheckpoint(prep.checkpoint, await filer.stagedUids());
+        }
+      }
       // The parts stream through streamPhiFixture (BUG-195);
       // the field contract judges the first feature before
       // any patch is processed, as it did when the parts
       // were concatenated.
       let fieldChecked = false;
-      await streamPhiFixture(fixtureDir, async (feature) => {
-        if (!fieldChecked) {
-          fieldChecked = true;
-          for (const field of FIELDS) {
-            if (!(field in (feature.properties ?? {})))
-              throw new Error(`contract failure: the fixture no longer carries "${field}"`);
+      await streamPhiFixture(
+        fixtureDir,
+        async (feature) => {
+          if (!fieldChecked) {
+            fieldChecked = true;
+            for (const field of FIELDS) {
+              if (!(field in (feature.properties ?? {})))
+                throw new Error(`contract failure: the fixture no longer carries "${field}"`);
+            }
           }
-        }
-        await processFeature(feature);
-      });
+          await run.processFeature(feature);
+        },
+        { startOffset },
+      );
       progress.count({ label: "read", done: state.read, unit: "patches" });
     } else {
       progress.stage("reading the Priority Habitat Inventory service");
@@ -674,33 +996,33 @@ async function main() {
       expected = countBody.count;
       if (!Number.isInteger(expected) || expected <= 0)
         throw new Error("contract failure: the PHI count response carries no count");
-      // BUG-265: the staging tally, against the service's
-      // own count — the same total the read tally uses.
-      // Filing mode only: verify-only stages nothing, so
-      // it earns no staging line.
-      if (client)
-        stageTally = progress.tally({
-          label: "staging",
-          total: expected,
-          every: Math.max(1, Math.ceil(expected / 20)),
-          unit: "patches",
-        });
+      // BUG-368: the edition (the inventory version, peeked
+      // with one one-row query) fires the resume decision.
+      const edition = await peekPhiLiveVersion(layerUrl);
+      let startOffset = 0;
+      if (filer) {
+        const prep = await filer.prepareResume(edition, expected);
+        if (prep.resumed) {
+          startOffset = prep.checkpoint.next_start_index;
+          await run.seedFromCheckpoint(prep.checkpoint, await filer.stagedUids());
+        }
+      }
       await readPhiPages(
         layerUrl,
         expected,
         async (batch) => {
-          for (const feature of batch) await processFeature(feature);
+          for (const feature of batch) await run.processFeature(feature);
         },
-        { progress },
+        { progress, startOffset, lastObjectId: state.lastObjectId },
       );
       if (state.read !== expected)
         throw new Error(
           `read ${state.read} patches but the service count is ${expected} — the read does not reconcile`,
         );
     }
-    await flushStage();
-    // BUG-265: the closing staging line.
-    stageTally?.finish(state.filed);
+    // The staged read stands complete before the golden
+    // checks judge it — the tail flush checkpoints it.
+    await filer?.flushTail({ read: state.read, state: run.checkpointState() });
 
     if (state.invalid > 0)
       throw new Error(
@@ -720,7 +1042,7 @@ async function main() {
       throw new Error(
         `sanity failure: PHI version ${versionLabel} is over ~9 months old — the twice-yearly cycle has slipped`,
       );
-    checkGolden();
+    run.checkGolden();
 
     const summary = () =>
       `load-priority-habitats · Natural England · Priority Habitat Inventory ${versionLabel} (${versionDate(version)}) · ` +
@@ -732,39 +1054,27 @@ async function main() {
     }
     phase = "filing";
     progress.stage(`filing ${formatCount(state.filed)} patches into planning_layers`);
-    const staged = await client.query("SELECT count(*)::int AS n FROM planning_stage");
-    if (staged.rows[0].n !== state.filed)
-      throw new Error("the staged patch count does not match — rolling back");
-    await client.query("DELETE FROM planning_layers WHERE constraint_type = 'priority_habitat'");
-    await client.query(
-      `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
-       SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM planning_stage`,
-    );
-    const filedCount = await client.query(
-      "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type = 'priority_habitat'",
-    );
-    if (filedCount.rows[0].n !== state.filed)
-      throw new Error("the filed patch count does not match — rolling back");
-    await client.query("COMMIT");
+    const activeFiler = filer;
+    filer = null;
+    await activeFiler.finishFiling(state.filed);
     console.log(`${summary()} · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`);
   } catch (error) {
     // BUG-265: the failure line names the phase and how far
     // the read or filing got — the swap is still atomic, so
-    // a re-run starts over and the live layer is untouched.
+    // a failed run files nothing and the live layer is
+    // untouched. BUG-368: the line carries the resume note,
+    // so a failure names the point the next run resumes from.
     progress.failed({
       stage: phase,
       filed: state.filed,
       total: expected,
       error,
-      resume:
-        phase === "filing"
-          ? "re-run from scratch (the swap rolled back, the live layer is untouched)"
-          : "re-run from scratch (nothing is filed until the swap)",
+      resume: filer
+        ? filer.resumeNote()
+        : "re-run the loader from the start (nothing is filed until the swap)",
     });
-    if (client) await client.query("ROLLBACK").catch(() => {});
+    if (filer) await filer.abortFiling();
     throw error;
-  } finally {
-    if (client) await client.end();
   }
 }
 

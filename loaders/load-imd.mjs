@@ -49,6 +49,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { createLoaderResume } from "./loader-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -289,12 +290,20 @@ const CHUNK = 500;
 /**
  * @param {any} client
  * @param {any[]} rows
- * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, resume?: { restart?: boolean } | null }} [options]
  */
-export async function fileImd(client, rows, { progress = null } = {}) {
+export async function fileImd(client, rows, { progress = null, resume: resumeOpts = null } = {}) {
   // BUG-265: the filing loop is the run's long phase — a line
   // every twentieth of the stage chunks, a heartbeat, and a
   // warning for a chunk over 3x the recent average.
+  // BUG-368: with the resume option the stage is a PERSISTENT
+  // table (migration 0048) and a loader_checkpoint row records
+  // the last fully staged chunk, so a killed run resumes
+  // instead of restarting. Without it the filing is exactly
+  // the one-shot transaction below (a TEMP stage inside one
+  // BEGIN…COMMIT). The edition is the IoD2025 publication
+  // date — the load is a static one-off, so the edition never
+  // changes between runs of the same release.
   const chunks = Math.ceil(rows.length / CHUNK);
   const fileTally = progress?.tally({
     label: "file",
@@ -304,21 +313,47 @@ export async function fileImd(client, rows, { progress = null } = {}) {
   });
   const fileWatch = createBatchWatch();
   let staged = 0;
-  await client.query("BEGIN");
+  let resume = null;
   try {
-    await client.query(`CREATE TEMP TABLE imd_stage (
+    if (resumeOpts) {
+      await client.query(`CREATE TABLE IF NOT EXISTS imd_stage (
+          lsoa_code text, lsoa_name text, stats jsonb, imd_decile integer,
+          imd_summary text, source_name text, source_date date,
+          seq bigint NOT NULL, UNIQUE (seq)
+        )`);
+      resume = createLoaderResume(client, {
+        loader: "load-imd",
+        stageTable: "imd_stage",
+        progress,
+        restart: resumeOpts.restart ?? false,
+      });
+      const prep = await resume.prepare({ edition: SOURCE_DATE, expected: rows.length });
+      if (prep.resumed) staged = prep.checkpoint.filed_count;
+    } else {
+      await client.query("BEGIN");
+      await client.query(`CREATE TEMP TABLE imd_stage (
         lsoa_code text, lsoa_name text, stats jsonb, imd_decile integer,
         imd_summary text, source_name text, source_date date
       ) ON COMMIT DROP`);
-    for (let i = 0; i < rows.length; i += CHUNK) {
+    }
+    // The tally counts absolute chunks, so a resumed run's
+    // first tick lands at its true position.
+    // Ceil, not floor: the last chunk may be partial, and a
+    // fully staged resume must finish at total/total, not one
+    // short (a kill during the swap resumes here).
+    let chunkNo = Math.ceil(staged / CHUNK);
+    for (let i = staged; i < rows.length; i += CHUNK) {
       const started = Date.now();
       const chunk = rows.slice(i, i + CHUNK);
       const values = [];
       const params = [];
+      const base = resume ? resume.takeSeq(chunk.length) : 0;
       chunk.forEach((r, j) => {
-        const b = j * 7;
+        const b = resume ? j * 8 : j * 7;
         values.push(
-          `($${b + 1}, $${b + 2}, $${b + 3}::jsonb, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7})`,
+          resume
+            ? `($${b + 1}, $${b + 2}, $${b + 3}::jsonb, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7}, $${b + 8})`
+            : `($${b + 1}, $${b + 2}, $${b + 3}::jsonb, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7})`,
         );
         params.push(
           r.lsoaCode,
@@ -329,13 +364,16 @@ export async function fileImd(client, rows, { progress = null } = {}) {
           SOURCE_NAME,
           SOURCE_DATE,
         );
+        if (resume) params.push(base + j);
       });
       await client.query(
-        `INSERT INTO imd_stage (lsoa_code, lsoa_name, stats, imd_decile, imd_summary, source_name, source_date) VALUES ${values.join(", ")}`,
+        resume
+          ? `INSERT INTO imd_stage (lsoa_code, lsoa_name, stats, imd_decile, imd_summary, source_name, source_date, seq) VALUES ${values.join(", ")}`
+          : `INSERT INTO imd_stage (lsoa_code, lsoa_name, stats, imd_decile, imd_summary, source_name, source_date) VALUES ${values.join(", ")}`,
         params,
       );
       staged += chunk.length;
-      const chunkNo = i / CHUNK + 1;
+      chunkNo += 1;
       const { tookMs, averageMs, slow } = fileWatch.observe(Date.now() - started);
       fileTally?.tick(chunkNo);
       progress?.heartbeat({ stage: "file", done: chunkNo, total: chunks });
@@ -346,23 +384,56 @@ export async function fileImd(client, rows, { progress = null } = {}) {
           threshold: `3x recent average ${formatDuration(averageMs)}`,
         });
       }
+      if (resume) {
+        await resume.checkpoint({
+          edition: SOURCE_DATE,
+          expected: rows.length,
+          nextStartIndex: staged,
+          read: staged,
+          filed: staged,
+          unit: "LSOAs",
+        });
+      }
     }
-    fileTally?.finish(chunks);
-    await client.query(`DELETE FROM neighbourhood_stats`);
-    await client.query(
-      `INSERT INTO neighbourhood_stats (lsoa_code, lsoa_name, stats, imd_decile, imd_summary, source_name, source_date)
-       SELECT lsoa_code, lsoa_name, stats, imd_decile, imd_summary, source_name, source_date FROM imd_stage`,
-    );
-    await client.query("COMMIT");
+    fileTally?.finish(chunkNo);
+    if (resume) {
+      const stagedRes = await client.query("SELECT count(*)::int AS n FROM imd_stage");
+      if (stagedRes.rows[0].n !== rows.length)
+        throw new Error("the staged LSOA count does not match — rolling back");
+      await client.query("BEGIN");
+      try {
+        await client.query(`DELETE FROM neighbourhood_stats`);
+        await client.query(
+          `INSERT INTO neighbourhood_stats (lsoa_code, lsoa_name, stats, imd_decile, imd_summary, source_name, source_date)
+           SELECT lsoa_code, lsoa_name, stats, imd_decile, imd_summary, source_name, source_date FROM imd_stage`,
+        );
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw error;
+      }
+      // The run is complete: staging + checkpoint go together,
+      // so nothing is left behind for the next release.
+      await resume.clear();
+    } else {
+      await client.query(`DELETE FROM neighbourhood_stats`);
+      await client.query(
+        `INSERT INTO neighbourhood_stats (lsoa_code, lsoa_name, stats, imd_decile, imd_summary, source_name, source_date)
+         SELECT lsoa_code, lsoa_name, stats, imd_decile, imd_summary, source_name, source_date FROM imd_stage`,
+      );
+      await client.query("COMMIT");
+    }
   } catch (err) {
     progress?.failed({
       stage: "file",
       filed: staged,
       total: rows.length,
       error: err,
-      resume: "re-run from scratch (filing is one transaction; nothing was swapped)",
+      resume: resume
+        ? resume.resumeNote()
+        : "re-run from scratch (filing is one transaction; nothing was swapped)",
     });
-    await client.query("ROLLBACK").catch(() => {});
+    if (!resumeOpts) await client.query("ROLLBACK").catch(() => {});
     throw err;
   }
 }
@@ -400,6 +471,9 @@ export async function loadImdRows({ fileDir = null } = {}) {
 async function run() {
   const args = process.argv.slice(2);
   const verifyOnly = args.includes("--verify-only");
+  // BUG-368: resume from the last checkpointed chunk instead of
+  // restarting; with no checkpoint this is a fresh start.
+  const restart = args.includes("--restart");
   const fileAt = args.indexOf("--file");
   const fileDir = fileAt >= 0 ? args[fileAt + 1] : null;
   if (fileAt >= 0 && !fileDir) throw new Error("--file needs a directory");
@@ -441,7 +515,10 @@ async function run() {
   try {
     const client = await pool.connect();
     try {
-      await fileImd(client, rows, { progress });
+      // BUG-368: stage resumably — a killed run's staging +
+      // checkpoint survive, and the next run resumes from the
+      // checkpoint instead of re-staging.
+      await fileImd(client, rows, { progress, resume: { restart } });
     } finally {
       client.release();
     }

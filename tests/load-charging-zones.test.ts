@@ -8,7 +8,9 @@ import {
   SCHEME_COUNT,
   SOURCED_SCHEMES,
   assembleFiling,
+  beginFiling,
   checkGolden,
+  chargingZonesWktEdition,
   fileChargingZones,
   polygonsContain,
   processScheme,
@@ -317,45 +319,62 @@ function recordingClient(
   return { statements, client };
 }
 
-describe("charging zones filing — the whole-set transaction", () => {
+describe("charging zones filing — staged, validated, then swapped (BUG-368)", () => {
   const filing = assembleFiling(processedFixtures());
 
-  it("stages, validates and swaps inside one transaction — BEGIN first, COMMIT last", async () => {
+  it("stages per scheme, validates and swaps in its own transaction — stage create first, swap COMMIT, clear COMMIT last", async () => {
     const rec = recordingClient();
     const result = await fileChargingZones(rec.client as never, filing);
     expect(result).toEqual({ filedCount: 11, pendingCount: 1 });
     const at = (prefix: string) => rec.statements.findIndex((s) => s.startsWith(prefix));
-    expect(rec.statements[0]).toBe("BEGIN");
-    expect(at("CREATE TEMP TABLE cz_stage")).toBeGreaterThan(0);
-    expect(at("INSERT INTO cz_stage")).toBeGreaterThan(at("CREATE TEMP TABLE cz_stage"));
-    expect(at("DELETE FROM charging_zones")).toBeGreaterThan(at("INSERT INTO cz_stage"));
+    // BUG-368: the staging is no longer inside the swap
+    // transaction — the stage table is created first, each
+    // scheme stages and checkpoints, and only then does
+    // the swap transaction run; the staging + checkpoint
+    // are cleared after the swap commits.
+    expect(rec.statements[0].startsWith("CREATE TABLE IF NOT EXISTS cz_stage")).toBe(true);
+    expect(at("INSERT INTO cz_stage")).toBeGreaterThan(at("CREATE TABLE IF NOT EXISTS cz_stage"));
+    expect(at("BEGIN")).toBeGreaterThan(at("INSERT INTO loader_checkpoint"));
+    expect(at("DELETE FROM charging_zones")).toBeGreaterThan(at("BEGIN"));
     expect(at("INSERT INTO charging_zones")).toBeGreaterThan(at("DELETE FROM charging_zones"));
     expect(rec.statements.at(-1)).toBe("COMMIT");
     expect(rec.statements).not.toContain("ROLLBACK");
+    expect(rec.statements.lastIndexOf("DELETE FROM cz_stage")).toBeGreaterThan(
+      rec.statements.indexOf("COMMIT"),
+    );
+    expect(
+      rec.statements.lastIndexOf("DELETE FROM loader_checkpoint WHERE loader = $1"),
+    ).toBeGreaterThan(rec.statements.indexOf("COMMIT"));
   });
 
-  it("a staged overlap refuses the filing and rolls back — disjointness is a filing contract", async () => {
+  it("a staged overlap refuses the filing — disjointness is a filing contract", async () => {
     const rec = recordingClient({ overlap: true });
     await expect(fileChargingZones(rec.client as never, filing)).rejects.toThrow(/overlap/);
     await expect(
       fileChargingZones(recordingClient({ overlap: true }).client as never, filing),
     ).rejects.toThrow(/Bath Clean Air Zone/);
-    expect(rec.statements).toContain("ROLLBACK");
+    // BUG-368: the validation fails before the swap
+    // transaction starts, so there is nothing to roll
+    // back — the live set is untouched and the staging
+    // stays as the resume point.
+    expect(rec.statements).not.toContain("ROLLBACK");
     expect(rec.statements).not.toContain("COMMIT");
+    expect(rec.statements).not.toContain("BEGIN");
     expect(rec.statements.some((s) => s.startsWith("DELETE FROM charging_zones"))).toBe(false);
   });
 
   it("a staged area outside ±25% of its reference refuses the filing, naming the scheme", async () => {
     const rec = recordingClient({ areaScale: 1.4 });
     await expect(fileChargingZones(rec.client as never, filing)).rejects.toThrow(/outside ±25%/);
-    expect(rec.statements).toContain("ROLLBACK");
+    expect(rec.statements).not.toContain("ROLLBACK");
     expect(rec.statements).not.toContain("COMMIT");
   });
 
   it("an invalid staged boundary refuses the filing", async () => {
     const rec = recordingClient({ invalidKey: "dundee" });
     await expect(fileChargingZones(rec.client as never, filing)).rejects.toThrow(/not valid/);
-    expect(rec.statements).toContain("ROLLBACK");
+    expect(rec.statements).not.toContain("ROLLBACK");
+    expect(rec.statements).not.toContain("COMMIT");
   });
 });
 
@@ -459,10 +478,295 @@ describe("progress logging (BUG-265)", () => {
     const filing = assembleFiling(processedFixtures());
     const result = await fileChargingZones(rec.client as never, filing, { progress });
     expect(result).toEqual({ filedCount: 11, pendingCount: 1 });
-    expect(lines).toHaveLength(1);
+    // BUG-368: the filing stage line is joined by one
+    // checkpoint line per staged scheme (11) and the
+    // staging-cleared line after the swap.
+    expect(lines).toHaveLength(13);
     expect(lines[0]).toMatch(
       /progress · filing 11 schemes — validity, area and disjointness checks, then the swap$/,
     );
+    expect(
+      lines.filter((l) =>
+        /checkpoint \d+\/11 schemes \(\d+%\) · staged \d+ · resume from \d+/.test(l),
+      ),
+    ).toHaveLength(11);
+    expect(lines.at(-1)).toMatch(/progress · staging cleared · checkpoint removed$/);
     expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+  });
+});
+
+describe("resume (BUG-368)", () => {
+  // A fake pg client: the staged rows, the live table and
+  // the loader_checkpoint row as maps, with just enough
+  // SQL to run the filer.
+  type StagedRow = { key: string; hash: string; seq: number };
+  type CheckpointRow = {
+    loader: string;
+    edition: string;
+    expected: number | null;
+    next_start_index: number;
+    read_count: number;
+    filed_count: number;
+    state: Record<string, unknown>;
+  };
+  function createFakeClient() {
+    let staged = new Map<string, StagedRow>();
+    let live = new Map<string, StagedRow>();
+    const checkpoints = new Map<string, CheckpointRow>();
+    const stagedKeys: string[] = [];
+    let insertCalls = 0;
+    let failAfterInserts: number | null = null;
+    let snapshot: {
+      staged: Map<string, StagedRow>;
+      live: Map<string, StagedRow>;
+      checkpoints: Map<string, CheckpointRow>;
+    } | null = null;
+    const query = async (sql: string, params: unknown[] = []) => {
+      const text = sql.replace(/\s+/g, " ");
+      if (text === "BEGIN") {
+        snapshot = {
+          staged: new Map(staged),
+          live: new Map(live),
+          checkpoints: new Map(checkpoints),
+        };
+        return { rows: [] };
+      }
+      if (text === "COMMIT") {
+        snapshot = null;
+        return { rows: [] };
+      }
+      if (text === "ROLLBACK") {
+        if (snapshot) {
+          staged = snapshot.staged;
+          live = snapshot.live;
+          checkpoints.clear();
+          for (const [k, v] of snapshot.checkpoints) checkpoints.set(k, v);
+        }
+        snapshot = null;
+        return { rows: [] };
+      }
+      if (/CREATE TABLE IF NOT EXISTS cz_stage/.test(text)) return { rows: [] };
+      if (/INSERT INTO cz_stage/.test(text)) {
+        insertCalls += 1;
+        if (failAfterInserts !== null && insertCalls > failAfterInserts)
+          throw new Error("simulated kill: the database connection dropped mid-insert");
+        const row: StagedRow = {
+          key: params[0] as string,
+          hash: params[11] as string,
+          seq: params[12] as number,
+        };
+        staged.set(row.key, row);
+        stagedKeys.push(row.key);
+        return { rows: [], rowCount: 1 };
+      }
+      if (/SELECT loader, edition, expected, next_start_index/.test(text)) {
+        const row = checkpoints.get(params[0] as string);
+        return { rows: row ? [row] : [] };
+      }
+      if (/INSERT INTO loader_checkpoint/.test(text)) {
+        checkpoints.set(params[0] as string, {
+          loader: params[0] as string,
+          edition: params[1] as string,
+          expected: params[2] as number | null,
+          next_start_index: params[3] as number,
+          read_count: params[4] as number,
+          filed_count: params[5] as number,
+          state: JSON.parse(params[6] as string) as Record<string, unknown>,
+        });
+        return { rows: [] };
+      }
+      if (/DELETE FROM loader_checkpoint WHERE loader =/.test(text)) {
+        checkpoints.delete(params[0] as string);
+        return { rows: [] };
+      }
+      if (/SELECT count\(\*\)::int AS n, coalesce\(sum\(seq\)/.test(text)) {
+        const seqs = [...staged.values()].map((r) => r.seq);
+        return {
+          rows: [
+            {
+              n: seqs.length,
+              s: seqs.reduce((a, b) => a + b, 0),
+              m: seqs.length ? Math.max(...seqs) : 0,
+            },
+          ],
+        };
+      }
+      if (/DELETE FROM cz_stage WHERE seq >=/.test(text)) {
+        for (const [key, row] of [...staged])
+          if (row.seq >= (params[0] as number)) staged.delete(key);
+        return { rows: [], rowCount: 0 };
+      }
+      if (/DELETE FROM cz_stage/.test(text)) {
+        staged.clear();
+        return { rows: [] };
+      }
+      if (/SELECT scheme_key, geom_hash FROM cz_stage/.test(text))
+        return {
+          rows: [...staged.values()].map((r) => ({ scheme_key: r.key, geom_hash: r.hash })),
+        };
+      if (/SELECT count\(\*\)::int AS n FROM cz_stage/.test(text))
+        return { rows: [{ n: staged.size }] };
+      if (text.includes("ST_Area(ST_Transform")) {
+        return {
+          rows: SOURCED_SCHEMES.map((s) => ({
+            scheme_key: s.key,
+            valid: true,
+            km2: s.referenceAreaKm2 ?? 0,
+          })),
+        };
+      }
+      if (text.includes("cz_stage a JOIN cz_stage b")) return { rows: [] };
+      if (/DELETE FROM charging_zones/.test(text)) {
+        live.clear();
+        return { rows: [] };
+      }
+      if (/INSERT INTO charging_zones/.test(text)) {
+        live = new Map(staged);
+        return { rows: [] };
+      }
+      if (/SELECT count\(\*\)::int AS n FROM charging_zones/.test(text))
+        return { rows: [{ n: live.size }] };
+      throw new Error(`fake client: unhandled SQL: ${sql}`);
+    };
+    return {
+      query,
+      staged: () => staged,
+      live: () => live,
+      checkpoints,
+      stagedKeys,
+      setFailAfterInserts: (n: number | null) => {
+        insertCalls = 0;
+        failAfterInserts = n;
+      },
+    };
+  }
+  type FakeClient = ReturnType<typeof createFakeClient>;
+
+  async function runLoad(
+    fake: FakeClient,
+    filing: ReturnType<typeof assembleFiling>,
+    { restart = false, edition = null as string | null, lines = null as string[] | null } = {},
+  ) {
+    const capturedLines: string[] = lines ?? [];
+    const progress = createProgressLogger({
+      name: "load-charging-zones",
+      log: (line: string) => capturedLines.push(line),
+    });
+    const ed = edition ?? chargingZonesWktEdition(filing.filed);
+    const result = await fileChargingZones(fake as never, filing, {
+      progress,
+      edition: ed,
+      restart,
+    });
+    return { result, lines: capturedLines, edition: ed };
+  }
+
+  it(
+    "kill mid-stage resumes from the last scheme and files all eleven exactly once",
+    { timeout: 60_000 },
+    async () => {
+      const fake = createFakeClient();
+      const filing = assembleFiling(processedFixtures());
+      // The first three schemes stage and checkpoint at 3;
+      // the fourth insert dies — 3 staged, checkpoint at 3.
+      const killLines: string[] = [];
+      fake.setFailAfterInserts(3);
+      await expect(runLoad(fake, filing, { lines: killLines })).rejects.toThrow(/simulated kill/);
+      expect(fake.staged().size).toBe(3);
+      expect(fake.checkpoints.get("load-charging-zones")?.next_start_index).toBe(3);
+      expect(fake.live().size).toBe(0);
+      expect(
+        killLines.some((l) =>
+          /checkpoint 3\/11 schemes \(27%\) · staged 3 · resume from 3/.test(l),
+        ),
+      ).toBe(true);
+
+      fake.setFailAfterInserts(null);
+      const { result, lines, edition } = await runLoad(fake, filing);
+      expect(result).toEqual({ filedCount: 11, pendingCount: 1 });
+      expect(
+        lines.some((l) =>
+          new RegExp(
+            `resuming from checkpoint · 3 rows staged · edition ${edition} · resume from 3`,
+          ).test(l),
+        ),
+      ).toBe(true);
+      expect(fake.live().size).toBe(11);
+      expect([...fake.live().keys()].sort()).toEqual(SOURCED_SCHEMES.map((s) => s.key).sort());
+      // Every scheme staged exactly once across the two runs.
+      expect(fake.stagedKeys).toHaveLength(11);
+      expect(new Set(fake.stagedKeys).size).toBe(11);
+      expect(fake.staged().size).toBe(0);
+      expect(fake.checkpoints.get("load-charging-zones")).toBeUndefined();
+    },
+  );
+
+  it(
+    "a scheme whose boundary changed since the kill is re-staged, the rest are skipped",
+    { timeout: 60_000 },
+    async () => {
+      const fake = createFakeClient();
+      const filing = assembleFiling(processedFixtures());
+      fake.setFailAfterInserts(3);
+      await expect(runLoad(fake, filing)).rejects.toThrow(/simulated kill/);
+      expect(fake.staged().size).toBe(3);
+
+      // The Bath boundary shifts a fraction (the same bodies
+      // under a changed transform — the edition is unchanged,
+      // so the per-scheme WKT hash is what catches it).
+      const edition = chargingZonesWktEdition(filing.filed);
+      const bath = filing.filed.find((e) => e.scheme.key === "bath");
+      bath.polygons = bath.polygons.map((polygon: number[][][]) =>
+        polygon.map((ring: number[][]) => ring.map((pair: number[]) => [pair[0] + 0.001, pair[1]])),
+      );
+      fake.setFailAfterInserts(null);
+      const { result } = await runLoad(fake, filing, { edition });
+      expect(result).toEqual({ filedCount: 11, pendingCount: 1 });
+      expect(fake.live().size).toBe(11);
+      // Bath staged twice (once before the kill, once after
+      // the change); Birmingham and Bradford once each — the
+      // resumed run skipped their unchanged boundaries.
+      const counts = fake.stagedKeys.reduce<Record<string, number>>((acc, key) => {
+        acc[key] = (acc[key] ?? 0) + 1;
+        return acc;
+      }, {});
+      expect(counts.bath).toBe(2);
+      expect(counts.birmingham).toBe(1);
+      expect(counts.bradford).toBe(1);
+      expect(fake.stagedKeys).toHaveLength(12);
+    },
+  );
+
+  it(
+    "an edition change discards the staged rows and starts from zero",
+    { timeout: 60_000 },
+    async () => {
+      const fake = createFakeClient();
+      const filing = assembleFiling(processedFixtures());
+      fake.setFailAfterInserts(3);
+      await expect(runLoad(fake, filing)).rejects.toThrow(/simulated kill/);
+      expect(fake.staged().size).toBe(3);
+
+      const progress = createProgressLogger({ name: "load-charging-zones" });
+      const filer = await beginFiling(progress, { client: fake as never });
+      const prep = await filer.prepareResume("deadbeefdeadbeef", 11);
+      expect(prep.resumed).toBe(false);
+      expect(fake.staged().size).toBe(0);
+      expect(fake.checkpoints.get("load-charging-zones")).toBeUndefined();
+    },
+  );
+
+  it("--restart discards the checkpoint and starts from zero", { timeout: 60_000 }, async () => {
+    const fake = createFakeClient();
+    const filing = assembleFiling(processedFixtures());
+    fake.setFailAfterInserts(3);
+    await expect(runLoad(fake, filing)).rejects.toThrow(/simulated kill/);
+    expect(fake.staged().size).toBe(3);
+
+    fake.setFailAfterInserts(null);
+    const { result } = await runLoad(fake, filing, { restart: true });
+    expect(result).toEqual({ filedCount: 11, pendingCount: 1 });
+    expect(fake.live().size).toBe(11);
+    expect(fake.checkpoints.get("load-charging-zones")).toBeUndefined();
   });
 });

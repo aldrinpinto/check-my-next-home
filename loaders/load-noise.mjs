@@ -73,6 +73,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import proj4 from "proj4";
+import { createLoaderResume } from "./loader-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -401,16 +402,44 @@ export function parseSamplesCsv(text) {
 
 const CHUNK = 500;
 
+// Filing with resume support (BUG-368): the stage is a
+// PERSISTENT table now (migration 0048) and a
+// loader_checkpoint row records the last fully staged
+// chunk, so a killed run resumes staging from the
+// checkpoint instead of re-staging the whole national set
+// (live ~5M rows in 500-row chunks — the run's longest
+// phase). The sampling still re-runs — its own work-dir
+// resume covers the tile sampling — but the staging does
+// not. The edition is the Round 4 source date; the
+// expected total is the row count. The swap stays atomic,
+// and a successful swap clears staging + checkpoint
+// together (BUG-248 unchanged).
 /**
  * @param {any} client
  * @param {any[]} rows
- * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, restart?: boolean }} [options]
  */
-export async function fileNoise(client, rows, { progress = null } = {}) {
+export async function fileNoise(client, rows, { progress = null, restart = false } = {}) {
+  const edition = `round4-${SOURCE_DATE}`;
+  const expected = rows.length;
+  await client.query(`CREATE TABLE IF NOT EXISTS noise_stage (
+      area_ref text, source_kind text, day_band text, night_band text,
+      latitude double precision, longitude double precision,
+      seq bigint NOT NULL, UNIQUE (seq)
+    )`);
+  const resume = createLoaderResume(client, {
+    loader: "load-noise",
+    stageTable: "noise_stage",
+    progress,
+    restart,
+  });
+  const resumePrep = await resume.prepare({ edition, expected });
+  const startAt = resumePrep.resumed ? resumePrep.checkpoint.next_start_index : 0;
   // BUG-265: the stage inserts are the run's long phase —
   // nationally ~5M rows in 500-row chunks — a line every
   // twentieth of the chunks, a heartbeat, and a warning for
-  // a chunk over 3x the recent average.
+  // a chunk over 3x the recent average. On a resume the
+  // tally counts from the checkpointed chunk.
   const chunks = Math.ceil(rows.length / CHUNK);
   const fileTally = progress?.tally({
     label: "file",
@@ -419,29 +448,36 @@ export async function fileNoise(client, rows, { progress = null } = {}) {
     unit: "chunks",
   });
   const fileWatch = createBatchWatch();
-  let staged = 0;
-  await client.query("BEGIN");
+  let staged = resumePrep.resumed ? resumePrep.checkpoint.filed_count : 0;
+  let chunkNo = Math.floor(startAt / CHUNK);
   try {
-    await client.query(`CREATE TEMP TABLE noise_stage (
-        area_ref text, source_kind text, day_band text, night_band text,
-        latitude double precision, longitude double precision
-      ) ON COMMIT DROP`);
-    for (let i = 0; i < rows.length; i += CHUNK) {
+    for (let i = startAt; i < rows.length; i += CHUNK) {
       const started = Date.now();
       const chunk = rows.slice(i, i + CHUNK);
       const values = [];
       const params = [];
+      const base = resume.takeSeq(chunk.length);
       chunk.forEach((r, j) => {
-        const b = j * 6;
-        values.push(`($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6})`);
-        params.push(r.areaRef, r.sourceKind, r.dayBand, r.nightBand, r.latitude, r.longitude);
+        const b = j * 7;
+        values.push(
+          `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7})`,
+        );
+        params.push(
+          r.areaRef,
+          r.sourceKind,
+          r.dayBand,
+          r.nightBand,
+          r.latitude,
+          r.longitude,
+          base + j,
+        );
       });
       await client.query(
-        `INSERT INTO noise_stage (area_ref, source_kind, day_band, night_band, latitude, longitude) VALUES ${values.join(", ")}`,
+        `INSERT INTO noise_stage (area_ref, source_kind, day_band, night_band, latitude, longitude, seq) VALUES ${values.join(", ")}`,
         params,
       );
       staged += chunk.length;
-      const chunkNo = i / CHUNK + 1;
+      chunkNo = i / CHUNK + 1;
       const { tookMs, averageMs, slow } = fileWatch.observe(Date.now() - started);
       fileTally?.tick(chunkNo);
       progress?.heartbeat({ stage: "file", done: chunkNo, total: chunks });
@@ -452,24 +488,59 @@ export async function fileNoise(client, rows, { progress = null } = {}) {
           threshold: `3x recent average ${formatDuration(averageMs)}`,
         });
       }
+      // BUG-368: one checkpoint line per committed chunk.
+      await resume.checkpoint({
+        edition,
+        expected,
+        nextStartIndex: i + chunk.length,
+        read: i + chunk.length,
+        filed: staged,
+        unit: "rows",
+      });
     }
     fileTally?.finish(chunks);
-    await client.query(`DELETE FROM noise_summary`);
-    await client.query(
-      `INSERT INTO noise_summary (area_ref, source_kind, day_band, night_band, latitude, longitude, source_name, source_date)
-       SELECT area_ref, source_kind, day_band, night_band, latitude, longitude, $1, $2 FROM noise_stage`,
-      [SOURCE_NAME, SOURCE_DATE],
-    );
-    await client.query("COMMIT");
   } catch (err) {
+    // BUG-368: the staging is durable per chunk — no
+    // transaction to roll back, and the staged rows +
+    // checkpoint STAY for the next run to resume from.
     progress?.failed({
       stage: "file",
       filed: staged,
       total: rows.length,
       error: err,
-      resume: "re-run from scratch (filing is one transaction; nothing was swapped)",
+      resume: resume.resumeNote(),
     });
-    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  }
+  try {
+    const stagedRes = await client.query("SELECT count(*)::int AS n FROM noise_stage");
+    if (stagedRes.rows[0].n !== expected)
+      throw new Error("the staged noise row count does not match — rolling back");
+    await client.query("BEGIN");
+    try {
+      await client.query(`DELETE FROM noise_summary`);
+      await client.query(
+        `INSERT INTO noise_summary (area_ref, source_kind, day_band, night_band, latitude, longitude, source_name, source_date)
+       SELECT area_ref, source_kind, day_band, night_band, latitude, longitude, $1, $2 FROM noise_stage`,
+        [SOURCE_NAME, SOURCE_DATE],
+      );
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw err;
+    }
+    // The run is complete: staging + checkpoint go together.
+    await resume.clear();
+  } catch (err) {
+    // BUG-368: a swap failure leaves the staged read
+    // checkpointed, so the next run resumes at the swap.
+    progress?.failed({
+      stage: "file",
+      filed: staged,
+      total: rows.length,
+      error: err,
+      resume: resume.resumeNote(),
+    });
     throw err;
   }
 }
@@ -742,6 +813,9 @@ async function sampleKind(sourceKind, points, workDir, { progress = null } = {})
 async function run() {
   const args = process.argv.slice(2);
   const verifyOnly = args.includes("--verify-only");
+  // BUG-368: resume from the last checkpointed chunk instead of
+  // restarting; with no checkpoint this is a fresh start.
+  const restart = args.includes("--restart");
   const fileAt = args.indexOf("--file");
   const fileDir = fileAt >= 0 ? args[fileAt + 1] : null;
   if (fileAt >= 0 && !fileDir) throw new Error("--file needs a directory");
@@ -804,7 +878,7 @@ async function run() {
     const client = await pool.connect();
     try {
       progress.stage(`filing ${formatCount(rows.length)} noise rows...`);
-      await fileNoise(client, rows, { progress });
+      await fileNoise(client, rows, { progress, restart });
     } finally {
       client.release();
     }

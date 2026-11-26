@@ -78,10 +78,12 @@ function ppdLine(fields: {
 
 describe("load-picking-index — the CLI takes no postcodes, by design", () => {
   it("accepts the nation (no args) or one --file directory", () => {
-    expect(parseArgs([])).toEqual({ fileDir: null });
+    expect(parseArgs([])).toEqual({ fileDir: null, restart: false });
     expect(parseArgs(["--file", "tests/fixtures/picking-index"])).toEqual({
       fileDir: "tests/fixtures/picking-index",
+      restart: false,
     });
+    expect(parseArgs(["--restart"])).toEqual({ fileDir: null, restart: true });
   });
 
   it("errors on a postcode instead of silently dropping its slot", () => {
@@ -411,7 +413,9 @@ describe("the tolerance refusal and the atomic swap", () => {
       ppdLine({ id: "x2", postcode: "TS1 1AA", paon: "2", street: "ONLY ROAD" }),
     ];
     // BUG-248: the refusal is a failed run — one line, at the
-    // tolerance proof, with no re-run to offer.
+    // tolerance proof, with no re-run to offer. (BUG-368:
+    // the run's one staged chunk earns its checkpoint line
+    // first, so the refusal is the second line.)
     const lines: string[] = [];
     await expect(
       loadPickingIndexFromLines(db as never, tiny, {
@@ -419,8 +423,9 @@ describe("the tolerance refusal and the atomic swap", () => {
         log: (line: string) => lines.push(line),
       }),
     ).rejects.toThrow(/refused/);
-    expect(lines).toHaveLength(1);
-    expect(lines[0]).toMatch(
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatch(/checkpoint 2 transactions · staged 2 · resume from 2$/);
+    expect(lines[1]).toMatch(
       /^20\d\d-\d\d-\d\dT\d\d:\d\d:\d\d\.\d\d\dZ load-picking-index failed · tolerance proof · filed 0 of 34 · picking index: the sales re-extract was refused — its distinct home count \(2\) moves beyond the 2% tolerance against the filed edition \(34\); the filed edition keeps serving · resume from no re-run — the re-extract is outside tolerance; check the source file$/,
     );
     expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
@@ -449,6 +454,189 @@ describe("the tolerance refusal and the atomic swap", () => {
     db.failOn = null;
     expect(JSON.stringify(db.index)).toBe(beforeIndex);
     expect(JSON.stringify(db.editions)).toBe(beforeEditions);
+  });
+});
+
+describe("resume (BUG-368)", () => {
+  // 2,500 distinct homes on one street, after the
+  // fixture's 40 lines: three 1,000-row stage batches
+  // (1,000 + 1,000 + 540), so a kill can land between
+  // checkpoints. The fixture lines ride first, so the
+  // run's golden proof still holds.
+  function resumeLines(): string[] {
+    const lines = [...fixtureLines];
+    for (let n = 1; n <= 2500; n += 1) {
+      lines.push(
+        ppdLine({ id: `r${n}`, postcode: "TS1 1AA", paon: String(n), street: "RESUME ROAD" }),
+      );
+    }
+    return lines;
+  }
+  const EXPECTED = { postcodes: 3, homes: 2534, streets: 3 };
+  const distinctHomes = (db: FakePickingDb) =>
+    new Set(db.index.map((r) => `${r.postcode}\u0001${r.home_key}`)).size;
+
+  it("kill mid-read resumes and files every home exactly once", { timeout: 30_000 }, async () => {
+    const db = new FakePickingDb();
+    const killLines: string[] = [];
+    db.setFailAfterStageInserts(2);
+    await expect(
+      loadPickingIndexFromLines(db as never, resumeLines(), {
+        edition: "fixture",
+        log: (line: string) => killLines.push(line),
+      }),
+    ).rejects.toThrow(/simulated kill/);
+    // Two 1,000-row chunks staged, the checkpoint at
+    // 2,000 lines read; the third chunk never landed.
+    expect(db.salesStage).toHaveLength(2000);
+    expect(db.checkpoints.get("load-picking-index")?.next_start_index).toBe(2000);
+    expect(db.checkpoints.get("load-picking-index")?.filed_count).toBe(2000);
+    // The staged seqs are dense from 0 — the prefix
+    // proof's ground.
+    const seqs = db.salesStage.map((r) => r.seq ?? -1).sort((a, b) => a - b);
+    expect(seqs).toEqual(Array.from({ length: 2000 }, (_, i) => i));
+    expect(
+      killLines.some((l) =>
+        /checkpoint 2,000 transactions · staged 2,000 · resume from 2,000$/.test(l),
+      ),
+    ).toBe(true);
+    // And the failure line names the resume point.
+    expect(killLines.some((l) => /resume from checkpoint 2,000 \(edition fixture\)/.test(l))).toBe(
+      true,
+    );
+
+    db.setFailAfterStageInserts(null);
+    const lines: string[] = [];
+    const { counts, stats } = await loadPickingIndexFromLines(db as never, resumeLines(), {
+      edition: "fixture",
+      log: (line: string) => lines.push(line),
+    });
+    expect(counts).toEqual(EXPECTED);
+    expect(stats.rowsRead).toBe(2540);
+    expect(
+      lines.some((l) =>
+        /resuming from checkpoint · 2,000 rows staged · edition fixture · resume from 2,000/.test(
+          l,
+        ),
+      ),
+    ).toBe(true);
+    expect(db.index).toHaveLength(2534);
+    expect(distinctHomes(db)).toBe(2534);
+    expect(db.index.some((r) => r.home_key === "19||BIRKDALE RISE")).toBe(true);
+    expect(db.index.some((r) => r.home_key === "6||EXETER ROAD")).toBe(true);
+    // The swap cleared staging and the checkpoint together.
+    expect(db.salesStage).toHaveLength(0);
+    expect(db.checkpoints.get("load-picking-index")).toBeUndefined();
+  });
+
+  it(
+    "a kill between the insert and its checkpoint trims the staged tail on resume",
+    { timeout: 30_000 },
+    async () => {
+      const db = new FakePickingDb();
+      db.setFailAfterCheckpoints(1);
+      await expect(
+        loadPickingIndexFromLines(db as never, resumeLines(), {
+          edition: "fixture",
+          log: () => {},
+        }),
+      ).rejects.toThrow(/simulated kill/);
+      // Chunk 1 staged + checkpointed; chunk 2 staged, its
+      // checkpoint never landed.
+      expect(db.salesStage).toHaveLength(2000);
+      expect(db.checkpoints.get("load-picking-index")?.filed_count).toBe(1000);
+      expect(db.checkpoints.get("load-picking-index")?.next_start_index).toBe(1000);
+
+      db.setFailAfterCheckpoints(null);
+      const lines: string[] = [];
+      const { counts } = await loadPickingIndexFromLines(db as never, resumeLines(), {
+        edition: "fixture",
+        log: (line: string) => lines.push(line),
+      });
+      expect(counts).toEqual(EXPECTED);
+      expect(
+        lines.some((l) =>
+          /trimmed 1,000 staged rows past the checkpoint · resume re-stages them/.test(l),
+        ),
+      ).toBe(true);
+      expect(
+        lines.some((l) =>
+          /resuming from checkpoint · 1,000 rows staged · edition fixture · resume from 1,000/.test(
+            l,
+          ),
+        ),
+      ).toBe(true);
+      expect(db.index).toHaveLength(2534);
+      expect(distinctHomes(db)).toBe(2534);
+      expect(db.salesStage).toHaveLength(0);
+      expect(db.checkpoints.get("load-picking-index")).toBeUndefined();
+    },
+  );
+
+  it(
+    "an edition change discards the staged rows and starts from zero",
+    { timeout: 30_000 },
+    async () => {
+      const db = new FakePickingDb();
+      db.setFailAfterStageInserts(2);
+      await expect(
+        loadPickingIndexFromLines(db as never, resumeLines(), {
+          edition: "fixture",
+          log: () => {},
+        }),
+      ).rejects.toThrow(/simulated kill/);
+      expect(db.salesStage).toHaveLength(2000);
+
+      db.setFailAfterStageInserts(null);
+      const lines: string[] = [];
+      const { counts } = await loadPickingIndexFromLines(db as never, resumeLines(), {
+        edition: "fixture-2",
+        log: (line: string) => lines.push(line),
+      });
+      expect(counts).toEqual(EXPECTED);
+      expect(
+        lines.some((l) =>
+          /discarding stale checkpoint · edition changed \(fixture → fixture-2\) · starting from 0/.test(
+            l,
+          ),
+        ),
+      ).toBe(true);
+      expect(lines.some((l) => /resuming from checkpoint/.test(l))).toBe(false);
+      expect(db.index).toHaveLength(2534);
+      expect(distinctHomes(db)).toBe(2534);
+      expect(db.editions.find((e) => e.source === "sales")?.edition).toBe("fixture-2");
+    },
+  );
+
+  it("--restart discards the checkpoint and starts from zero", { timeout: 30_000 }, async () => {
+    const db = new FakePickingDb();
+    db.setFailAfterStageInserts(2);
+    await expect(
+      loadPickingIndexFromLines(db as never, resumeLines(), {
+        edition: "fixture",
+        log: () => {},
+      }),
+    ).rejects.toThrow(/simulated kill/);
+    expect(db.salesStage).toHaveLength(2000);
+
+    db.setFailAfterStageInserts(null);
+    const lines: string[] = [];
+    const { counts } = await loadPickingIndexFromLines(db as never, resumeLines(), {
+      edition: "fixture",
+      log: (line: string) => lines.push(line),
+      restart: true,
+    });
+    expect(counts).toEqual(EXPECTED);
+    expect(
+      lines.some((l) =>
+        /restart requested — discarding checkpoint and staging · starting from 0/.test(l),
+      ),
+    ).toBe(true);
+    expect(lines.some((l) => /resuming from checkpoint/.test(l))).toBe(false);
+    expect(db.index).toHaveLength(2534);
+    expect(distinctHomes(db)).toBe(2534);
+    expect(db.salesStage).toHaveLength(0);
+    expect(db.checkpoints.get("load-picking-index")).toBeUndefined();
   });
 });
 

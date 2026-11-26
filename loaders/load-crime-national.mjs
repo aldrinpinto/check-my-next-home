@@ -63,6 +63,7 @@ import pg from "pg";
 import yauzl from "yauzl";
 
 import { monthIndex, nationalForWindow, windowMonths } from "./load-crime.mjs";
+import { createLoaderResume } from "./loader-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -243,6 +244,248 @@ function artefactMonths(artefact) {
   return months;
 }
 
+// Count the window's unfiled months and embed the window figure
+// into the filed crime artefacts — with resume support (BUG-368).
+//
+// THE RESUME SHAPE. This loader's resume state already existed
+// in its live table: a month with a crime_national_months row is
+// never recounted, and the embed skips artefacts whose figure is
+// already the computed one. What BUG-368 adds is the visible,
+// checkpointed form of that state: each counted month is
+// witnessed in the PERSISTENT crime_national_stage table
+// (migration 0048 — the parent adds the table at merge time;
+// this function still creates it, so the loader works on a
+// database the migration has not yet reached) and checkpointed
+// in loader_checkpoint, one progress line per committed month,
+// so a kill names the month the next run resumes from instead
+// of re-counting the window blind.
+//
+// THE WITNESS. The stage table holds only the months THIS run
+// counted (month, total, seq) — the live table stays the
+// authority for what is filed, and a discard clears the stage
+// alone, never the filed months. The checkpoint's edition is
+// the window's latest month: a new month publishing rolls the
+// window forward and the checkpoint discards, while the filed
+// months still skip the recount. expected is null on purpose:
+// the window is always 12 months and the edition already keys
+// it, and a null expected keeps the failure line's resume note
+// naming the checkpoint instead of the swap wording (this
+// loader has no swap — a run that died after the count resumes
+// at the embed). A kill between the live insert and the
+// checkpoint leaves a staged row the next run trims, or a filed
+// month the next run skips — either way the month is counted
+// exactly once.
+/**
+ * @param {any} client
+ * @param {{ months: string[], latest: string, countMonth: (month: string) => Promise<number>, progress?: import("./progress.mjs").ProgressLogger | null, restart?: boolean, verifyOnly?: boolean }} options
+ */
+export async function runCountAndEmbed(
+  client,
+  { months, latest, countMonth, progress = null, restart = false, verifyOnly = false },
+) {
+  let resume = null;
+  /** @type {{ resumed: boolean, reason?: string, checkpoint?: any, prefix?: boolean }} */
+  let resumePrep = { resumed: false };
+  let staged = 0;
+  let seqNext = 0;
+  const edition = latest;
+  if (client) {
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS crime_national_stage (
+         month text, england_total integer,
+         seq bigint NOT NULL, UNIQUE (seq)
+       )`,
+    );
+    resume = createLoaderResume(client, {
+      loader: "load-crime-national",
+      stageTable: "crime_national_stage",
+      progress,
+      restart,
+    });
+    resumePrep = await resume.prepare({ edition, expected: null });
+    if (resumePrep.resumed) {
+      staged = resumePrep.checkpoint.filed_count;
+      seqNext = staged;
+    }
+  }
+  const resumeNote = () =>
+    resume
+      ? resume.resumeNote()
+      : "re-run — filed months are the resume state, unfiled months recount";
+
+  // 2 — count the window's unfiled months. The filed rows
+  // are the resume state: a month with a row is never
+  // recounted.
+  const filed = new Set();
+  if (client) {
+    const res = await client.query("SELECT month FROM crime_national_months");
+    for (const row of res.rows) filed.add(row.month);
+  }
+  // BUG-265: the 12-month window is the genuine total —
+  // the tally carries a real percentage, a line every 3
+  // months, a heartbeat every 3 months, and a warning
+  // for a month that takes more than 3x the recent
+  // average.
+  const countTally = progress?.tally({
+    label: "count",
+    total: months.length,
+    every: 3,
+    unit: "months",
+  });
+  const countWatch = createBatchWatch();
+  let counted = 0;
+  let newlyCounted = 0;
+  // True once the embed's own catch has reported the
+  // failure, so the outer catch does not mislabel it as a
+  // counting failure.
+  let embedFailed = false;
+  try {
+    for (const month of months) {
+      if (filed.has(month)) {
+        counted += 1;
+        countTally?.tick(counted);
+        continue;
+      }
+      const started = Date.now();
+      const total = await countMonth(month);
+      if (client) {
+        await client.query(
+          "INSERT INTO crime_national_months (month, england_total, source_name, source_date) VALUES ($1, $2, $3, $4) ON CONFLICT (month) DO NOTHING",
+          [month, total, SOURCE_NAME, month],
+        );
+        // The witness stage + checkpoint: the live insert
+        // above is the filing; this row is only the run's
+        // record that it counted the month, and the
+        // checkpoint is the visible save.
+        const seq = seqNext;
+        seqNext += 1;
+        await client.query(
+          "INSERT INTO crime_national_stage (month, england_total, seq) VALUES ($1, $2, $3)",
+          [month, total, seq],
+        );
+        staged += 1;
+        filed.add(month);
+        newlyCounted += 1;
+        const completed = months.filter((m) => filed.has(m)).length;
+        await resume.checkpoint({
+          edition,
+          expected: null,
+          nextStartIndex: completed,
+          read: completed,
+          filed: staged,
+          state: { phase: "counting" },
+          unit: "months",
+        });
+      } else {
+        filed.add(month);
+      }
+      counted += 1;
+      const { tookMs, averageMs, slow } = countWatch.observe(Date.now() - started);
+      countTally?.tick(counted, `${formatCount(total)} England crimes in ${month}`);
+      progress?.heartbeat({ stage: "count", done: counted, total: months.length, every: 3 });
+      if (slow && tookMs >= 1000) {
+        progress.warning({
+          what: "month count duration",
+          value: `${month} took ${formatDuration(tookMs)}`,
+          threshold: `3x recent average ${formatDuration(averageMs)}`,
+        });
+      }
+    }
+    countTally?.finish(counted);
+
+    // 3 — embed the window figure into every filed crime
+    // artefact whose window is now fully counted and whose
+    // embedding is missing or stale.
+    let embedded = 0;
+    if (client && !verifyOnly) {
+      const res = await client.query(
+        "SELECT postcode, answers -> 'crime' AS crime FROM postcode_cache WHERE answers -> 'crime' IS NOT NULL",
+      );
+      progress?.stage(
+        `embedding the window figure into ${formatCount(res.rows.length)} filed crime artefacts`,
+      );
+      const embedTally = progress?.tally({
+        label: "embed",
+        total: res.rows.length,
+        every: 100,
+        unit: "artefacts",
+      });
+      try {
+        for (const [i, row] of res.rows.entries()) {
+          const artefact = row.crime;
+          if (!artefact?.windowFrom || !artefact?.windowTo) {
+            embedTally?.tick(i + 1, `${formatCount(embedded)} embedded`);
+            continue;
+          }
+          const national = await nationalForWindow(client, artefactMonths(artefact));
+          if (!national) {
+            embedTally?.tick(i + 1, `${formatCount(embedded)} embedded`);
+            continue;
+          }
+          const current = artefact.national;
+          if (
+            current &&
+            current.total === national.total &&
+            current.residents === national.residents
+          ) {
+            embedTally?.tick(i + 1, `${formatCount(embedded)} embedded`);
+            continue;
+          }
+          await client.query(
+            "UPDATE postcode_cache SET answers = jsonb_set(answers, '{crime,national}', $1::jsonb) WHERE postcode = $2",
+            [JSON.stringify(national), row.postcode],
+          );
+          embedded += 1;
+          embedTally?.tick(i + 1, `${formatCount(embedded)} embedded`);
+          progress?.heartbeat({ stage: "embed", done: i + 1, total: res.rows.length, every: 100 });
+        }
+      } catch (err) {
+        embedFailed = true;
+        progress?.failed({
+          stage: "embed",
+          filed: embedded,
+          total: res.rows.length,
+          error: err,
+          resume: resumeNote(),
+        });
+        throw err;
+      }
+      embedTally?.finish(res.rows.length, `${formatCount(embedded)} embedded`);
+    }
+
+    const windowTotal = client ? ((await nationalForWindow(client, months))?.total ?? null) : null;
+    // The run is complete: the witness stage + checkpoint go
+    // together, so nothing is left behind for the next window.
+    // (A verify-only run keeps its checkpoint: it filed months
+    // but skipped the embed, and the next real run resumes at
+    // the embed instead of recounting.)
+    if (resume && !verifyOnly) await resume.clear();
+    return {
+      newlyCounted,
+      embedded,
+      windowTotal,
+      filedMonths: months.filter((m) => filed.has(m)).length,
+      resumeNote,
+      resumePrep,
+    };
+  } catch (err) {
+    // BUG-265: the counting phase fails before the embed —
+    // filed months are the resume state, so the resume is
+    // a re-run that recounts only the unfiled months. (The
+    // embed's own catch above reports its stage first.)
+    if (!embedFailed) {
+      progress?.failed({
+        stage: "count",
+        filed: newlyCounted,
+        total: months.length,
+        error: err,
+        resume: resumeNote(),
+      });
+    }
+    throw err;
+  }
+}
+
 async function main() {
   const startedAt = Date.now();
   const args = process.argv.slice(2);
@@ -283,174 +526,82 @@ async function main() {
   progress.stage(
     `counting the ${formatCount(months.length)}-month window from the Police.uk archive`,
   );
-  // True once the embed's own catch has reported the
-  // failure, so the outer catch does not mislabel it as a
-  // counting failure.
-  let embedFailed = false;
-  let newlyCounted = 0;
+  // BUG-368: --restart discards the witness stage +
+  // checkpoint and re-derives the resume point from the
+  // filed months (the filed months themselves are never
+  // recounted — they are filed data, not staging).
+  const restart = args.includes("--restart");
 
-  try {
-    // 2 — count the window's unfiled months. The filed rows
-    // are the resume state: a month with a row is never
-    // recounted.
-    const filed = new Set();
-    if (client) {
-      const res = await client.query("SELECT month FROM crime_national_months");
-      for (const row of res.rows) filed.add(row.month);
+  // Live counting downloads the LATEST archive once and
+  // counts every unfiled month from its folder inside it
+  // (the archive is cumulative — see the header). A month
+  // the latest archive's window does not reach falls back
+  // to its own month's archive. Fixture mode reads the
+  // pinned counts.
+  let latestZipPath = null;
+  const countMonth = async (month) => {
+    if (fixture) {
+      const total = fixture.months[month];
+      if (typeof total !== "number")
+        throw new Error(
+          `${month}: no count in the fixture (fixture covers ${Object.keys(fixture.months).join(", ")})`,
+        );
+      return total;
     }
-    // BUG-265: the 12-month window is the genuine total —
-    // the tally carries a real percentage, a line every 3
-    // months, a heartbeat every 3 months, and a warning
-    // for a month that takes more than 3x the recent
-    // average.
-    const countTally = progress.tally({
-      label: "count",
-      total: months.length,
-      every: 3,
-      unit: "months",
-    });
-    const countWatch = createBatchWatch();
-    let counted = 0;
-    // Live counting downloads the LATEST archive once and
-    // counts every unfiled month from its folder inside it
-    // (the archive is cumulative — see the header). A month
-    // the latest archive's window does not reach falls back
-    // to its own month's archive.
-    let latestZipPath = null;
-    try {
-      for (const month of months) {
-        if (filed.has(month)) {
-          counted += 1;
-          countTally.tick(counted);
-          continue;
-        }
-        const started = Date.now();
-        let total;
-        if (fixture) {
-          total = fixture.months[month];
-          if (typeof total !== "number")
-            throw new Error(
-              `${month}: no count in the fixture (fixture covers ${Object.keys(fixture.months).join(", ")})`,
-            );
-        } else {
-          if (!latestZipPath) {
-            progress.stage(`downloading the ${latest} archive`);
-            latestZipPath = join(tmpdir(), `cmnh-archive-${latest}.zip`);
-            await downloadArchive(latest, latestZipPath);
-          }
-          total = await countArchiveEnglandTotal(latestZipPath, month);
-          if (total === null) {
-            const ownZipPath = join(tmpdir(), `cmnh-archive-${month}.zip`);
-            try {
-              await downloadArchive(month, ownZipPath);
-              total = await countArchiveEnglandTotal(ownZipPath, month);
-            } finally {
-              await rm(ownZipPath, { force: true });
-            }
-            if (total === null)
-              throw new Error(
-                `${month}: no folder for the month in its own archive — refusing to count it`,
-              );
-          }
-        }
-        if (client) {
-          await client.query(
-            "INSERT INTO crime_national_months (month, england_total, source_name, source_date) VALUES ($1, $2, $3, $4) ON CONFLICT (month) DO NOTHING",
-            [month, total, SOURCE_NAME, month],
-          );
-        }
-        filed.add(month);
-        newlyCounted += 1;
-        counted += 1;
-        const { tookMs, averageMs, slow } = countWatch.observe(Date.now() - started);
-        countTally.tick(counted, `${formatCount(total)} England crimes in ${month}`);
-        progress.heartbeat({ stage: "count", done: counted, total: months.length, every: 3 });
-        if (slow && tookMs >= 1000) {
-          progress.warning({
-            what: "month count duration",
-            value: `${month} took ${formatDuration(tookMs)}`,
-            threshold: `3x recent average ${formatDuration(averageMs)}`,
-          });
-        }
+    if (!latestZipPath) {
+      progress.stage(`downloading the ${latest} archive`);
+      latestZipPath = join(tmpdir(), `cmnh-archive-${latest}.zip`);
+      await downloadArchive(latest, latestZipPath);
+    }
+    let total = await countArchiveEnglandTotal(latestZipPath, month);
+    if (total === null) {
+      const ownZipPath = join(tmpdir(), `cmnh-archive-${month}.zip`);
+      try {
+        await downloadArchive(month, ownZipPath);
+        total = await countArchiveEnglandTotal(ownZipPath, month);
+      } finally {
+        await rm(ownZipPath, { force: true });
       }
+      if (total === null)
+        throw new Error(
+          `${month}: no folder for the month in its own archive — refusing to count it`,
+        );
+    }
+    return total;
+  };
+
+  // BUG-248: set the moment the count-and-embed run starts —
+  // the catch below reports only the failures the run itself
+  // never reached, so a run's own failed line is never doubled.
+  let runStarted = false;
+  try {
+    runStarted = true;
+    let result;
+    try {
+      result = await runCountAndEmbed(client, {
+        months,
+        latest,
+        countMonth,
+        progress,
+        restart,
+        verifyOnly,
+      });
     } finally {
       if (latestZipPath) await rm(latestZipPath, { force: true });
     }
-    countTally.finish(counted);
-
-    // 3 — embed the window figure into every filed crime
-    // artefact whose window is now fully counted and whose
-    // embedding is missing or stale.
-    let embedded = 0;
-    if (client && !verifyOnly) {
-      const res = await client.query(
-        "SELECT postcode, answers -> 'crime' AS crime FROM postcode_cache WHERE answers -> 'crime' IS NOT NULL",
-      );
-      progress.stage(
-        `embedding the window figure into ${formatCount(res.rows.length)} filed crime artefacts`,
-      );
-      const embedTally = progress.tally({
-        label: "embed",
-        total: res.rows.length,
-        every: 100,
-        unit: "artefacts",
-      });
-      try {
-        for (const [i, row] of res.rows.entries()) {
-          const artefact = row.crime;
-          if (!artefact?.windowFrom || !artefact?.windowTo) {
-            embedTally.tick(i + 1, `${formatCount(embedded)} embedded`);
-            continue;
-          }
-          const national = await nationalForWindow(client, artefactMonths(artefact));
-          if (!national) {
-            embedTally.tick(i + 1, `${formatCount(embedded)} embedded`);
-            continue;
-          }
-          const current = artefact.national;
-          if (
-            current &&
-            current.total === national.total &&
-            current.residents === national.residents
-          ) {
-            embedTally.tick(i + 1, `${formatCount(embedded)} embedded`);
-            continue;
-          }
-          await client.query(
-            "UPDATE postcode_cache SET answers = jsonb_set(answers, '{crime,national}', $1::jsonb) WHERE postcode = $2",
-            [JSON.stringify(national), row.postcode],
-          );
-          embedded += 1;
-          embedTally.tick(i + 1, `${formatCount(embedded)} embedded`);
-          progress.heartbeat({ stage: "embed", done: i + 1, total: res.rows.length, every: 100 });
-        }
-      } catch (err) {
-        embedFailed = true;
-        progress.failed({
-          stage: "embed",
-          filed: embedded,
-          total: res.rows.length,
-          error: err,
-          resume: "re-run — the embedding is idempotent",
-        });
-        throw err;
-      }
-      embedTally.finish(res.rows.length, `${formatCount(embedded)} embedded`);
-    }
-
-    const windowTotal = client ? ((await nationalForWindow(client, months))?.total ?? null) : null;
+    const { newlyCounted, embedded, windowTotal, filedMonths } = result;
     console.log(
-      `load-crime-national · latest month ${latest} · window ${months[0]}..${latest} · England 12-month total ${windowTotal === null ? "not yet countable" : formatCount(windowTotal)} · ${formatCount(months.filter((m) => filed.has(m)).length)} of ${formatCount(months.length)} months on file (${formatCount(newlyCounted)} new) · ${formatCount(embedded)} artefacts embedded${verifyOnly ? " · verify only, nothing filed" : ""} · ${Math.round((Date.now() - startedAt) / 1000)}s`,
+      `load-crime-national · latest month ${latest} · window ${months[0]}..${latest} · England 12-month total ${windowTotal === null ? "not yet countable" : formatCount(windowTotal)} · ${formatCount(filedMonths)} of ${formatCount(months.length)} months on file (${formatCount(newlyCounted)} new) · ${formatCount(embedded)} artefacts embedded${verifyOnly ? " · verify only, nothing filed" : ""} · ${Math.round((Date.now() - startedAt) / 1000)}s`,
     );
   } catch (err) {
-    // BUG-265: the counting phase fails before the embed —
-    // filed months are the resume state, so the resume is
-    // a re-run that recounts only the unfiled months. (The
-    // embed's own catch above reports its stage first.)
-    if (!embedFailed) {
+    // A failure the run itself already reported (its own
+    // failed line, at the stage it failed in) is not
+    // reported again here — this line covers only the
+    // failures before the run started.
+    if (!runStarted) {
       progress.failed({
         stage: "count",
-        filed: newlyCounted,
+        filed: 0,
         total: months.length,
         error: err,
         resume: "re-run — filed months are the resume state, unfiled months recount",

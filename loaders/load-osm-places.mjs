@@ -121,6 +121,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { createLoaderResume } from "./loader-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -590,13 +591,34 @@ export function sanityChecks(rows, { national }) {
 // staged, then the live table is replaced inside one
 // transaction, so a failed load leaves the last good data
 // serving untouched.
+//
+// Filing with resume support (BUG-368): the stage is a
+// PERSISTENT table now (migration 0048) and a
+// loader_checkpoint row records the last fully staged
+// flush, so a killed run resumes staging from the
+// checkpoint instead of re-staging ~315k rows. The extract
+// still re-runs — pyosmium re-cuts the downloads — but the
+// staging does not. The edition is the extract date(s)
+// the rows carry; the expected total is the row count.
+// The swap stays atomic, and a successful swap clears
+// staging + checkpoint together (BUG-248 unchanged). The
+// old BEGIN-before-create discipline (CI run 98) died with
+// the TEMP table: a persistent stage needs no enclosing
+// transaction to survive its own CREATE.
 /**
  * @param {any} pool
  * @param {any[]} rows
  * @param {string} retrievedAt
- * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, restart?: boolean }} [options]
  */
-export async function filePlaces(pool, rows, retrievedAt, { progress = null } = {}) {
+export async function filePlaces(
+  pool,
+  rows,
+  retrievedAt,
+  { progress = null, restart = false } = {},
+) {
+  const edition = `osm-${[...new Set(rows.map((r) => r.sourceDate))].sort().join("+") || "unknown"}`;
+  const expected = rows.length;
   // BUG-265: the stage flushes are the filing's long phase
   // (~315k rows in 500-row flushes) — a line every
   // twentieth of the flushes, a heartbeat, and a warning
@@ -609,25 +631,24 @@ export async function filePlaces(pool, rows, retrievedAt, { progress = null } = 
     unit: "flushes",
   });
   const stageWatch = createBatchWatch();
-  let flushCount = 0;
-  let stagedRows = 0;
   const client = await pool.connect();
   try {
-    // BEGIN first — the other M5 loaders' shape, and load-
-    // bearing: the stage table is ON COMMIT DROP, and outside
-    // a transaction each statement is its own commit, so a
-    // stage created before BEGIN is dropped again by the end
-    // of its own CREATE statement and the first staged insert
-    // fails with "relation osm_places_stage does not exist".
-    // That is exactly what CI run 98's database job hit — the
-    // first real call of this function anywhere, the sandbox
-    // proofs having all been verify-only.
-    await client.query("BEGIN");
-    await client.query(`CREATE TEMP TABLE osm_places_stage (
+    await client.query(`CREATE TABLE IF NOT EXISTS osm_places_stage (
       osm_id bigint, name text, place_type text, detail text,
       latitude double precision, longitude double precision,
-      source_name text, source_date date
-    ) ON COMMIT DROP`);
+      source_name text, source_date date,
+      seq bigint NOT NULL, UNIQUE (seq)
+    )`);
+    const resume = createLoaderResume(client, {
+      loader: "load-osm-places",
+      stageTable: "osm_places_stage",
+      progress,
+      restart,
+    });
+    const resumePrep = await resume.prepare({ edition, expected });
+    const startAt = resumePrep.resumed ? resumePrep.checkpoint.next_start_index : 0;
+    let flushCount = Math.floor(startAt / 500);
+    let stagedRows = resumePrep.resumed ? resumePrep.checkpoint.filed_count : 0;
     const values = [];
     const params = [];
     const flush = async () => {
@@ -635,7 +656,7 @@ export async function filePlaces(pool, rows, retrievedAt, { progress = null } = 
       const started = Date.now();
       const flushedRows = values.length;
       await client.query(
-        `INSERT INTO osm_places_stage (osm_id, name, place_type, detail, latitude, longitude, source_name, source_date) VALUES ${values.join(", ")}`,
+        `INSERT INTO osm_places_stage (osm_id, name, place_type, detail, latitude, longitude, source_name, source_date, seq) VALUES ${values.join(", ")}`,
         params,
       );
       values.length = 0;
@@ -652,51 +673,90 @@ export async function filePlaces(pool, rows, retrievedAt, { progress = null } = 
           threshold: `3x recent average ${formatDuration(averageMs)}`,
         });
       }
+      // BUG-368: one checkpoint line per committed flush.
+      await resume.checkpoint({
+        edition,
+        expected,
+        nextStartIndex: stagedRows,
+        read: stagedRows,
+        filed: stagedRows,
+        unit: "rows",
+      });
     };
-    for (const row of rows) {
-      const base = params.length;
-      values.push(
-        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8})`,
-      );
-      params.push(
-        row.osmId,
-        row.name,
-        row.placeType,
-        row.detail,
-        row.lat,
-        row.lon,
-        SOURCE_NAME,
-        row.sourceDate,
-      );
-      if (values.length >= 500) await flush();
+    try {
+      for (let at = startAt; at < rows.length; at++) {
+        const row = rows[at];
+        const base = params.length;
+        values.push(
+          `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9})`,
+        );
+        params.push(
+          row.osmId,
+          row.name,
+          row.placeType,
+          row.detail,
+          row.lat,
+          row.lon,
+          SOURCE_NAME,
+          row.sourceDate,
+          resume.takeSeq(1),
+        );
+        if (values.length >= 500) await flush();
+      }
+      await flush();
+      stageTally?.finish(flushCount);
+    } catch (err) {
+      // BUG-368: the staging is durable per flush — no
+      // transaction to roll back, and the staged rows +
+      // checkpoint STAY for the next run to resume from.
+      progress?.failed({
+        stage: "file",
+        filed: stagedRows,
+        total: rows.length,
+        error: err,
+        resume: resume.resumeNote(),
+      });
+      throw err;
     }
-    await flush();
-    stageTally?.finish(flushCount);
-    await client.query("DELETE FROM osm_points");
-    // The live table's position columns are latitude/longitude
-    // (migration 0001, like every other point table) — this
-    // INSERT originally named them lat/lon, the row objects'
-    // property names, and CI run 99's database job failed with
-    // "column lat of relation osm_points does not exist": the
-    // filing path's first real execution anywhere, the fake-
-    // pool tests having pinned statement order, not names.
-    // The schema-contract tests now pin the names too.
-    await client.query(
-      `INSERT INTO osm_points (osm_id, name, place_type, latitude, longitude, source_name, source_date, loaded_at, detail)
+    try {
+      const stagedRes = await client.query("SELECT count(*)::int AS n FROM osm_places_stage");
+      if (stagedRes.rows[0].n !== expected)
+        throw new Error("the staged place count does not match — rolling back");
+      await client.query("BEGIN");
+      try {
+        await client.query("DELETE FROM osm_points");
+        // The live table's position columns are latitude/longitude
+        // (migration 0001, like every other point table) — this
+        // INSERT originally named them lat/lon, the row objects'
+        // property names, and CI run 99's database job failed with
+        // "column lat of relation osm_points does not exist": the
+        // filing path's first real execution anywhere, the fake-
+        // pool tests having pinned statement order, not names.
+        // The schema-contract tests now pin the names too.
+        await client.query(
+          `INSERT INTO osm_points (osm_id, name, place_type, latitude, longitude, source_name, source_date, loaded_at, detail)
        SELECT osm_id, name, place_type, latitude, longitude, source_name, source_date, $1, detail FROM osm_places_stage`,
-      [retrievedAt],
-    );
-    await client.query("COMMIT");
-  } catch (err) {
-    progress?.failed({
-      stage: "file",
-      filed: stagedRows,
-      total: rows.length,
-      error: err,
-      resume: "re-run from scratch (the swap is one transaction; nothing was filed)",
-    });
-    await client.query("ROLLBACK").catch(() => {});
-    throw err;
+          [retrievedAt],
+        );
+        await client.query("COMMIT");
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw err;
+      }
+      // The run is complete: staging + checkpoint go together.
+      await resume.clear();
+    } catch (err) {
+      // BUG-368: a swap failure leaves the staged read
+      // checkpointed, so the next run resumes at the swap.
+      progress?.failed({
+        stage: "file",
+        filed: stagedRows,
+        total: rows.length,
+        error: err,
+        resume: resume.resumeNote(),
+      });
+      throw err;
+    }
   } finally {
     client.release();
   }
@@ -807,6 +867,9 @@ async function main() {
   const fileArg = fileIdx >= 0 ? args[fileIdx + 1] : null;
   const fixtureMode = args.includes("--fixture") || fileArg !== null;
   const verifyOnly = args.includes("--verify-only");
+  // BUG-368: resume from the last checkpointed flush instead of
+  // restarting; with no checkpoint this is a fresh start.
+  const restart = args.includes("--restart");
   const pbfDirIdx = args.indexOf("--pbf-dir");
   const pbfDir = pbfDirIdx >= 0 ? args[pbfDirIdx + 1] : null;
   const retrievedOn = todayDate();
@@ -970,7 +1033,7 @@ async function main() {
     const pool = new Pool({ connectionString: process.env.DATABASE_URL });
     try {
       progress.stage(`filing ${formatCount(rows.length)} places...`);
-      await filePlaces(pool, rows, `${retrievedOn}T00:00:00Z`, { progress });
+      await filePlaces(pool, rows, `${retrievedOn}T00:00:00Z`, { progress, restart });
     } finally {
       await pool.end();
     }

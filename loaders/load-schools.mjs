@@ -44,6 +44,12 @@ import { join } from "node:path";
 import pg from "pg";
 import proj4 from "proj4";
 import {
+  clearCheckpoint,
+  clearStaging,
+  createLoaderResume,
+  stagingCount,
+} from "./loader-resume.mjs";
+import {
   createBatchWatch,
   createProgressLogger,
   formatCount,
@@ -416,10 +422,319 @@ function checkGolden(schools, outcomes, fixtureMode) {
   if (fails.length > 0) throw new Error(`golden checks failed:\n - ${fails.join("\n - ")}`);
 }
 
+// --- filing ------------------------------------------------------------
+//
+// Stage, count, swap — with resume support (BUG-368): staging is
+// a pair of PERSISTENT tables now (migration 0048), and a
+// loader_checkpoint row records the last fully staged chunk, so a
+// killed run resumes instead of restarting. beginSchoolsFiling
+// opens the staging tables; stageSchools / stageOutcomes insert
+// row by row as before, checkpointing every 200 rows; finishFiling
+// runs the counts and the swap exactly as the one-shot filer did,
+// in its own transaction. The swap replaces the whole schools and
+// ofsted_outcomes tables in one transaction, so a failed run leaves
+// the last good filing serving untouched.
+//
+// THE RESUME UNITS. One checkpoint row carries both tables: its
+// filed_count is the schools staged (the handle's staged-prefix
+// proof runs on schools_stage), its next_start_index is the
+// schools + outcomes staged, and its state carries the two counts
+// separately. Outcomes stage only after every school is staged,
+// so a resumed run skips the staged schools, then the staged
+// outcomes, re-staging nothing. The outcomes prefix is validated
+// by hand in prepareResume (the handle proves schools_stage
+// only): a gap there discards both tables and starts from zero.
+// The edition is the GIAS extract date plus the Ofsted as-at date.
+const CHECKPOINT_EVERY = 200;
+
+/**
+ * Open the filing run's resume handle (BUG-368). The client is
+ * injectable so the resume tests can file against a fake
+ * database; production passes the directory client main() already
+ * opened. The filer never owns the client — main() closes it.
+ *
+ * @param {import("./progress.mjs").ProgressLogger | null} [progress]
+ * @param {{ restart?: boolean, client?: any, giasEdition?: string | null, ofstedAsAt?: string | null }} [options]
+ */
+export async function beginSchoolsFiling(
+  progress = null,
+  { restart = false, client, giasEdition = null, ofstedAsAt = null } = {},
+) {
+  await client.query(
+    `CREATE TABLE IF NOT EXISTS schools_stage (LIKE schools INCLUDING DEFAULTS, seq bigint NOT NULL, UNIQUE (seq))`,
+  );
+  await client.query(
+    `CREATE TABLE IF NOT EXISTS outcomes_stage (LIKE ofsted_outcomes INCLUDING DEFAULTS, seq bigint NOT NULL, UNIQUE (seq))`,
+  );
+  const resume = createLoaderResume(client, {
+    loader: "load-schools",
+    stageTable: "schools_stage",
+    progress,
+    restart,
+  });
+  let edition = null;
+  let schoolsTotal = 0;
+  let outcomesTotal = 0;
+  let schoolsFiled = 0;
+  let outcomesFiled = 0;
+  let outcomeSeqNext = 0;
+  /** @type {{ resumed: boolean, reason?: string, checkpoint?: any, prefix?: boolean }} */
+  let resumePrep = { resumed: false };
+  async function checkpoint() {
+    await resume.checkpoint({
+      edition,
+      expected: schoolsTotal + outcomesTotal,
+      nextStartIndex: schoolsFiled + outcomesFiled,
+      read: schoolsFiled + outcomesFiled,
+      filed: schoolsFiled,
+      state: { schoolsFiled, outcomesFiled },
+      unit: "rows",
+    });
+  }
+  async function discardAll(reason) {
+    await clearStaging(client, "schools_stage");
+    await clearStaging(client, "outcomes_stage");
+    await clearCheckpoint(client, "load-schools");
+    schoolsFiled = 0;
+    outcomesFiled = 0;
+    outcomeSeqNext = 0;
+    progress?.stage(`discarding stale checkpoint · ${reason} · starting from 0`);
+  }
+  return {
+    stagedCount: () => schoolsFiled + outcomesFiled,
+    resumePrep: () => resumePrep,
+    resumeNote: () => resume.resumeNote(),
+    // Decide, from the edition and the staged rows, whether this
+    // run resumes or starts from zero. Called once the read has
+    // resolved the edition and the counts, before the first
+    // school is staged.
+    async prepareResume(ed, schoolsN, outcomesN) {
+      edition = ed;
+      schoolsTotal = schoolsN;
+      outcomesTotal = outcomesN;
+      resumePrep = await resume.prepare({
+        edition,
+        expected: schoolsTotal + outcomesTotal,
+      });
+      if (!resumePrep.resumed) return resumePrep;
+      const cp = resumePrep.checkpoint;
+      schoolsFiled = cp.filed_count;
+      outcomesFiled = cp.state?.outcomesFiled ?? 0;
+      // Outcomes stage only after every school is staged: a
+      // checkpoint claiming outcomes with schools outstanding
+      // is inconsistent, not a resume point.
+      if (outcomesFiled > 0 && schoolsFiled !== schoolsTotal) {
+        await discardAll(
+          `the checkpoint claims ${outcomesFiled} staged outcomes with only ${schoolsFiled} of ${schoolsTotal} schools staged`,
+        );
+        return { resumed: false, reason: "inconsistent checkpoint" };
+      }
+      // The handle proved schools_stage; prove outcomes_stage
+      // by hand the same way, and trim its interrupted tail —
+      // the tail is trimmed even when no outcome checkpoint
+      // exists yet (a kill mid-chunk leaves flushed rows
+      // past a zero count, and the resumed run re-stages them).
+      const stagedOut = await stagingCount(client, "outcomes_stage");
+      if (outcomesFiled > 0) {
+        const prefixSum = (outcomesFiled * (outcomesFiled - 1)) / 2;
+        if (stagedOut.count < outcomesFiled || stagedOut.sum !== prefixSum) {
+          await discardAll(
+            `staged ${stagedOut.count} outcomes with a gap in their seqs — the staged prefix is not contiguous`,
+          );
+          return { resumed: false, reason: "outcomes prefix not contiguous" };
+        }
+      }
+      if (stagedOut.count > outcomesFiled)
+        await client.query("DELETE FROM outcomes_stage WHERE seq >= $1", [outcomesFiled]);
+      outcomeSeqNext = outcomesFiled;
+      return resumePrep;
+    },
+    async stageSchools(schools) {
+      // BUG-265: the filing is the run's long phase — one
+      // insert per school, so a tally over the schools (a real
+      // percentage: the count is known), a heartbeat and a
+      // slow-insert warning.
+      progress?.stage(`filing ${formatCount(schools.length)} schools into the stage table`);
+      const schoolTally = progress?.tally({
+        label: "filing",
+        total: schools.length,
+        every: Math.max(1, Math.ceil(schools.length / 20)),
+        unit: "schools",
+      });
+      const schoolWatch = createBatchWatch();
+      // The heartbeat stays coarse on a run of tens of
+      // thousands of inserts: every twentieth of the run.
+      const heartbeatEvery = Math.max(1, Math.ceil(schools.length / 20));
+      for (let i = schoolsFiled; i < schools.length; i += 1) {
+        const s = schools[i];
+        const started = Date.now();
+        await client.query(
+          `INSERT INTO schools_stage (urn, name, school_type, phase, age_range_low, age_range_high,
+             address, postcode, latitude, longitude, admissions_policy, religious_character,
+             la_code, la_name, gender, sixth_form, website, number_of_pupils,
+             position_approximate, source_name, source_date, seq)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
+          [
+            s.urn,
+            s.name,
+            s.type,
+            s.phase,
+            s.ageLow,
+            s.ageHigh,
+            s.address,
+            s.postcode,
+            s.lat,
+            s.lng,
+            s.admissionsPolicy,
+            s.religiousCharacter,
+            s.laCode,
+            s.laName,
+            s.gender,
+            s.sixthForm,
+            s.website,
+            s.numberOfPupils,
+            s.positionApproximate,
+            SOURCE_SCHOOLS,
+            giasEdition,
+            resume.takeSeq(1),
+          ],
+        );
+        schoolsFiled += 1;
+        const { tookMs, averageMs, slow } = schoolWatch.observe(Date.now() - started);
+        schoolTally?.tick(schoolsFiled);
+        progress?.heartbeat({
+          stage: "filing",
+          done: schoolsFiled,
+          total: schools.length,
+          every: heartbeatEvery,
+        });
+        if (slow) {
+          progress?.warning({
+            what: "school insert duration",
+            value: `school ${s.urn} took ${formatDuration(tookMs)}`,
+            threshold: `3x recent average ${formatDuration(averageMs)}`,
+          });
+        }
+        if (schoolsFiled % CHECKPOINT_EVERY === 0) await checkpoint();
+      }
+      // The tail under a full checkpoint interval is staged
+      // too — checkpoint it, so a kill after the last school
+      // resumes at the outcomes, not at the last boundary.
+      if (schoolsFiled % CHECKPOINT_EVERY !== 0) await checkpoint();
+      schoolTally?.finish(schoolsFiled);
+    },
+    async stageOutcomes(outcomes) {
+      progress?.stage(`filing ${formatCount(outcomes.size)} Ofsted outcomes into the stage table`);
+      const outcomeTally = progress?.tally({
+        label: "filing outcomes",
+        total: outcomes.size,
+        every: Math.max(1, Math.ceil(outcomes.size / 20)),
+        unit: "outcomes",
+      });
+      const outcomeWatch = createBatchWatch();
+      const outcomeHeartbeatEvery = Math.max(1, Math.ceil(outcomes.size / 20));
+      const entries = [...outcomes.entries()];
+      for (let i = outcomesFiled; i < entries.length; i += 1) {
+        const [urn, o] = entries[i];
+        const started = Date.now();
+        await client.query(
+          `INSERT INTO outcomes_stage (urn, rating, inspection_date, report_url, latest_event_type,
+             latest_event_date, ungraded_outcome, report_card, source_name, source_date, seq)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+          [
+            urn,
+            o.rating,
+            o.inspectionDate,
+            o.reportUrl,
+            o.latestEventType,
+            o.latestEventDate,
+            o.ungradedOutcome,
+            o.reportCard ? JSON.stringify(o.reportCard) : null,
+            SOURCE_OFSTED,
+            ofstedAsAt,
+            outcomeSeqNext,
+          ],
+        );
+        outcomeSeqNext += 1;
+        outcomesFiled += 1;
+        const { tookMs, averageMs, slow } = outcomeWatch.observe(Date.now() - started);
+        outcomeTally?.tick(outcomesFiled);
+        progress?.heartbeat({
+          stage: "filing outcomes",
+          done: outcomesFiled,
+          total: outcomes.size,
+          every: outcomeHeartbeatEvery,
+        });
+        if (slow) {
+          progress?.warning({
+            what: "outcome insert duration",
+            value: `outcome ${urn} took ${formatDuration(tookMs)}`,
+            threshold: `3x recent average ${formatDuration(averageMs)}`,
+          });
+        }
+        if (outcomesFiled % CHECKPOINT_EVERY === 0) await checkpoint();
+      }
+      if (outcomesFiled % CHECKPOINT_EVERY !== 0) await checkpoint();
+      outcomeTally?.finish(outcomesFiled);
+    },
+    async finishFiling(schoolsLength, outcomesSize) {
+      progress?.stage("swap started — replacing the filed schools and outcomes");
+      const staged = await client.query("SELECT count(*)::int AS n FROM schools_stage");
+      if (staged.rows[0].n !== schoolsLength)
+        throw new Error("the staged school count does not match — rolling back");
+      const stagedOutcomes = await client.query("SELECT count(*)::int AS n FROM outcomes_stage");
+      if (stagedOutcomes.rows[0].n !== outcomesSize)
+        throw new Error("the staged outcome count does not match — rolling back");
+      await client.query("BEGIN");
+      try {
+        await client.query("DELETE FROM ofsted_outcomes");
+        await client.query("DELETE FROM schools");
+        await client.query(
+          `INSERT INTO schools (urn, name, school_type, phase, age_range_low, age_range_high,
+             address, postcode, latitude, longitude, admissions_policy, religious_character,
+             la_code, la_name, gender, sixth_form, website, number_of_pupils,
+             position_approximate, source_name, source_date, loaded_at)
+           SELECT urn, name, school_type, phase, age_range_low, age_range_high,
+             address, postcode, latitude, longitude, admissions_policy, religious_character,
+             la_code, la_name, gender, sixth_form, website, number_of_pupils,
+             position_approximate, source_name, source_date, loaded_at FROM schools_stage`,
+        );
+        await client.query(
+          `INSERT INTO ofsted_outcomes (urn, rating, inspection_date, report_url, latest_event_type,
+             latest_event_date, ungraded_outcome, report_card, source_name, source_date, loaded_at)
+           SELECT urn, rating, inspection_date, report_url, latest_event_type,
+             latest_event_date, ungraded_outcome, report_card, source_name, source_date, loaded_at
+           FROM outcomes_stage`,
+        );
+        const filed = await client.query("SELECT count(*)::int AS n FROM schools");
+        if (filed.rows[0].n !== schoolsLength)
+          throw new Error("the filed school count does not match — rolling back");
+        // The outcomes stage is emptied inside the swap
+        // transaction, so it can never survive a committed swap.
+        await client.query("DELETE FROM outcomes_stage");
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw error;
+      }
+      // The run is complete: schools staging + checkpoint go
+      // together, so nothing is left behind for the next edition.
+      await resume.clear();
+    },
+    async abortFiling() {
+      // The staging + checkpoint STAY: they are the next run's
+      // resume point.
+    },
+  };
+}
+
 async function main() {
   const startedAt = Date.now();
   const args = process.argv.slice(2);
   const verifyOnly = args.includes("--verify-only");
+  // BUG-368: resume from the last checkpointed chunk instead of
+  // restarting; with no checkpoint this is a fresh start.
+  const restart = args.includes("--restart");
   const fileAt = args.indexOf("--file");
   const fixtureMode = fileAt !== -1;
   const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
@@ -583,166 +898,34 @@ async function main() {
     return;
   }
 
+  // BUG-368: the filing streams through the resume filer —
+  // staging is persistent and checkpointed, so a killed run
+  // resumes instead of restarting. The filer reuses the
+  // directory client main() already opened; main() closes it.
+  const filer = await beginSchoolsFiling(progress, {
+    restart,
+    client,
+    giasEdition,
+    ofstedAsAt,
+  });
   try {
-    await client.query("BEGIN");
-    await client.query(
-      `CREATE TEMP TABLE schools_stage (LIKE schools INCLUDING DEFAULTS) ON COMMIT DROP`,
-    );
-    await client.query(
-      `CREATE TEMP TABLE outcomes_stage (LIKE ofsted_outcomes INCLUDING DEFAULTS) ON COMMIT DROP`,
-    );
-    // BUG-265: the filing is the run's long phase — one
-    // insert per school, so a tally over the schools (a real
-    // percentage: the count is known), a heartbeat and a
-    // slow-insert warning.
-    progress.stage(`filing ${formatCount(schools.length)} schools into the stage table`);
-    const schoolTally = progress.tally({
-      label: "filing",
-      total: schools.length,
-      every: Math.max(1, Math.ceil(schools.length / 20)),
-      unit: "schools",
-    });
-    const schoolWatch = createBatchWatch();
-    // The heartbeat stays coarse on a run of tens of
-    // thousands of inserts: every twentieth of the run.
-    const heartbeatEvery = Math.max(1, Math.ceil(schools.length / 20));
-    let schoolsFiled = 0;
-    let outcomesFiled = 0;
-    for (const s of schools) {
-      const started = Date.now();
-      await client.query(
-        `INSERT INTO schools_stage (urn, name, school_type, phase, age_range_low, age_range_high,
-           address, postcode, latitude, longitude, admissions_policy, religious_character,
-           la_code, la_name, gender, sixth_form, website, number_of_pupils,
-           position_approximate, source_name, source_date)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
-        [
-          s.urn,
-          s.name,
-          s.type,
-          s.phase,
-          s.ageLow,
-          s.ageHigh,
-          s.address,
-          s.postcode,
-          s.lat,
-          s.lng,
-          s.admissionsPolicy,
-          s.religiousCharacter,
-          s.laCode,
-          s.laName,
-          s.gender,
-          s.sixthForm,
-          s.website,
-          s.numberOfPupils,
-          s.positionApproximate,
-          SOURCE_SCHOOLS,
-          giasEdition,
-        ],
-      );
-      schoolsFiled += 1;
-      const { tookMs, averageMs, slow } = schoolWatch.observe(Date.now() - started);
-      schoolTally.tick(schoolsFiled);
-      progress.heartbeat({
-        stage: "filing",
-        done: schoolsFiled,
-        total: schools.length,
-        every: heartbeatEvery,
-      });
-      if (slow) {
-        progress.warning({
-          what: "school insert duration",
-          value: `school ${s.urn} took ${formatDuration(tookMs)}`,
-          threshold: `3x recent average ${formatDuration(averageMs)}`,
-        });
-      }
-    }
-    schoolTally.finish(schoolsFiled);
-    progress.stage(`filing ${formatCount(outcomes.size)} Ofsted outcomes into the stage table`);
-    const outcomeTally = progress.tally({
-      label: "filing outcomes",
-      total: outcomes.size,
-      every: Math.max(1, Math.ceil(outcomes.size / 20)),
-      unit: "outcomes",
-    });
-    const outcomeWatch = createBatchWatch();
-    const outcomeHeartbeatEvery = Math.max(1, Math.ceil(outcomes.size / 20));
-    for (const [urn, o] of outcomes) {
-      const started = Date.now();
-      await client.query(
-        `INSERT INTO outcomes_stage (urn, rating, inspection_date, report_url, latest_event_type,
-           latest_event_date, ungraded_outcome, report_card, source_name, source_date)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-        [
-          urn,
-          o.rating,
-          o.inspectionDate,
-          o.reportUrl,
-          o.latestEventType,
-          o.latestEventDate,
-          o.ungradedOutcome,
-          o.reportCard ? JSON.stringify(o.reportCard) : null,
-          SOURCE_OFSTED,
-          ofstedAsAt,
-        ],
-      );
-      outcomesFiled += 1;
-      const { tookMs, averageMs, slow } = outcomeWatch.observe(Date.now() - started);
-      outcomeTally.tick(outcomesFiled);
-      progress.heartbeat({
-        stage: "filing outcomes",
-        done: outcomesFiled,
-        total: outcomes.size,
-        every: outcomeHeartbeatEvery,
-      });
-      if (slow) {
-        progress.warning({
-          what: "outcome insert duration",
-          value: `outcome ${urn} took ${formatDuration(tookMs)}`,
-          threshold: `3x recent average ${formatDuration(averageMs)}`,
-        });
-      }
-    }
-    outcomeTally.finish(outcomesFiled);
-    progress.stage("swap started — replacing the filed schools and outcomes");
-    const staged = await client.query("SELECT count(*)::int AS n FROM schools_stage");
-    if (staged.rows[0].n !== schools.length)
-      throw new Error("the staged school count does not match — rolling back");
-    await client.query("DELETE FROM ofsted_outcomes");
-    await client.query("DELETE FROM schools");
-    await client.query(
-      `INSERT INTO schools (urn, name, school_type, phase, age_range_low, age_range_high,
-         address, postcode, latitude, longitude, admissions_policy, religious_character,
-         la_code, la_name, gender, sixth_form, website, number_of_pupils,
-         position_approximate, source_name, source_date, loaded_at)
-       SELECT urn, name, school_type, phase, age_range_low, age_range_high,
-         address, postcode, latitude, longitude, admissions_policy, religious_character,
-         la_code, la_name, gender, sixth_form, website, number_of_pupils,
-         position_approximate, source_name, source_date, loaded_at FROM schools_stage`,
-    );
-    await client.query(
-      `INSERT INTO ofsted_outcomes (urn, rating, inspection_date, report_url, latest_event_type,
-         latest_event_date, ungraded_outcome, report_card, source_name, source_date, loaded_at)
-       SELECT urn, rating, inspection_date, report_url, latest_event_type,
-         latest_event_date, ungraded_outcome, report_card, source_name, source_date, loaded_at
-       FROM outcomes_stage`,
-    );
-    const filed = await client.query("SELECT count(*)::int AS n FROM schools");
-    if (filed.rows[0].n !== schools.length)
-      throw new Error("the filed school count does not match — rolling back");
-    await client.query("COMMIT");
+    await filer.prepareResume(`${giasEdition}/${ofstedAsAt}`, schools.length, outcomes.size);
+    await filer.stageSchools(schools);
+    await filer.stageOutcomes(outcomes);
+    await filer.finishFiling(schools.length, outcomes.size);
   } catch (error) {
     // BUG-265: the failure line names the filing stage and
     // how many rows were staged — the swap rolled back, so
-    // the live tables are untouched and a re-run starts over.
+    // the live tables are untouched. BUG-368: the resume
+    // note names the point the next run resumes from.
     progress.failed({
       stage: "filing",
-      filed: schoolsFiled + outcomesFiled,
+      filed: filer.stagedCount(),
       total: schools.length + outcomes.size,
       error,
-      resume: "re-run from scratch (the swap rolled back, the live tables are untouched)",
+      resume: filer.resumeNote(),
     });
-    await client.query("ROLLBACK");
+    await filer.abortFiling();
     throw error;
   } finally {
     await client.end();

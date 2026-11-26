@@ -174,6 +174,7 @@ import { Readable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import yauzl from "yauzl";
 import pg from "pg";
+import { createLoaderResume } from "./loader-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -488,17 +489,30 @@ export function parseTitleRow(row, at, dataset) {
 // rows to onRow, and collect the rejects BY NAME plus the
 // golden-postcode rows. Pure over the stream — the tests
 // run this on the fixture files.
+//
+// BUG-368: skipGood skips offering the first N good rows
+// to onRow (the filing pass's resume: the checkpointed
+// prefix is already staged, so it is validated but not
+// re-offered). Skipped rows still count in stats.filed and
+// still feed the numbers/golden tallies, so the pass's
+// stats are identical with or without a skip.
 /**
  * @param {any} stream
  * @param {string} dataset
  * @param {((row: any) => unknown) | null} onRow
- * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, skipGood?: number }} [options]
  */
-export async function collectTitles(stream, dataset, onRow, { progress = null } = {}) {
+export async function collectTitles(
+  stream,
+  dataset,
+  onRow,
+  { progress = null, skipGood = 0 } = {},
+) {
   const stats = {
     dataset,
     rows: 0,
     filed: 0,
+    skipped: 0,
     rejects: [],
     rejectCount: 0,
     postcodeDropped: 0,
@@ -567,6 +581,12 @@ export async function collectTitles(stream, dataset, onRow, { progress = null } 
     else stats.numbers.add(parsed.companyNumber);
     if (parsed.postcode !== null && GOLDEN_POSTCODES.includes(parsed.postcode))
       stats.goldenRows.push(parsed);
+    // BUG-368: the resume skip — the row is validated and
+    // tallied, but not re-offered: its staged copy stands.
+    if (stats.skipped < skipGood) {
+      stats.skipped += 1;
+      continue;
+    }
     if (onRow) await onRow(parsed);
   }
   if (header === null) throw new Error(`the ${dataset.toUpperCase()} file is empty`);
@@ -835,9 +855,41 @@ export function goldenChecks({ ccodGolden, ocodGolden, snapshots, edition }) {
 // schema-contract tests). A failed pass files nothing
 // and the last good copy keeps serving.
 
-export async function fileTitles(pool, dataset, path, meta, retrievedAt, { progress = null } = {}) {
+// Filing with resume support (BUG-368): the stage is a
+// PERSISTENT table now (migration 0048, shared by both
+// datasets — the dataset column is the layer) and a
+// loader_checkpoint row per dataset records the last
+// fully staged flush, so a killed filing pass resumes
+// instead of re-staging the whole register. The filing
+// pass still re-streams the file (it must, to validate
+// every row), but the checkpointed prefix is validated
+// and not re-offered (collectTitles' skipGood), and the
+// checkpoint's next_start_index is the good-row ordinal
+// consumed. The validation pre-pass still re-runs in full
+// on a resumed run — it rebuilds the wanted-numbers set
+// the snapshots need, which no checkpoint can carry. The
+// swap stays atomic per dataset, and a successful swap
+// clears staging + checkpoint together (BUG-248 unchanged).
+/**
+ * @param {any} pool
+ * @param {string} dataset
+ * @param {string} path
+ * @param {any} meta
+ * @param {string} retrievedAt
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, edition?: string | null, expected?: number | null, restart?: boolean }} [options]
+ */
+export async function fileTitles(
+  pool,
+  dataset,
+  path,
+  meta,
+  retrievedAt,
+  { progress = null, edition = null, expected = null, restart = false } = {},
+) {
   const client = await pool.connect();
+  const runEdition = edition ?? meta?.edition ?? "unknown";
   let filed = 0;
+  let resume = null;
   // BUG-265: the filing pass re-streams the register — a
   // line every 10,000 filed rows, a heartbeat every
   // 10,000, and a warning for a flush that takes more than
@@ -846,26 +898,38 @@ export async function fileTitles(pool, dataset, path, meta, retrievedAt, { progr
   const fileTally = progress?.tally({ label: `file ${dataset}`, every: 10000, unit: "rows" });
   const flushWatch = createBatchWatch();
   try {
-    await client.query("BEGIN");
-    await client.query(`CREATE TEMP TABLE company_titles_stage (
+    await client.query(`CREATE TABLE IF NOT EXISTS company_titles_stage (
       title_number text, dataset text, tenure text, property_address text,
       district text, county text, region text, postcode text,
       multiple_address_indicator boolean, price_paid numeric,
       proprietor_name text, company_number text, proprietorship_category text,
       country_incorporated text, date_proprietor_added date,
       additional_proprietor_indicator boolean,
-      source_name text, source_date date, retrieved_at timestamptz
-    ) ON COMMIT DROP`);
+      source_name text, source_date date, retrieved_at timestamptz,
+      seq bigint NOT NULL, UNIQUE (seq)
+    )`);
+    resume = createLoaderResume(client, {
+      loader: `load-company-ownership:${dataset}`,
+      stageTable: "company_titles_stage",
+      layerColumn: "dataset",
+      layerValue: dataset,
+      progress,
+      restart,
+    });
+    const resumePrep = await resume.prepare({ edition: runEdition, expected });
+    const skipGood = resumePrep.resumed ? resumePrep.checkpoint.next_start_index : 0;
+    filed = resumePrep.resumed ? resumePrep.checkpoint.filed_count : 0;
     let batch = [];
     const flush = async () => {
       if (batch.length === 0) return;
       const started = Date.now();
       const values = [];
       const params = [];
+      const base = resume.takeSeq(batch.length);
       for (const r of batch) {
-        const base = params.length;
+        const b = params.length;
         values.push(
-          `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11}, $${base + 12}, $${base + 13}, $${base + 14}, $${base + 15}, $${base + 16}, $${base + 17}, $${base + 18}, $${base + 19})`,
+          `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7}, $${b + 8}, $${b + 9}, $${b + 10}, $${b + 11}, $${b + 12}, $${b + 13}, $${b + 14}, $${b + 15}, $${b + 16}, $${b + 17}, $${b + 18}, $${b + 19}, $${b + 20})`,
         );
         params.push(
           r.titleNumber,
@@ -887,10 +951,11 @@ export async function fileTitles(pool, dataset, path, meta, retrievedAt, { progr
           meta.sourceName,
           meta.sourceDate,
           retrievedAt,
+          base + values.length - 1,
         );
       }
       await client.query(
-        `INSERT INTO company_titles_stage (title_number, dataset, tenure, property_address, district, county, region, postcode, multiple_address_indicator, price_paid, proprietor_name, company_number, proprietorship_category, country_incorporated, date_proprietor_added, additional_proprietor_indicator, source_name, source_date, retrieved_at) VALUES ${values.join(", ")}`,
+        `INSERT INTO company_titles_stage (title_number, dataset, tenure, property_address, district, county, region, postcode, multiple_address_indicator, price_paid, proprietor_name, company_number, proprietorship_category, country_incorporated, date_proprietor_added, additional_proprietor_indicator, source_name, source_date, retrieved_at, seq) VALUES ${values.join(", ")}`,
         params,
       );
       filed += batch.length;
@@ -905,42 +970,95 @@ export async function fileTitles(pool, dataset, path, meta, retrievedAt, { progr
           threshold: `3x recent average ${formatDuration(averageMs)}`,
         });
       }
+      // BUG-368: one checkpoint line per committed flush.
+      await resume.checkpoint({
+        edition: runEdition,
+        expected,
+        nextStartIndex: filed,
+        read: filed,
+        filed,
+        state: { dataset },
+        unit: "rows",
+      });
     };
-    const stats = await collectTitles(openCsvStream(path), dataset, async (row) => {
-      batch.push(row);
-      if (batch.length >= 1000) await flush();
-    });
+    const stats = await collectTitles(
+      openCsvStream(path),
+      dataset,
+      async (row) => {
+        batch.push(row);
+        if (batch.length >= 1000) await flush();
+      },
+      { progress, skipGood },
+    );
     await flush();
     fileTally?.finish(filed);
     if (filed !== stats.filed)
       throw new Error(
         `the ${dataset.toUpperCase()} filing pass filed ${filed} against ${stats.filed} validated rows`,
       );
-    await client.query(`DELETE FROM company_titles WHERE dataset = $1`, [dataset]);
-    await client.query(
-      `INSERT INTO company_titles (title_number, dataset, tenure, property_address, district, county, region, postcode, multiple_address_indicator, price_paid, proprietor_name, company_number, proprietorship_category, country_incorporated, date_proprietor_added, additional_proprietor_indicator, source_name, source_date, retrieved_at)
-       SELECT title_number, dataset, tenure, property_address, district, county, region, postcode, multiple_address_indicator, price_paid, proprietor_name, company_number, proprietorship_category, country_incorporated, date_proprietor_added, additional_proprietor_indicator, source_name, source_date, retrieved_at FROM company_titles_stage`,
+    const stagedRes = await client.query(
+      `SELECT count(*)::int AS n FROM company_titles_stage WHERE dataset = $1`,
+      [dataset],
     );
-    await client.query("COMMIT");
+    if (expected !== null && stagedRes.rows[0].n !== expected)
+      throw new Error(`the ${dataset.toUpperCase()} staged count does not match — rolling back`);
+    try {
+      await client.query("BEGIN");
+      try {
+        await client.query(`DELETE FROM company_titles WHERE dataset = $1`, [dataset]);
+        await client.query(
+          `INSERT INTO company_titles (title_number, dataset, tenure, property_address, district, county, region, postcode, multiple_address_indicator, price_paid, proprietor_name, company_number, proprietorship_category, country_incorporated, date_proprietor_added, additional_proprietor_indicator, source_name, source_date, retrieved_at)
+       SELECT title_number, dataset, tenure, property_address, district, county, region, postcode, multiple_address_indicator, price_paid, proprietor_name, company_number, proprietorship_category, country_incorporated, date_proprietor_added, additional_proprietor_indicator, source_name, source_date, retrieved_at FROM company_titles_stage WHERE dataset = $1`,
+          [dataset],
+        );
+        await client.query("COMMIT");
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw err;
+      }
+      // The run is complete: staging + checkpoint go together.
+      await resume.clear();
+    } catch (err) {
+      // BUG-368: a swap failure leaves the staged pass
+      // checkpointed, so the next run resumes at the swap.
+      err.resumeNote = resume.resumeNote();
+      throw err;
+    }
     return { filed, stats };
   } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
+    // BUG-368: the staging is durable per flush — no
+    // transaction to roll back, and the staged rows +
+    // checkpoint STAY for the next run to resume from. The
+    // note rides on the error so the run's one failure line
+    // (in loadCompanyOwnership) names the resume point.
+    if (err.resumeNote === undefined)
+      err.resumeNote = resume ? resume.resumeNote() : "the start (nothing staged yet)";
     throw err;
   } finally {
     client.release();
   }
 }
 
+/**
+ * @param {any} pool
+ * @param {string} path
+ * @param {any} wanted
+ * @param {any} meta
+ * @param {string} retrievedAt
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, edition?: string | null, expected?: number | null, restart?: boolean }} [options]
+ */
 export async function fileSnapshots(
   pool,
   path,
   wanted,
   meta,
   retrievedAt,
-  { progress = null } = {},
+  { progress = null, edition = null, expected = null, restart = false } = {},
 ) {
   const client = await pool.connect();
+  const runEdition = edition ?? meta?.edition ?? "unknown";
   let filed = 0;
+  let resume = null;
   // BUG-265: the wanted set's size is the genuine total —
   // the tally carries a real percentage, a line every
   // twentieth of the set.
@@ -951,21 +1069,36 @@ export async function fileSnapshots(
     unit: "snapshots",
   });
   try {
-    await client.query("BEGIN");
-    await client.query(`CREATE TEMP TABLE company_snapshots_stage (
+    await client.query(`CREATE TABLE IF NOT EXISTS company_snapshots_stage (
       company_number text, company_name text, status text, incorporation_date date,
       sic_codes text[], registered_office text,
-      source_name text, source_date date, retrieved_at timestamptz
-    ) ON COMMIT DROP`);
+      source_name text, source_date date, retrieved_at timestamptz,
+      seq bigint NOT NULL, UNIQUE (seq)
+    )`);
+    resume = createLoaderResume(client, {
+      loader: "load-company-ownership:snapshots",
+      stageTable: "company_snapshots_stage",
+      progress,
+      restart,
+    });
+    const resumePrep = await resume.prepare({ edition: runEdition, expected });
+    // BUG-368: the resume skip is the wanted-row ordinal —
+    // the Companies House product is re-streamed, the first
+    // N wanted rows are validated but not re-offered, and
+    // the checkpoint's next_start_index is that ordinal.
+    const skipWanted = resumePrep.resumed ? resumePrep.checkpoint.next_start_index : 0;
+    filed = resumePrep.resumed ? resumePrep.checkpoint.filed_count : 0;
+    let wantedSeen = 0;
     const batch = [];
     const flush = async () => {
       if (batch.length === 0) return;
       const values = [];
       const params = [];
+      const base = resume.takeSeq(batch.length);
       for (const r of batch) {
-        const base = params.length;
+        const b = params.length;
         values.push(
-          `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9})`,
+          `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7}, $${b + 8}, $${b + 9}, $${b + 10})`,
         );
         params.push(
           r.companyNumber,
@@ -977,16 +1110,27 @@ export async function fileSnapshots(
           meta.sourceName,
           meta.sourceDate,
           retrievedAt,
+          base + values.length - 1,
         );
       }
       await client.query(
-        `INSERT INTO company_snapshots_stage (company_number, company_name, status, incorporation_date, sic_codes, registered_office, source_name, source_date, retrieved_at) VALUES ${values.join(", ")}`,
+        `INSERT INTO company_snapshots_stage (company_number, company_name, status, incorporation_date, sic_codes, registered_office, source_name, source_date, retrieved_at, seq) VALUES ${values.join(", ")}`,
         params,
       );
       filed += batch.length;
       batch.length = 0;
       fileTally?.tick(filed);
       progress?.heartbeat({ stage: "file snapshots", done: filed, total: wanted.size });
+      // BUG-368: one checkpoint line per committed flush.
+      await resume.checkpoint({
+        edition: runEdition,
+        expected,
+        nextStartIndex: wantedSeen,
+        read: wantedSeen,
+        filed,
+        state: { phase: "snapshots" },
+        unit: "snapshots",
+      });
     };
     // Stream the product once, staging only wanted rows.
     // (collectSnapshots is the validating pre-pass; this
@@ -1004,20 +1148,38 @@ export async function fileSnapshots(
       if (row.length !== header.length) continue;
       const num = (row[at.CompanyNumber] ?? "").trim();
       if (!wanted.has(num)) continue;
+      wantedSeen += 1;
+      if (wantedSeen <= skipWanted) continue;
       batch.push(parseSnapshotRow(row, at));
       if (batch.length >= 1000) await flush();
     }
     await flush();
     fileTally?.finish(filed);
-    await client.query(`DELETE FROM company_snapshots`);
-    await client.query(
-      `INSERT INTO company_snapshots (company_number, company_name, status, incorporation_date, sic_codes, registered_office, source_name, source_date, retrieved_at)
+    const stagedRes = await client.query("SELECT count(*)::int AS n FROM company_snapshots_stage");
+    if (expected !== null && stagedRes.rows[0].n !== expected)
+      throw new Error("the staged snapshot count does not match — rolling back");
+    try {
+      await client.query("BEGIN");
+      try {
+        await client.query(`DELETE FROM company_snapshots`);
+        await client.query(
+          `INSERT INTO company_snapshots (company_number, company_name, status, incorporation_date, sic_codes, registered_office, source_name, source_date, retrieved_at)
        SELECT company_number, company_name, status, incorporation_date, sic_codes, registered_office, source_name, source_date, retrieved_at FROM company_snapshots_stage`,
-    );
-    await client.query("COMMIT");
+        );
+        await client.query("COMMIT");
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw err;
+      }
+      await resume.clear();
+    } catch (err) {
+      err.resumeNote = resume.resumeNote();
+      throw err;
+    }
     return { filed };
   } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
+    if (err.resumeNote === undefined)
+      err.resumeNote = resume ? resume.resumeNote() : "the start (nothing staged yet)";
     throw err;
   } finally {
     client.release();
@@ -1178,7 +1340,10 @@ export async function acquireLiveSources() {
 
 // --- the run ------------------------------------------------------------
 
-export async function loadCompanyOwnership(source, { verifyOnly = false, progress = null } = {}) {
+export async function loadCompanyOwnership(
+  source,
+  { verifyOnly = false, progress = null, restart = false } = {},
+) {
   const retrievedAt = new Date().toISOString();
   // Pre-pass: validate both datasets fully, collecting
   // golden rows and the filed company numbers.
@@ -1274,9 +1439,10 @@ export async function loadCompanyOwnership(source, { verifyOnly = false, progres
         {
           sourceName: dataset === "ccod" ? CCOD_SOURCE_NAME : OCOD_SOURCE_NAME,
           sourceDate: v.src.edition ? `${v.src.edition}-01` : null,
+          edition: v.src.edition,
         },
         retrievedAt,
-        { progress },
+        { progress, edition: v.src.edition, expected: v.stats.filed, restart },
       );
       filedTitles += filed;
       if (filed !== v.stats.filed)
@@ -1292,9 +1458,10 @@ export async function loadCompanyOwnership(source, { verifyOnly = false, progres
         {
           sourceName: CH_SOURCE_NAME,
           sourceDate: source.companiesHouse.edition ? `${source.companiesHouse.edition}-01` : null,
+          edition: source.companiesHouse.edition,
         },
         retrievedAt,
-        { progress },
+        { progress, edition: source.companiesHouse.edition, expected: snapshotFound.size, restart },
       );
       filedTitles += filed;
       if (filed !== snapshotFound.size)
@@ -1322,7 +1489,9 @@ export async function loadCompanyOwnership(source, { verifyOnly = false, progres
       filed: filedTitles,
       total: totals.ccod + totals.ocod + totals.snapshots,
       error: err,
-      resume: "re-run from scratch (each filing pass is transactional)",
+      // BUG-368: the filing pass names its resume point —
+      // the staged rows + checkpoint stand for the next run.
+      resume: err.resumeNote ?? "re-run from scratch (each filing pass is transactional)",
     });
     throw err;
   } finally {
@@ -1361,6 +1530,9 @@ async function main() {
   const fileIdx = args.indexOf("--file");
   const fileArg = fileIdx >= 0 ? args[fileIdx + 1] : null;
   const verifyOnly = args.includes("--verify-only");
+  // BUG-368: resume from the last checkpointed flush instead of
+  // restarting; with no checkpoint this is a fresh start.
+  const restart = args.includes("--restart");
   let liveDir = null;
   // BUG-265: one logger for the run — the validation and
   // filing lines inside loadCompanyOwnership.
@@ -1374,7 +1546,7 @@ async function main() {
             liveDir = s.dir;
             return s;
           })();
-    const { totals, filed } = await loadCompanyOwnership(source, { verifyOnly, progress });
+    const { totals, filed } = await loadCompanyOwnership(source, { verifyOnly, progress, restart });
     console.log(
       `${summaryLine(totals, filed)} — golden areas OK${verifyOnly ? " (verify-only: nothing filed)" : ""}`,
     );

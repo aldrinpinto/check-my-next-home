@@ -54,6 +54,7 @@ import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { createLoaderResume } from "./loader-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -391,6 +392,227 @@ async function fixtureCertificates(postcode, fileDir, fixture) {
   return certificates;
 }
 
+// One postcode's fetch, golden-checked, as the answer the
+// filing merges into postcode_cache — the per-postcode unit
+// the resume stages (see beginFiling): the fetch is the
+// run's long phase (hundreds of certificate fetches on a
+// rich postcode), and the staged answer is what a resumed
+// run reuses instead of fetching again.
+/**
+ * @param {{ fixture?: any, fileDir?: string | null, token?: string | null, pc: string, progress?: import("./progress.mjs").ProgressLogger | null }} options
+ */
+export async function fetchPostcodeAnswer({
+  fixture = null,
+  fileDir = null,
+  token = null,
+  pc,
+  progress = null,
+}) {
+  const { certificates, skipped } = fixture
+    ? { certificates: await fixtureCertificates(pc, fileDir, fixture), skipped: 0 }
+    : await liveCertificates(pc, token, { progress });
+  checkGolden(pc, certificates);
+  return {
+    answer: {
+      certificates,
+      certificateCount: certificates.length,
+      sourceName: SOURCE_NAME,
+      sourceDate: new Date().toISOString().slice(0, 10),
+      loadedAt: new Date().toISOString(),
+    },
+    skipped,
+  };
+}
+
+// --- filing ------------------------------------------------------------
+
+// Stage, merge, swap — with resume support (BUG-368): each
+// postcode's fetched answer is staged into the PERSISTENT
+// epc_stage table as it lands (migration 0048 — the parent
+// adds the table at merge time; beginFiling still creates it,
+// so the loader works on a database the migration has not
+// yet reached), and a loader_checkpoint row records the last
+// fully staged postcode, so a killed run resumes from the
+// next unstaged postcode instead of re-fetching the register.
+//
+// THE RESUME UNITS. The edition is the run's date: the
+// register carries no edition of its own, and the answer's
+// sourceDate is the fetch date, so a run resumed on a later
+// day discards the staged answers and fetches fresh —
+// correct, since the register may have moved overnight. The
+// expected count is the run's postcode list, known up front,
+// so a run with a different list length discards too. The
+// staging is per postcode (one row, seq = the postcode's
+// ordinal in the staged set), so a run with the same length
+// but a different postcode set still reuses exactly the
+// staged postcodes it shares with the earlier run and fetches
+// the rest. The filing merge itself is unchanged: one
+// transaction merging the epc key into each postcode's
+// answers, read back and golden-checked before commit, and a
+// successful merge clears staging + checkpoint together
+// (BUG-248 atomicity unchanged: the live answers change only
+// on that complete, verified merge).
+/**
+ * Open the filing run's database client and resume handle
+ * (BUG-368). The client is injectable so the resume tests
+ * can file against a fake database; production passes none
+ * and a real client is opened as before.
+ *
+ * @param {import("./progress.mjs").ProgressLogger | null} [progress]
+ * @param {{ restart?: boolean, client?: any }} [options]
+ */
+export async function beginFiling(
+  progress = null,
+  { restart = false, client: injectedClient = null } = {},
+) {
+  const client = injectedClient ?? new pg.Client({ connectionString: process.env.DATABASE_URL });
+  const ownsClient = !injectedClient;
+  if (ownsClient) await client.connect();
+  try {
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS epc_stage (
+         postcode text, answer jsonb NOT NULL, skipped integer NOT NULL DEFAULT 0,
+         seq bigint NOT NULL, UNIQUE (seq)
+       )`,
+    );
+  } catch (error) {
+    if (ownsClient) await client.end().catch(() => {});
+    throw error;
+  }
+  const resume = createLoaderResume(client, {
+    loader: "load-epc",
+    stageTable: "epc_stage",
+    progress,
+    restart,
+  });
+  let staged = 0;
+  let seqNext = 0;
+  let edition = null;
+  let expected = null;
+  /** @type {{ resumed: boolean, reason?: string, checkpoint?: any, prefix?: boolean }} */
+  let resumePrep = { resumed: false };
+  let stagedRows = [];
+  return {
+    resumePrep: () => resumePrep,
+    resumeNote: () => resume.resumeNote(),
+    // The staged answers the resumed run reuses — loaded by
+    // prepareResume, each golden-checked as it is read back,
+    // so a staged answer that no longer proves itself is a
+    // loud failure, never a silent filing.
+    stagedAnswers: () => stagedRows,
+    // Decide, from the run's date and postcode count and the
+    // staged rows, whether this run resumes or starts from
+    // zero. Called once, before the first postcode is fetched.
+    async prepareResume(ed, expectedCount) {
+      edition = ed;
+      expected = expectedCount;
+      resumePrep = await resume.prepare({ edition, expected });
+      stagedRows = [];
+      if (resumePrep.resumed) {
+        const cp = resumePrep.checkpoint;
+        staged = cp.filed_count;
+        seqNext = cp.filed_count;
+        const { rows } = await client.query(
+          "SELECT postcode, answer, skipped FROM epc_stage ORDER BY seq",
+        );
+        for (const row of rows) {
+          const answer = typeof row.answer === "string" ? JSON.parse(row.answer) : row.answer;
+          checkGolden(row.postcode, answer.certificates);
+          stagedRows.push({ postcode: row.postcode, answer, skipped: row.skipped ?? 0 });
+        }
+      }
+      return resumePrep;
+    },
+    // Stage one postcode's fetched answer and checkpoint it —
+    // one progress line per committed postcode, never per
+    // certificate. The insert and the checkpoint are separate
+    // statements (the AQMA shape): a kill between them leaves
+    // a staged row past the checkpoint, which prepare() trims,
+    // so the resumed run re-fetches exactly that postcode.
+    async stageAnswer(pc, answer, skipped) {
+      const seq = seqNext;
+      seqNext += 1;
+      await client.query(
+        "INSERT INTO epc_stage (postcode, answer, skipped, seq) VALUES ($1, $2::jsonb, $3, $4)",
+        [pc, JSON.stringify(answer), skipped, seq],
+      );
+      staged += 1;
+      if (edition) {
+        await resume.checkpoint({
+          edition,
+          expected,
+          nextStartIndex: staged,
+          read: staged,
+          filed: staged,
+          state: {},
+          unit: "postcodes",
+        });
+      }
+    },
+    // File every answer in the map — the merge the loader
+    // always ran, unchanged except that it now clears the
+    // staging + checkpoint on success, and its failure line
+    // carries the resume note.
+    async finishFiling(postcodes, answers) {
+      try {
+        await client.query("BEGIN");
+        // BUG-265: the filing is one transaction per run — a
+        // stage marker naming the postcodes it files.
+        progress?.stage(`filing ${formatCount(postcodes.length)} EPC answers`);
+        try {
+          for (const pc of postcodes) {
+            const res = await client.query(
+              "UPDATE postcode_cache SET answers = answers || $1::jsonb WHERE postcode = $2",
+              [JSON.stringify({ epc: answers.get(pc) }), pc],
+            );
+            if (res.rowCount === 0)
+              throw new Error(
+                `${pc}: not in the postcode directory — run the postcode loader (step M4.1) first`,
+              );
+          }
+          for (const pc of postcodes) {
+            const res = await client.query(
+              "SELECT answers->'epc' AS epc FROM postcode_cache WHERE postcode = $1",
+              [pc],
+            );
+            const filed = res.rows[0]?.epc;
+            if (!filed || filed.certificateCount !== answers.get(pc).certificateCount)
+              throw new Error(
+                `${pc}: the filed EPC answer does not match the fetched certificates — rolling back`,
+              );
+            checkGolden(pc, filed.certificates);
+          }
+          await client.query("COMMIT");
+        } catch (error) {
+          // BUG-265: the filing transaction rolls back, so
+          // nothing is filed on failure.
+          progress?.failed({
+            stage: "file",
+            filed: 0,
+            total: postcodes.length,
+            error,
+            resume: resume.resumeNote(),
+          });
+          await client.query("ROLLBACK");
+          throw error;
+        }
+        // The run is complete: staging + checkpoint go together,
+        // so nothing is left behind for the next run.
+        await resume.clear();
+      } finally {
+        if (ownsClient) await client.end().catch(() => {});
+      }
+    },
+    async abortFiling() {
+      // The staging + checkpoint STAY: they are the next run's
+      // resume point. A run that never prepared leaves whatever
+      // a previous run left, and the next run's prepare()
+      // validates or discards it.
+      if (ownsClient) await client.end().catch(() => {});
+    },
+  };
+}
+
 // Canonical stringify for golden comparisons: object keys
 // sorted recursively, array order preserved (register order
 // is a product rule, so arrays stay significant). The golden
@@ -582,6 +804,10 @@ async function main() {
   const startedAt = Date.now();
   const args = process.argv.slice(2);
   const verifyOnly = args.includes("--verify-only");
+  // BUG-368: resume from the last staged postcode instead of
+  // re-fetching the register; with no checkpoint this is a
+  // fresh start.
+  const restart = args.includes("--restart");
   const fileIdx = args.indexOf("--file");
   const fileDir = fileIdx >= 0 ? args[fileIdx + 1] : null;
   const postcodes = args
@@ -601,26 +827,57 @@ async function main() {
   const progress = createProgressLogger({ name: "load-epc" });
   const answers = new Map();
   const skippedByPostcode = new Map();
+  // BUG-368: a filing run stages each postcode's answer as
+  // it is fetched, so a kill resumes instead of restarting.
+  // Verify-only never opens the database (as before).
+  let filer = null;
+  if (!verifyOnly) {
+    if (!process.env.DATABASE_URL)
+      throw new Error("DATABASE_URL is not set (see .env.example, Key K6)");
+    filer = await beginFiling(progress, { restart });
+  }
+  // The resume edition is the run's date (see beginFiling).
+  const edition = new Date().toISOString().slice(0, 10);
   try {
+    if (filer) {
+      const prep = await filer.prepareResume(edition, postcodes.length);
+      if (prep.resumed) {
+        for (const staged of filer.stagedAnswers()) {
+          if (!postcodes.includes(staged.postcode)) continue;
+          answers.set(staged.postcode, staged.answer);
+          skippedByPostcode.set(staged.postcode, staged.skipped);
+        }
+      }
+    }
     for (const [i, pc] of postcodes.entries()) {
-      const { certificates, skipped } = fixture
-        ? { certificates: await fixtureCertificates(pc, fileDir, fixture), skipped: 0 }
-        : await liveCertificates(pc, token, { progress });
-      skippedByPostcode.set(pc, skipped);
-      checkGolden(pc, certificates);
-      answers.set(pc, {
-        certificates,
-        certificateCount: certificates.length,
-        sourceName: SOURCE_NAME,
-        sourceDate: new Date().toISOString().slice(0, 10),
-        loadedAt: new Date().toISOString(),
+      if (answers.has(pc)) {
+        // Resumed: the staged answer stands, golden-checked
+        // at load — the register is not fetched again.
+        progress.count({
+          label: "postcodes",
+          done: i + 1,
+          total: postcodes.length,
+          unit: "postcodes",
+          extra: `${pc}: ${formatCount(answers.get(pc).certificateCount)} certificates (resumed)`,
+        });
+        continue;
+      }
+      const { answer, skipped } = await fetchPostcodeAnswer({
+        fixture,
+        fileDir,
+        token,
+        pc,
+        progress,
       });
+      answers.set(pc, answer);
+      skippedByPostcode.set(pc, skipped);
+      if (filer) await filer.stageAnswer(pc, answer, skipped);
       progress.count({
         label: "postcodes",
         done: i + 1,
         total: postcodes.length,
         unit: "postcodes",
-        extra: `${pc}: ${formatCount(certificates.length)} certificates`,
+        extra: `${pc}: ${formatCount(answer.certificateCount)} certificates`,
       });
     }
   } catch (err) {
@@ -629,8 +886,11 @@ async function main() {
       filed: answers.size,
       total: postcodes.length,
       error: err,
-      resume: "re-run from scratch (nothing is filed until the filing step)",
+      resume: filer
+        ? filer.resumeNote()
+        : "re-run from scratch (nothing is filed until the filing step)",
     });
+    if (filer) await filer.abortFiling();
     throw err;
   }
 
@@ -652,56 +912,15 @@ async function main() {
     return;
   }
 
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) throw new Error("DATABASE_URL is not set (see .env.example, Key K6)");
-  const client = new pg.Client({ connectionString });
-  await client.connect();
+  const activeFiler = filer;
+  filer = null;
   try {
-    await client.query("BEGIN");
-    // BUG-265: the filing is one transaction per run — a
-    // stage marker naming the postcodes it files.
-    progress.stage(`filing ${formatCount(postcodes.length)} EPC answers`);
-    try {
-      for (const pc of postcodes) {
-        const res = await client.query(
-          "UPDATE postcode_cache SET answers = answers || $1::jsonb WHERE postcode = $2",
-          [JSON.stringify({ epc: answers.get(pc) }), pc],
-        );
-        if (res.rowCount === 0)
-          throw new Error(
-            `${pc}: not in the postcode directory — run the postcode loader (step M4.1) first`,
-          );
-      }
-      for (const pc of postcodes) {
-        const res = await client.query(
-          "SELECT answers->'epc' AS epc FROM postcode_cache WHERE postcode = $1",
-          [pc],
-        );
-        const filed = res.rows[0]?.epc;
-        if (!filed || filed.certificateCount !== answers.get(pc).certificateCount)
-          throw new Error(
-            `${pc}: the filed EPC answer does not match the fetched certificates — rolling back`,
-          );
-        checkGolden(pc, filed.certificates);
-      }
-      await client.query("COMMIT");
-    } catch (error) {
-      // BUG-265: the filing transaction rolls back, so
-      // nothing is filed on failure.
-      progress.failed({
-        stage: "file",
-        filed: 0,
-        total: postcodes.length,
-        error,
-        resume: "re-run from scratch (the filing transaction rolls back)",
-      });
-      await client.query("ROLLBACK");
-      throw error;
-    }
-    console.log(`${summary()} · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`);
-  } finally {
-    await client.end();
+    await activeFiler.finishFiling(postcodes, answers);
+  } catch (error) {
+    // finishFiling already reported the failure line.
+    throw error;
   }
+  console.log(`${summary()} · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`);
 }
 
 // Run only when invoked as the loader script — the unit

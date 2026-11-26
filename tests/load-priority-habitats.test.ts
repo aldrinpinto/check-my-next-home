@@ -1,7 +1,13 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { readPhiPages } from "../loaders/load-priority-habitats.mjs";
+import {
+  readPhiPages,
+  beginFiling,
+  createPhiProcessor,
+  peekPhiFixtureVersion,
+  streamPhiFixture,
+} from "../loaders/load-priority-habitats.mjs";
 import { createProgressLogger } from "../loaders/progress.mjs";
 
 // Guards the priority habitats loader (plan step M5.3): the
@@ -201,5 +207,249 @@ describe("progress logging (BUG-265)", () => {
     // The runner contract: no progress line starts with the
     // loader name — every line starts with its timestamp.
     expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+  });
+});
+
+describe("resume (BUG-368)", () => {
+  // A fake pg client: the staged rows, the live layer and the
+  // loader_checkpoint row as arrays, with just enough SQL to
+  // run the filer. The fixture's 1,716 patches all file
+  // (unique UIDs, geometry on every one), so the kill point
+  // below is exact: two 500-row flushes stage 1,000 rows and
+  // checkpoint at 1,000.
+  type StagedRow = { reference: string; seq: number };
+  type CheckpointRow = {
+    loader: string;
+    edition: string;
+    expected: number | null;
+    next_start_index: number;
+    read_count: number;
+    filed_count: number;
+    state: Record<string, unknown> | null;
+  };
+  function createFakeClient() {
+    let staged: StagedRow[] = [];
+    let live: StagedRow[] = [];
+    const checkpoints = new Map<string, CheckpointRow>();
+    let insertCalls = 0;
+    let failAfterInserts: number | null = null;
+    let snapshot: {
+      staged: StagedRow[];
+      live: StagedRow[];
+      checkpoints: Map<string, CheckpointRow>;
+    } | null = null;
+    const query = async (sql: string, params: unknown[] = []) => {
+      const text = sql.replace(/\s+/g, " ");
+      if (text === "BEGIN") {
+        snapshot = { staged: [...staged], live: [...live], checkpoints: new Map(checkpoints) };
+        return { rows: [] };
+      }
+      if (text === "COMMIT") {
+        snapshot = null;
+        return { rows: [] };
+      }
+      if (text === "ROLLBACK") {
+        if (snapshot) {
+          staged = snapshot.staged;
+          live = snapshot.live;
+          checkpoints.clear();
+          for (const [k, v] of snapshot.checkpoints) checkpoints.set(k, v);
+        }
+        snapshot = null;
+        return { rows: [] };
+      }
+      if (/CREATE TABLE IF NOT EXISTS phi_stage/.test(text)) return { rows: [] };
+      if (/INSERT INTO phi_stage/.test(text)) {
+        insertCalls += 1;
+        if (failAfterInserts !== null && insertCalls > failAfterInserts)
+          throw new Error("simulated kill: the database connection dropped mid-insert");
+        for (let r = 0; r < params.length / 10; r++) {
+          staged.push({
+            reference: params[r * 10 + 3] as string,
+            seq: params[r * 10 + 9] as number,
+          });
+        }
+        return { rows: [], rowCount: params.length / 10 };
+      }
+      if (
+        /SELECT loader, edition, expected, next_start_index, read_count, filed_count, state, updated_at/.test(
+          text,
+        )
+      ) {
+        const row = checkpoints.get(params[0] as string);
+        return { rows: row ? [row] : [] };
+      }
+      if (/INSERT INTO loader_checkpoint/.test(text)) {
+        checkpoints.set(params[0] as string, {
+          loader: params[0] as string,
+          edition: params[1] as string,
+          expected: params[2] as number | null,
+          next_start_index: params[3] as number,
+          read_count: params[4] as number,
+          filed_count: params[5] as number,
+          state: JSON.parse(params[6] as string) as Record<string, unknown>,
+        });
+        return { rows: [] };
+      }
+      if (/DELETE FROM loader_checkpoint WHERE loader =/.test(text)) {
+        checkpoints.delete(params[0] as string);
+        return { rows: [] };
+      }
+      if (/SELECT count\(\*\)::int AS n, coalesce\(sum\(seq\)/.test(text)) {
+        return {
+          rows: [
+            {
+              n: staged.length,
+              s: staged.reduce((a, r) => a + r.seq, 0),
+              m: staged.length ? Math.max(...staged.map((r) => r.seq)) : 0,
+            },
+          ],
+        };
+      }
+      if (/DELETE FROM phi_stage WHERE seq >=/.test(text)) {
+        staged = staged.filter((r) => r.seq < (params[0] as number));
+        return { rows: [], rowCount: 0 };
+      }
+      if (/DELETE FROM phi_stage/.test(text)) {
+        staged = [];
+        return { rows: [] };
+      }
+      if (/SELECT count\(\*\)::int AS n FROM phi_stage/.test(text))
+        return { rows: [{ n: staged.length }] };
+      if (/SELECT source_reference FROM phi_stage/.test(text))
+        return { rows: staged.map((r) => ({ source_reference: r.reference })) };
+      if (/DELETE FROM planning_layers WHERE constraint_type = 'priority_habitat'/.test(text)) {
+        live = [];
+        return { rows: [] };
+      }
+      if (/INSERT INTO planning_layers/.test(text)) {
+        live = [...staged];
+        return { rows: [] };
+      }
+      if (
+        /SELECT count\(\*\)::int AS n FROM planning_layers WHERE constraint_type = 'priority_habitat'/.test(
+          text,
+        )
+      )
+        return { rows: [{ n: live.length }] };
+      throw new Error(`fake client: unhandled SQL: ${sql}`);
+    };
+    return {
+      query,
+      staged: () => staged,
+      live: () => live,
+      liveRefs: () => live.map((r) => r.reference),
+      checkpoints,
+      setFailAfterInserts: (n: number | null) => {
+        insertCalls = 0;
+        failAfterInserts = n;
+      },
+    };
+  }
+  type FakeClient = ReturnType<typeof createFakeClient>;
+  async function runLoad(
+    fake: FakeClient,
+    {
+      restart = false,
+      lines = null as string[] | null,
+    }: { restart?: boolean; lines?: string[] | null } = {},
+  ) {
+    const captured: string[] = lines ?? [];
+    const progress = createProgressLogger({
+      name: "load-priority-habitats",
+      log: (line: string) => captured.push(line),
+    });
+    const filer = await beginFiling(progress, { client: fake as never, restart });
+    const edition = await peekPhiFixtureVersion(fixtureDir);
+    const prep = await filer.prepareResume(edition, null);
+    const run = createPhiProcessor({
+      onRow: (
+        row: {
+          name: string | null;
+          wkt: string;
+          reference: string;
+          detail: string | null;
+          sourceDate: string;
+        },
+        ctx: { read: number; state: Record<string, unknown> },
+      ) => filer.stageRow(row, ctx),
+    });
+    if (prep.resumed) await run.seedFromCheckpoint(prep.checkpoint, await filer.stagedUids());
+    const startOffset = prep.resumed ? prep.checkpoint.next_start_index : 0;
+    await streamPhiFixture(fixtureDir, (feature: never) => run.processFeature(feature), {
+      startOffset,
+    });
+    await filer.flushTail({ read: run.state.read, state: run.checkpointState() });
+    return { filer, run, lines: captured };
+  }
+  const fixtureRefs = () => phi.map((f) => String(f.properties.UID));
+
+  it("kill mid-read resumes and files every patch exactly once", { timeout: 60_000 }, async () => {
+    const fake = createFakeClient();
+    // Kill after two 500-row flushes: 1,000 rows staged, the
+    // checkpoint at 1,000, the third flush never landed.
+    const killLines: string[] = [];
+    fake.setFailAfterInserts(2);
+    await expect(runLoad(fake, { lines: killLines })).rejects.toThrow(/simulated kill/);
+    expect(fake.staged().length).toBe(1000);
+    expect(fake.checkpoints.get("load-priority-habitats")?.next_start_index).toBe(1000);
+    expect(fake.checkpoints.get("load-priority-habitats")?.filed_count).toBe(1000);
+    expect(
+      killLines.some((l) => /checkpoint 1,000 patches · staged 1,000 · resume from 1,000/.test(l)),
+    ).toBe(true);
+
+    fake.setFailAfterInserts(null);
+    const { filer, run, lines } = await runLoad(fake);
+    expect(run.state.read).toBe(1716);
+    expect(run.state.filed).toBe(1716);
+    expect(run.state.duplicates).toBe(0);
+    expect(() => run.checkGolden()).not.toThrow();
+    expect(
+      lines.some((l) =>
+        /resuming from checkpoint · 1,000 rows staged · edition Sept_26 · resume from 1,000/.test(
+          l,
+        ),
+      ),
+    ).toBe(true);
+    await filer.finishFiling(run.state.filed);
+    expect(fake.liveRefs().sort()).toEqual(fixtureRefs().sort());
+    // The swap cleared staging and the checkpoint together.
+    expect(fake.staged().length).toBe(0);
+    expect(fake.checkpoints.get("load-priority-habitats")).toBeUndefined();
+    expect(filer.resumeNote()).toBe("the start (nothing staged yet)");
+  });
+
+  it(
+    "an edition change discards the staged rows and starts from zero",
+    { timeout: 60_000 },
+    async () => {
+      const fake = createFakeClient();
+      fake.setFailAfterInserts(2);
+      await expect(runLoad(fake)).rejects.toThrow(/simulated kill/);
+      expect(fake.staged().length).toBe(1000);
+
+      const progress = createProgressLogger({ name: "load-priority-habitats", log: () => {} });
+      const filer = await beginFiling(progress, { client: fake as never });
+      const prep = await filer.prepareResume("Sept_27", null);
+      expect(prep.resumed).toBe(false);
+      expect(fake.staged().length).toBe(0);
+      expect(fake.checkpoints.get("load-priority-habitats")).toBeUndefined();
+    },
+  );
+
+  it("--restart discards the checkpoint and starts from zero", { timeout: 60_000 }, async () => {
+    const fake = createFakeClient();
+    fake.setFailAfterInserts(2);
+    await expect(runLoad(fake)).rejects.toThrow(/simulated kill/);
+    expect(fake.staged().length).toBe(1000);
+
+    fake.setFailAfterInserts(null);
+    const { filer, run } = await runLoad(fake, { restart: true });
+    expect(run.state.read).toBe(1716);
+    expect(run.state.filed).toBe(1716);
+    await filer.finishFiling(run.state.filed);
+    expect(fake.liveRefs().sort()).toEqual(fixtureRefs().sort());
+    expect(fake.staged().length).toBe(0);
+    expect(fake.checkpoints.get("load-priority-habitats")).toBeUndefined();
   });
 });

@@ -83,6 +83,7 @@ import {
   formatCount,
   formatDuration,
 } from "./progress.mjs";
+import { createLoaderResume } from "./loader-resume.mjs";
 
 const { Pool } = pg;
 
@@ -367,21 +368,29 @@ export function goldenChecks(rows, { full }) {
 
 // --- filing -----------------------------------------------------
 //
-// Per series-month stage-and-swap inside one transaction —
-// the house pattern (BEGIN before the ON COMMIT DROP stage
-// create; column names are migration 0013's own, pinned by
-// the schema-contract tests). Each filed month is deleted
-// and re-inserted from the stage, so a revised month
-// replaces its first estimate; the prune then keeps the
-// series' newest 13 months.
+// Filing with resume support (BUG-368): the stage is a
+// PERSISTENT table now (migration 0048) and a
+// loader_checkpoint row records the last fully staged
+// chunk, so a killed run resumes staging from the
+// checkpoint instead of re-staging the whole pull. The
+// paged Nomis pull still re-runs — only the staging is
+// saved. The edition is the filed months, joined; the
+// expected total is the row count. The swap stays atomic
+// and month-scoped, and a successful swap clears staging
+// + checkpoint together (BUG-248 unchanged).
 
 /**
  * @param {any} pool
  * @param {any[]} rows
  * @param {string} retrievedAt
- * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, restart?: boolean }} [options]
  */
-export async function fileClaimant(pool, rows, retrievedAt, { progress = null } = {}) {
+export async function fileClaimant(
+  pool,
+  rows,
+  retrievedAt,
+  { progress = null, restart = false } = {},
+) {
   const client = await pool.connect();
   // BUG-265: the filing is the run's long phase — a stage
   // marker up front and a line every 10,000 staged rows.
@@ -392,73 +401,123 @@ export async function fileClaimant(pool, rows, retrievedAt, { progress = null } 
     every: 10000,
     unit: "rows",
   });
-  let staged = 0;
-  try {
-    await client.query("BEGIN");
-    await client.query(`CREATE TEMP TABLE benefits_stage (
+  const months = [...new Set(rows.map((r) => r.month))].sort();
+  const edition = months.join("|");
+  const expected = rows.length;
+  await client.query(`CREATE TABLE IF NOT EXISTS benefits_stage (
       lsoa_code text, lsoa_name text, reference_month date,
-      count integer, pct numeric
-    ) ON COMMIT DROP`);
+      count integer, pct numeric,
+      seq bigint NOT NULL, UNIQUE (seq)
+    )`);
+  const resume = createLoaderResume(client, {
+    loader: "load-claimant-count",
+    stageTable: "benefits_stage",
+    progress,
+    restart,
+  });
+  const resumePrep = await resume.prepare({ edition, expected });
+  const startAt = resumePrep.resumed ? resumePrep.checkpoint.next_start_index : 0;
+  let staged = resumePrep.resumed ? resumePrep.checkpoint.filed_count : 0;
+  try {
     const values = [];
     const params = [];
     const flush = async () => {
       if (values.length === 0) return;
+      const base = resume.takeSeq(values.length);
       await client.query(
-        `INSERT INTO benefits_stage (lsoa_code, lsoa_name, reference_month, count, pct) VALUES ${values.join(", ")}`,
-        params,
+        `INSERT INTO benefits_stage (lsoa_code, lsoa_name, reference_month, count, pct, seq) VALUES ${values.join(", ")}`,
+        // The sixth parameter of every row is its seq —
+        // a 0 placeholder at build time, replaced here
+        // with the dense seq this flush owns.
+        params.map((p, i) => (i % 6 === 5 ? base + Math.floor(i / 6) : p)),
       );
       staged += values.length;
       values.length = 0;
       params.length = 0;
       fileTally?.tick(staged);
+      // BUG-368: one checkpoint line per committed chunk —
+      // the save is visible in the logs, and a kill after
+      // this line loses at most the chunk in flight.
+      await resume.checkpoint({
+        edition,
+        expected,
+        nextStartIndex: staged,
+        read: staged,
+        filed: staged,
+        unit: "rows",
+      });
     };
-    for (const row of rows) {
+    for (const row of rows.slice(startAt)) {
       const base = params.length;
-      values.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5})`);
-      params.push(row.lsoaCode, row.lsoaName, `${row.month}-01`, row.count, row.pct);
+      values.push(
+        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6})`,
+      );
+      params.push(row.lsoaCode, row.lsoaName, `${row.month}-01`, row.count, row.pct, 0);
       if (values.length >= 500) await flush();
     }
     await flush();
-    const months = [...new Set(rows.map((r) => r.month))].sort();
-    for (const month of months) {
-      await client.query(`DELETE FROM benefits_stats WHERE series = $1 AND reference_month = $2`, [
-        SERIES,
-        `${month}-01`,
-      ]);
-      await client.query(
-        `INSERT INTO benefits_stats (lsoa_code, series, reference_month, lsoa_name, count, pct, source_name, source_date, loaded_at)
-         SELECT lsoa_code, $1, reference_month, lsoa_name, count, pct, $2, reference_month, $3
-         FROM benefits_stage WHERE reference_month = $4`,
-        [SERIES, SOURCE_NAME, retrievedAt, `${month}-01`],
-      );
-    }
-    await client.query(
-      `DELETE FROM benefits_stats
-       WHERE series = $1
-         AND reference_month NOT IN (
-           SELECT DISTINCT reference_month FROM benefits_stats
-           WHERE series = $1 ORDER BY reference_month DESC LIMIT 13
-         )`,
-      [SERIES],
-    );
-    await client.query("COMMIT");
     fileTally?.finish(staged);
   } catch (err) {
-    // BUG-265: the filing transaction rolls back, so
-    // nothing is filed on failure — the resume is a clean
-    // re-run.
+    // BUG-368: the staging is durable per chunk — no
+    // transaction to roll back, and the staged rows +
+    // checkpoint STAY for the next run to resume from.
     progress?.failed({
       stage: "file",
       filed: staged,
       total: rows.length,
       error: err,
-      resume: "re-run from scratch (the filing transaction rolls back)",
+      resume: resume.resumeNote(),
     });
-    await client.query("ROLLBACK").catch(() => {});
-    throw err;
-  } finally {
     client.release();
+    throw err;
   }
+  try {
+    const stagedRes = await client.query("SELECT count(*)::int AS n FROM benefits_stage");
+    if (stagedRes.rows[0].n !== expected)
+      throw new Error("the staged area-month count does not match — rolling back");
+    await client.query("BEGIN");
+    try {
+      for (const month of months) {
+        await client.query(
+          `DELETE FROM benefits_stats WHERE series = $1 AND reference_month = $2`,
+          [SERIES, `${month}-01`],
+        );
+        await client.query(
+          `INSERT INTO benefits_stats (lsoa_code, series, reference_month, lsoa_name, count, pct, source_name, source_date, loaded_at)
+         SELECT lsoa_code, $1, reference_month, lsoa_name, count, pct, $2, reference_month, $3
+         FROM benefits_stage WHERE reference_month = $4`,
+          [SERIES, SOURCE_NAME, retrievedAt, `${month}-01`],
+        );
+      }
+      await client.query(
+        `DELETE FROM benefits_stats
+       WHERE series = $1
+         AND reference_month NOT IN (
+           SELECT DISTINCT reference_month FROM benefits_stats
+           WHERE series = $1 ORDER BY reference_month DESC LIMIT 13
+         )`,
+        [SERIES],
+      );
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw err;
+    }
+    // The run is complete: staging + checkpoint go together,
+    // so nothing is left behind for the next release.
+    await resume.clear();
+  } catch (err) {
+    progress?.failed({
+      stage: "file",
+      filed: staged,
+      total: rows.length,
+      error: err,
+      resume: resume.resumeNote(),
+    });
+    client.release();
+    throw err;
+  }
+  client.release();
 }
 
 // --- sources ----------------------------------------------------
@@ -610,6 +669,7 @@ async function main() {
   const fileArg = fileIdx >= 0 ? args[fileIdx + 1] : null;
   const fixtureMode = fileArg !== null;
   const verifyOnly = args.includes("--verify-only");
+  const restart = args.includes("--restart");
   const source = fixtureMode
     ? { kind: "dir", dir: fileArg ?? DEFAULT_FIXTURE_DIR }
     : verifyOnly
@@ -638,7 +698,7 @@ async function main() {
   }
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   try {
-    await fileClaimant(pool, rows, new Date().toISOString(), { progress });
+    await fileClaimant(pool, rows, new Date().toISOString(), { progress, restart });
   } finally {
     await pool.end();
   }

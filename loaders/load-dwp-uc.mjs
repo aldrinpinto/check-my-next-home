@@ -128,6 +128,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { createLoaderResume } from "./loader-resume.mjs";
 import { createProgressLogger, formatCount } from "./progress.mjs";
 
 const { Pool } = pg;
@@ -815,32 +816,47 @@ export function createUcGoldenTally() {
 
 // --- filing -----------------------------------------------------
 //
-// Per series-month stage-and-swap inside one transaction —
-// the house pattern (BEGIN before the ON COMMIT DROP stage
-// create; column names are migration 0013's own, pinned by
-// the schema-contract tests). pct is filed NULL for UC —
-// DWP publishes no LSOA percentage — and the prune keeps
-// each series' newest 13 months (the series' clocks
-// differ, so pruning is per series).
+// Per series-month stage-and-swap — the house pattern (column
+// names are migration 0013's own, pinned by the
+// schema-contract tests). pct is filed NULL for UC — DWP
+// publishes no LSOA percentage — and the prune keeps each
+// series' newest 13 months (the series' clocks differ, so
+// pruning is per series).
 //
 // The streaming form (BUG-195): createUcFiler opens the
-// transaction and the stage, stageRows buffers rows into
-// the same 500-row inserts and accumulates the
-// series-month pair set as they pass, and finishFiling
-// runs the per-pair swaps and the prunes. The swap stays
-// atomic per run — a failure anywhere rolls the whole
-// filing back and a re-run files it whole.
+// stage, stageRows buffers rows into the same 500-row
+// inserts and accumulates the series-month pair set as
+// they pass, and finishFiling runs the per-pair swaps and
+// the prunes.
+//
+// Resume support (BUG-368): the stage is a PERSISTENT
+// table now (migration 0048) and each series carries its
+// own loader_checkpoint row (load-dwp-uc:<series>), so a
+// killed run resumes per series instead of re-staging the
+// whole pull. The two series share one stage table with
+// the series as the layer: each series' seqs are dense
+// from 0 within that series (UNIQUE(series, seq)), so the
+// resume proof holds per series. The edition is the
+// series' own months to file — a new quarterly release
+// between runs invalidates the checkpoint, because the
+// re-published months carry revised values. The swap stays
+// atomic per run, and a successful swap clears staging +
+// both checkpoints together (BUG-248 unchanged). The
+// streaming run prepares each series as its months are
+// discovered (streamUcRows' onEdition hook) and skips the
+// checkpointed rows of that series' response; the
+// collecting form (fileUc) prepares both series up front
+// from the rows it holds.
 
-export async function createUcFiler(pool, retrievedAt, { progress = null } = {}) {
+export async function createUcFiler(pool, retrievedAt, { progress = null, restart = false } = {}) {
   const client = await pool.connect();
   try {
-    await client.query("BEGIN");
-    await client.query(`CREATE TEMP TABLE uc_stage (
+    await client.query(`CREATE TABLE IF NOT EXISTS uc_stage (
       lsoa_code text, lsoa_name text, series text, reference_month date,
-      count integer, source_name text
-    ) ON COMMIT DROP`);
+      count integer, source_name text,
+      seq bigint NOT NULL, UNIQUE (series, seq)
+    )`);
   } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
     client.release();
     throw err;
   }
@@ -853,12 +869,81 @@ export async function createUcFiler(pool, retrievedAt, { progress = null } = {})
   // percentage is shown.
   const stageTally = progress?.tally({ label: "stage", every: 50000, unit: "rows" });
   let staged = 0;
+  const stagedBySeries = new Map();
+  const skipRemaining = new Map();
+  const handles = new Map();
+  const handleEditions = new Map();
+  const handleExpected = new Map();
+  // Per-series seq counters for the direct, unprepared use
+  // (no handle, no checkpoint): a prepared series' seqs
+  // come from its handle instead, seeded from its
+  // checkpoint.
+  const seqNextBySeries = new Map();
+  let lastHandle = null;
+  const baseHandle = createLoaderResume(client, {
+    loader: "load-dwp-uc",
+    stageTable: "uc_stage",
+    progress,
+    restart,
+  });
+  function handleFor(series) {
+    if (!handles.has(series)) {
+      const handle = createLoaderResume(client, {
+        loader: `load-dwp-uc:${series}`,
+        stageTable: "uc_stage",
+        layerColumn: "series",
+        layerValue: series,
+        progress,
+        restart,
+      });
+      handles.set(series, handle);
+    }
+    return handles.get(series);
+  }
   const flush = async () => {
     if (values.length === 0) return;
-    await client.query(
-      `INSERT INTO uc_stage (lsoa_code, lsoa_name, series, reference_month, count, source_name) VALUES ${values.join(", ")}`,
-      params,
-    );
+    // A flush can straddle the two series (the collecting
+    // form's rows are series-grouped in practice, but the
+    // contract does not promise it): insert per series, so
+    // each series' checkpoint covers exactly its own rows.
+    const groups = new Map();
+    for (let at = 0; at < params.length; at += 7) {
+      const series = params[at + 2];
+      if (!groups.has(series)) groups.set(series, []);
+      groups.get(series).push(params.slice(at, at + 7));
+    }
+    for (const [series, rows] of groups) {
+      const groupValues = [];
+      const groupParams = [];
+      const handle = handles.get(series);
+      const base = handle ? handle.takeSeq(rows.length) : (seqNextBySeries.get(series) ?? 0);
+      if (!handle) seqNextBySeries.set(series, base + rows.length);
+      rows.forEach((row, i) => {
+        const b = i * 7;
+        groupValues.push(
+          `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7})`,
+        );
+        groupParams.push(...row.slice(0, 6), base + i);
+      });
+      await client.query(
+        `INSERT INTO uc_stage (lsoa_code, lsoa_name, series, reference_month, count, source_name, seq) VALUES ${groupValues.join(", ")}`,
+        groupParams,
+      );
+      const n = rows.length;
+      stagedBySeries.set(series, (stagedBySeries.get(series) ?? 0) + n);
+      if (handle) {
+        const edition = handleEditions.get(series);
+        await handle.checkpoint({
+          edition,
+          expected: handleExpected.get(series) ?? null,
+          nextStartIndex: stagedBySeries.get(series),
+          read: stagedBySeries.get(series),
+          filed: stagedBySeries.get(series),
+          state: { pairs: [...pairsSeen].filter((p) => p.startsWith(`${series}|`)) },
+          unit: "rows",
+        });
+      }
+    }
     staged += values.length;
     values.length = 0;
     params.length = 0;
@@ -866,12 +951,69 @@ export async function createUcFiler(pool, retrievedAt, { progress = null } = {})
     progress?.heartbeat({ stage: "stage", done: staged, every: 50000 });
   };
   return {
+    resumeNote: () => (lastHandle ? lastHandle.resumeNote() : "the start (nothing staged yet)"),
+    // Decide, from a series' months to file, whether this
+    // run resumes that series or starts it from zero.
+    // Returns the checkpoint when resumed, so the caller
+    // can seed its tallies from the staged rows and skip
+    // the checkpointed rows of the series' response.
+    async prepareResumeForSeries(series, months, { expected = null } = {}) {
+      const edition = `${series}:${months.join(",")}`;
+      const handle = handleFor(series);
+      handleEditions.set(series, edition);
+      handleExpected.set(series, expected);
+      const prep = await handle.prepare({ edition, expected });
+      lastHandle = handle;
+      if (prep.resumed) {
+        const cp = prep.checkpoint;
+        stagedBySeries.set(series, cp.filed_count);
+        skipRemaining.set(series, cp.next_start_index);
+        // BUG-368: the filer's total staged counter must
+        // carry the rows this series already staged, or
+        // finishFiling's count check compares the whole
+        // stage table against this run's rows only and a
+        // fully-skipped resumed run fails the check.
+        staged += cp.filed_count;
+        stageTally?.tick(staged);
+        for (const pair of cp.state?.pairs ?? []) pairsSeen.add(pair);
+      } else {
+        stagedBySeries.set(series, 0);
+        skipRemaining.set(series, 0);
+      }
+      return prep;
+    },
+    // The staged rows of one series, in the stream rows'
+    // shape — the resumed run's golden tally and run stats
+    // are seeded from these, so the checks cover the whole
+    // pull even though the staged rows are never re-pulled.
+    async stagedRowsForSeries(series) {
+      const { rows } = await client.query(
+        `SELECT lsoa_code, lsoa_name, series, reference_month, count, source_name FROM uc_stage WHERE series = $1 ORDER BY seq`,
+        [series],
+      );
+      return rows.map((r) => ({
+        lsoaCode: r.lsoa_code,
+        lsoaName: r.lsoa_name,
+        series: r.series,
+        month:
+          typeof r.reference_month === "string"
+            ? r.reference_month.slice(0, 7)
+            : r.reference_month.toISOString().slice(0, 7),
+        count: r.count,
+        sourceName: r.source_name,
+      }));
+    },
     async stageRows(rows) {
       for (const row of rows) {
+        const remaining = skipRemaining.get(row.series) ?? 0;
+        if (remaining > 0) {
+          skipRemaining.set(row.series, remaining - 1);
+          continue;
+        }
         pairsSeen.add(`${row.series}|${row.month}`);
         const base = params.length;
         values.push(
-          `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6})`,
+          `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7})`,
         );
         params.push(
           row.lsoaCode,
@@ -880,6 +1022,7 @@ export async function createUcFiler(pool, retrievedAt, { progress = null } = {})
           `${row.month}-01`,
           row.count,
           row.sourceName,
+          0,
         );
         if (values.length >= 500) await flush();
       }
@@ -887,39 +1030,55 @@ export async function createUcFiler(pool, retrievedAt, { progress = null } = {})
     async finishFiling() {
       await flush();
       stageTally?.finish(staged);
+      const stagedRes = await client.query("SELECT count(*)::int AS n FROM uc_stage");
+      if (stagedRes.rows[0].n !== staged)
+        throw new Error("the staged UC row count does not match — rolling back");
       const pairs = [...pairsSeen].sort();
       // BUG-265: the swap is the last long step — a stage
       // marker naming the series-month pairs it swaps.
       progress?.stage(`swapping ${formatCount(pairs.length)} series-months into benefits_stats`);
-      for (const pair of pairs) {
-        const [series, month] = pair.split("|");
-        await client.query(
-          `DELETE FROM benefits_stats WHERE series = $1 AND reference_month = $2`,
-          [series, `${month}-01`],
-        );
-        await client.query(
-          `INSERT INTO benefits_stats (lsoa_code, series, reference_month, lsoa_name, count, pct, source_name, source_date, loaded_at)
+      await client.query("BEGIN");
+      try {
+        for (const pair of pairs) {
+          const [series, month] = pair.split("|");
+          await client.query(
+            `DELETE FROM benefits_stats WHERE series = $1 AND reference_month = $2`,
+            [series, `${month}-01`],
+          );
+          await client.query(
+            `INSERT INTO benefits_stats (lsoa_code, series, reference_month, lsoa_name, count, pct, source_name, source_date, loaded_at)
            SELECT lsoa_code, series, reference_month, lsoa_name, count, NULL, source_name, reference_month, $2
            FROM uc_stage WHERE series = $1 AND reference_month = $3`,
-          [series, retrievedAt, `${month}-01`],
-        );
-      }
-      for (const { series } of DATABASES) {
-        await client.query(
-          `DELETE FROM benefits_stats
+            [series, retrievedAt, `${month}-01`],
+          );
+        }
+        for (const { series } of DATABASES) {
+          await client.query(
+            `DELETE FROM benefits_stats
            WHERE series = $1
              AND reference_month NOT IN (
                SELECT DISTINCT reference_month FROM benefits_stats
                WHERE series = $1 ORDER BY reference_month DESC LIMIT 13
              )`,
-          [series],
-        );
+            [series],
+          );
+        }
+        await client.query("COMMIT");
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw err;
       }
-      await client.query("COMMIT");
+      // The run is complete: staging + checkpoints go
+      // together, per series — or the whole stage when no
+      // series was ever prepared (the direct, unresumed use).
+      for (const handle of handles.values()) await handle.clear();
+      if (handles.size === 0) await baseHandle.clear();
       client.release();
     },
     async abortFiling() {
-      await client.query("ROLLBACK").catch(() => {});
+      // BUG-368: the staging + checkpoint STAY: they are
+      // the next run's resume point. A swap failure has
+      // already rolled itself back inside finishFiling.
       client.release();
     },
   };
@@ -927,12 +1086,25 @@ export async function createUcFiler(pool, retrievedAt, { progress = null } = {})
 
 // The collecting form over the streaming filer: the whole
 // row set staged, then the swaps — the shape this step was
-// built with, kept for small inputs and tests. On any
-// failure the transaction rolls back and the client is
-// released, exactly as the one-shot filer did.
-export async function fileUc(pool, rows, retrievedAt) {
-  const filer = await createUcFiler(pool, retrievedAt);
+// built with, kept for small inputs and tests. BUG-368:
+// each series is prepared up front from the rows it
+// holds (its months are the edition, its row count the
+// expected total), so a killed fileUc resumes per series
+// instead of re-staging. On any failure the staging +
+// checkpoint stand for the next run; the swap itself
+// rolls back inside finishFiling.
+export async function fileUc(pool, rows, retrievedAt, { progress = null, restart = false } = {}) {
+  const filer = await createUcFiler(pool, retrievedAt, { progress, restart });
   try {
+    const bySeries = new Map();
+    for (const row of rows) {
+      if (!bySeries.has(row.series)) bySeries.set(row.series, []);
+      bySeries.get(row.series).push(row);
+    }
+    for (const [series, seriesRows] of bySeries) {
+      const months = [...new Set(seriesRows.map((r) => r.month))].sort();
+      await filer.prepareResumeForSeries(series, months, { expected: seriesRows.length });
+    }
     await filer.stageRows(rows);
     await filer.finishFiling();
   } catch (err) {
@@ -1177,17 +1349,25 @@ export async function loadUcRows(
 // golden tally and the filer are order-insensitive in
 // what they assert and file, and the summary counts from
 // the same stream).
+//
+// Resume support (BUG-368): onEdition fires per series
+// once its months are known, before the response is
+// drained, and returns the rows to skip — the checkpointed
+// prefix of that series' response, in the cube's own
+// deterministic order. The drain re-iterates the response
+// and skips exactly that many rows; the tally still counts
+// the whole response, skipped rows included.
 /**
  * @param {{ kind: string, dir?: string, codes?: string[] }} source
  * @param {{ latestFiledBySeries?: Object.<string, string | null> }} [filed]
  * @param {(batch: any[]) => Promise<void> | void} onRows
- * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, onEdition?: ((edition: { series: string, months: string[] }) => Promise<{ skip?: number }>) | null }} [options]
  */
 export async function streamUcRows(
   source,
   { latestFiledBySeries = {} } = {},
   onRows,
-  { progress = null } = {},
+  { progress = null, onEdition = null } = {},
 ) {
   let pending = [];
   const flush = async () => {
@@ -1200,12 +1380,17 @@ export async function streamUcRows(
   // per series, a line every 50,000 streamed rows, a
   // heartbeat every 50,000. No total is known until the
   // cube answers, so no percentage is shown.
-  const drain = async (json, entry, discovery) => {
+  const drain = async (json, entry, discovery, skipRows = 0) => {
     const tally = progress?.tally({ label: `pull ${entry.series}`, every: 50000, unit: "rows" });
     let streamed = 0;
     for (const row of iterateTableRows(json, entry, discovery)) {
-      pending.push(row);
       streamed += 1;
+      // BUG-368: the checkpointed prefix is re-iterated
+      // and skipped — its staged copy stands, and the
+      // response order is the cube's own, deterministic
+      // for the same query.
+      if (streamed <= skipRows) continue;
+      pending.push(row);
       if (pending.length >= 5000) {
         await flush();
         tally?.tick(streamed);
@@ -1224,7 +1409,12 @@ export async function streamUcRows(
       const tableJson = JSON.parse(readFileSync(file, "utf8"));
       const discovery = await fetchDiscovery(entry, fixtureRoutes(source.dir, entry, tableJson));
       progress?.stage(`pulling ${entry.series}`);
-      await drain(tableJson, entry, discovery);
+      const { skip = 0 } =
+        (await onEdition?.({
+          series: entry.series,
+          months: discovery.months.map((m) => m.month),
+        })) ?? {};
+      await drain(tableJson, entry, discovery, skip);
     }
     await flush();
     return;
@@ -1238,6 +1428,7 @@ export async function streamUcRows(
     );
     if (source.codes) {
       const latest = discovery.months.at(-1).month;
+      const { skip = 0 } = (await onEdition?.({ series: entry.series, months: [latest] })) ?? {};
       // The verify pull selects the golden areas — except
       // the ones the series' cube does not hold (the
       // Households gap): selecting one would fail the
@@ -1251,12 +1442,13 @@ export async function streamUcRows(
         null,
         buildTableQuery(discovery, entry, { months: [latest], lsoaCodes: wanted }),
       );
-      await drain(json, entry, discovery);
+      await drain(json, entry, discovery, skip);
       continue;
     }
     if (months.length === 0) continue;
+    const { skip = 0 } = (await onEdition?.({ series: entry.series, months })) ?? {};
     const json = await callStatXplore("table", null, buildTableQuery(discovery, entry, { months }));
-    await drain(json, entry, discovery);
+    await drain(json, entry, discovery, skip);
   }
   await flush();
 }
@@ -1306,6 +1498,9 @@ async function main() {
   const fileArg = fileIdx >= 0 ? args[fileIdx + 1] : null;
   const fixtureMode = fileArg !== null;
   const verifyOnly = args.includes("--verify-only");
+  // BUG-368: resume from the last checkpointed chunk instead of
+  // restarting; with no checkpoint this is a fresh start.
+  const restart = args.includes("--restart");
   const source = fixtureMode
     ? { kind: "dir", dir: fileArg ?? DEFAULT_FIXTURE_DIR }
     : verifyOnly
@@ -1339,8 +1534,23 @@ async function main() {
     let filer = null;
     if (!verifyOnly) {
       if (!pool) pool = new Pool({ connectionString: process.env.DATABASE_URL });
-      filer = await createUcFiler(pool, new Date().toISOString(), { progress });
+      filer = await createUcFiler(pool, new Date().toISOString(), { progress, restart });
     }
+    // BUG-368: the edition fires the resume decision per
+    // series — the filer prepares (resume or fresh start)
+    // and hands back the rows to skip, with the staged
+    // rows seeding the tally and the run stats so the
+    // golden checks cover the whole pull.
+    const onEdition = filer
+      ? async ({ series, months }) => {
+          const prep = await filer.prepareResumeForSeries(series, months);
+          if (!prep.resumed) return { skip: 0 };
+          const staged = await filer.stagedRowsForSeries(series);
+          for (const row of staged) tally.offer(row);
+          stats.addRows(staged);
+          return { skip: prep.checkpoint.next_start_index };
+        }
+      : null;
     try {
       await streamUcRows(
         source,
@@ -1350,7 +1560,7 @@ async function main() {
           stats.addRows(batch);
           if (filer) await filer.stageRows(batch);
         },
-        { progress },
+        { progress, onEdition },
       );
       const golden = tally.failures({ full: source.kind === "live" && !source.codes });
       if (golden.length > 0) throw new Error(`golden checks failed: ${golden.join("; ")}`);
@@ -1359,7 +1569,9 @@ async function main() {
         stage: "pull",
         filed: 0,
         error: err,
-        resume: "re-run from scratch (nothing files until finishFiling)",
+        resume: filer
+          ? filer.resumeNote()
+          : "re-run from scratch (nothing is filed until the swap)",
       });
       if (filer) await filer.abortFiling();
       throw err;
@@ -1378,7 +1590,9 @@ async function main() {
         stage: "file",
         filed: 0,
         error: err,
-        resume: "re-run from scratch (the staging transaction rolls back)",
+        // BUG-368: a swap failure leaves the staged read
+        // checkpointed, so the next run resumes at the swap.
+        resume: filer.resumeNote(),
       });
       await filer.abortFiling();
       throw err;

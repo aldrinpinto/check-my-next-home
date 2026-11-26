@@ -18,6 +18,10 @@ export interface PickingPartsRow {
   street: string | null;
   town: string | null;
   home_key: string;
+  // BUG-368: the staged row's ordinal in the staged set,
+  // dense from 0 — the resume proof's prefix check reads
+  // it. Absent on rows staged by the pre-resume loader.
+  seq?: number;
 }
 
 export interface PickingIndexRow extends PickingPartsRow {
@@ -69,6 +73,20 @@ export interface PickingEditionRow {
   previous_homes: number | null;
   last_rejected_homes: number | null;
   last_rejected_at: string | null;
+}
+
+// One row of the resume checkpoint table
+// (loader_checkpoint, migration 0048): the last fully
+// staged chunk per loader, plus the running totals and
+// the loader's own counters as state.
+export interface LoaderCheckpointRow {
+  loader: string;
+  edition: string;
+  expected: number | null;
+  next_start_index: number;
+  read_count: number;
+  filed_count: number;
+  state: Record<string, unknown>;
 }
 
 function blankEdition(source: string): PickingEditionRow {
@@ -139,6 +157,26 @@ export class FakePickingDb {
   // by the same hook, on the same paths.
   places: PickingPlaceRow[] = [];
   editions: PickingEditionRow[] = [blankEdition("sales"), blankEdition("epc")];
+  // The resume checkpoints (BUG-368): one row per loader,
+  // keyed by loader id. Snapshotted with the rest of the
+  // state, so a rollback restores them too.
+  checkpoints = new Map<string, LoaderCheckpointRow>();
+  // Kill injection for the resume specs (BUG-368): throw
+  // once the count of stage inserts (or checkpoint
+  // writes) passes the set threshold — the simulated
+  // kill mid-stream. Null disables it.
+  stageInsertCalls = 0;
+  failAfterStageInserts: number | null = null;
+  checkpointInsertCalls = 0;
+  failAfterCheckpoints: number | null = null;
+
+  setFailAfterStageInserts(n: number | null) {
+    this.failAfterStageInserts = n;
+  }
+
+  setFailAfterCheckpoints(n: number | null) {
+    this.failAfterCheckpoints = n;
+  }
   // price_paid rows for the read-model tests: full sale
   // rows (the sold-prices source's columns) — the
   // address source's DISTINCT read derives from them.
@@ -164,6 +202,7 @@ export class FakePickingDb {
       streets: this.streets,
       places: this.places,
       editions: this.editions,
+      checkpoints: [...this.checkpoints],
     });
   }
 
@@ -180,6 +219,7 @@ export class FakePickingDb {
     this.streets = state.streets ?? [];
     this.places = state.places ?? [];
     this.editions = state.editions;
+    this.checkpoints = new Map(state.checkpoints ?? []);
     this.snapshot = null;
   }
 
@@ -226,7 +266,7 @@ export class FakePickingDb {
   async query(
     text: string,
     params: unknown[] = [],
-  ): Promise<{ rows: Record<string, unknown>[] }> {
+  ): Promise<{ rows: Record<string, unknown>[]; rowCount?: number }> {
     const sql = text.replace(/\s+/g, " ").trim();
     this.statements.push(sql);
     if (this.failOn !== null && sql.includes(this.failOn)) {
@@ -255,10 +295,123 @@ export class FakePickingDb {
       return { rows: [] };
     }
 
-    const stageInsert = /^INSERT INTO (picking_sales_stage|picking_epc_stage) \(postcode, paon, saon, street, town, home_key\) VALUES /.exec(sql);
+    // BUG-368: the resume staging setup — the persistent
+    // stage table (with its seq column) and the column
+    // added in place on a pre-resume stage.
+    if (
+      sql.startsWith("CREATE TABLE IF NOT EXISTS picking_sales_stage") ||
+      sql.startsWith("CREATE TABLE IF NOT EXISTS picking_epc_stage")
+    ) {
+      return { rows: [] };
+    }
+    if (
+      sql === "ALTER TABLE picking_sales_stage ADD COLUMN IF NOT EXISTS seq bigint" ||
+      sql === "ALTER TABLE picking_epc_stage ADD COLUMN IF NOT EXISTS seq bigint"
+    ) {
+      return { rows: [] };
+    }
+    // The resume checkpoint (loader_checkpoint,
+    // migration 0048): one row per loader. The writer
+    // sends state as a JSON string; the real jsonb
+    // column returns a parsed object.
+    if (
+      sql.startsWith(
+        "SELECT loader, edition, expected, next_start_index, read_count, filed_count, state, updated_at FROM loader_checkpoint WHERE loader = $1",
+      )
+    ) {
+      const row = this.checkpoints.get(p[0] as string);
+      return { rows: row ? [{ ...row } as Record<string, unknown>] : [] };
+    }
+    if (sql.startsWith("INSERT INTO loader_checkpoint")) {
+      this.checkpointInsertCalls += 1;
+      if (
+        this.failAfterCheckpoints !== null &&
+        this.checkpointInsertCalls > this.failAfterCheckpoints
+      )
+        throw new Error("simulated kill: the database connection dropped mid-checkpoint");
+      this.checkpoints.set(p[0] as string, {
+        loader: p[0] as string,
+        edition: p[1] as string,
+        expected: p[2] as number | null,
+        next_start_index: p[3] as number,
+        read_count: p[4] as number,
+        filed_count: p[5] as number,
+        state: JSON.parse(p[6] as string) as Record<string, unknown>,
+      });
+      return { rows: [] };
+    }
+    if (sql === "DELETE FROM loader_checkpoint WHERE loader = $1") {
+      this.checkpoints.delete(p[0] as string);
+      return { rows: [] };
+    }
+    // The staged-prefix proof (loader-resume.mjs): count,
+    // seq sum and max seq of a stage table.
+    const stagingCount = /^SELECT count\(\*\)::int AS n, coalesce\(sum\(seq\), 0\)::bigint AS s, coalesce\(max\(seq\), 0\)::bigint AS m FROM (picking_sales_stage|picking_epc_stage)$/.exec(
+      sql,
+    );
+    if (stagingCount) {
+      const stage =
+        stagingCount[1] === "picking_sales_stage" ? this.salesStage : this.epcStage;
+      const seqs = stage.map((r) => r.seq ?? 0);
+      return {
+        rows: [
+          {
+            n: stage.length,
+            s: seqs.reduce((a, b) => a + b, 0),
+            m: seqs.length ? Math.max(...seqs) : 0,
+          } as Record<string, unknown>,
+        ],
+      };
+    }
+    // The staged-tail trim (loader-resume.mjs): drop the
+    // interrupted chunk's rows past the checkpoint.
+    const trimTail = /^DELETE FROM (picking_sales_stage|picking_epc_stage) WHERE seq >= \$1$/.exec(
+      sql,
+    );
+    if (trimTail) {
+      const target =
+        trimTail[1] === "picking_sales_stage" ? "salesStage" : "epcStage";
+      const before = this[target].length;
+      this[target] = this[target].filter((r) => (r.seq ?? 0) < (p[0] as number));
+      return { rows: [], rowCount: before - this[target].length };
+    }
+    if (sql === "DELETE FROM picking_sales_stage") {
+      this.salesStage = [];
+      return { rows: [] };
+    }
+    if (sql === "DELETE FROM picking_epc_stage") {
+      this.epcStage = [];
+      return { rows: [] };
+    }
+
+    const stageInsert = /^INSERT INTO (picking_sales_stage|picking_epc_stage) \(postcode, paon, saon, street, town, home_key, seq\) VALUES /.exec(sql);
     if (stageInsert) {
+      this.stageInsertCalls += 1;
+      if (
+        this.failAfterStageInserts !== null &&
+        this.stageInsertCalls > this.failAfterStageInserts
+      )
+        throw new Error("simulated kill: the database connection dropped mid-insert");
       const target =
         stageInsert[1] === "picking_sales_stage" ? this.salesStage : this.epcStage;
+      for (let i = 0; i + 6 < p.length; i += 7) {
+        target.push({
+          postcode: p[i] as string,
+          paon: p[i + 1] as string | null,
+          saon: p[i + 2] as string | null,
+          street: p[i + 3] as string | null,
+          town: p[i + 4] as string | null,
+          home_key: p[i + 5] as string,
+          seq: p[i + 6] as number,
+        });
+      }
+      return { rows: [], rowCount: p.length / 7 };
+    }
+
+    const stageInsertLegacy = /^INSERT INTO (picking_sales_stage|picking_epc_stage) \(postcode, paon, saon, street, town, home_key\) VALUES /.exec(sql);
+    if (stageInsertLegacy) {
+      const target =
+        stageInsertLegacy[1] === "picking_sales_stage" ? this.salesStage : this.epcStage;
       for (let i = 0; i + 5 < p.length; i += 6) {
         target.push({
           postcode: p[i] as string,

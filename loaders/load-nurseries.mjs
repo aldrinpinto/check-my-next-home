@@ -78,6 +78,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import pg from "pg";
+import { createLoaderResume } from "./loader-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -432,10 +433,226 @@ function checkGolden(settings, fixtureMode) {
   if (fails.length > 0) throw new Error(`golden checks failed:\n - ${fails.join("\n - ")}`);
 }
 
+// --- filing ------------------------------------------------------------
+// Stage, count, swap — with resume support (BUG-368): staging is
+// a PERSISTENT table now (migration 0048), and a
+// loader_checkpoint row records the last fully staged chunk, so
+// a killed run resumes instead of restarting. The build still
+// runs whole and in memory — it is deterministic for a given
+// edition — but the filing loop skips the settings the checkpoint
+// already covers, so the re-run stages only the tail. The
+// single-edition swap's atomicity is unchanged: the live table
+// changes ONLY in finishFiling's transaction, on a complete,
+// verified staged set; staging + checkpoint are dropped by
+// resume.clear() after a successful swap, and stay put on a
+// failure, as the next run's resume point.
+//
+// THE RESUME UNITS. The settings array is the read, in order, so
+// the resume point is the count of settings staged (nextStartIndex
+// == filed count == the index the resumed run stages from). A
+// checkpoint is written after every 1,000 staged settings and once
+// more for the tail, so a kill loses at most the chunk in flight
+// — and the interrupted chunk's flushed rows are trimmed by
+// prepare(), then re-staged with the same seqs. The edition is
+// the register's own as-at date: a republication invalidates the
+// checkpoint.
+/**
+ * Open the filing run's database client and resume handle
+ * (BUG-368). The client is injectable so the resume tests
+ * can file against a fake database; production passes none
+ * and a real client is opened as before.
+ *
+ * @param {import("./progress.mjs").ProgressLogger | null} [progress]
+ * @param {{ restart?: boolean, client?: any }} [options]
+ */
+export async function beginFiling(
+  progress = null,
+  { restart = false, client: injectedClient = null } = {},
+) {
+  const client = injectedClient ?? new pg.Client({ connectionString: process.env.DATABASE_URL });
+  const ownsClient = !injectedClient;
+  if (ownsClient) await client.connect();
+  let clientClosed = false;
+  async function closeClient() {
+    if (ownsClient && !clientClosed) {
+      clientClosed = true;
+      await client.end().catch(() => {});
+    }
+  }
+  try {
+    // The stage table is spelled out, not copied with LIKE:
+    // the live table's generated geom column must never be a
+    // staging target, and staging carries no index beyond the
+    // UNIQUE (seq) the resume proof needs.
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS nurseries_stage (
+         urn text, name text, setting_type text, address text, postcode text,
+         latitude double precision, longitude double precision,
+         source_name text, source_date date,
+         loaded_at timestamptz NOT NULL DEFAULT now(),
+         seq bigint NOT NULL, UNIQUE (seq)
+       )`,
+    );
+  } catch (error) {
+    await closeClient();
+    throw error;
+  }
+  const resume = createLoaderResume(client, {
+    loader: "load-nurseries",
+    stageTable: "nurseries_stage",
+    progress,
+    restart,
+  });
+  const CHUNK = 1000;
+  let edition = null;
+  let expected = null;
+  let startIndex = 0;
+  let staged = 0;
+  let checkpointed = 0;
+  /** @type {{ resumed: boolean, reason?: string, checkpoint?: any, prefix?: boolean }} */
+  let resumePrep = { resumed: false };
+  async function checkpointNow() {
+    await resume.checkpoint({
+      edition,
+      expected,
+      nextStartIndex: staged,
+      read: staged,
+      filed: staged,
+      unit: "settings",
+    });
+    checkpointed = staged;
+  }
+  return {
+    stagedCount: () => staged,
+    startIndex: () => startIndex,
+    resumePrep: () => resumePrep,
+    resumeNote: () => resume.resumeNote(),
+    // Decide, from the edition and the staged rows, whether
+    // this run resumes or starts from zero. Called once the
+    // build has fixed the edition and the expected count.
+    async prepareResume(ed, exp) {
+      edition = ed;
+      expected = exp ?? null;
+      resumePrep = await resume.prepare({ edition, expected });
+      if (resumePrep.resumed) {
+        const cp = resumePrep.checkpoint;
+        startIndex = cp.next_start_index;
+        staged = cp.filed_count;
+        checkpointed = staged;
+      }
+      return resumePrep;
+    },
+    // Stage the settings from the resume point on, one INSERT
+    // per setting as before, checkpointing every 1,000 staged
+    // settings (and once more for the tail) — one BUG-204
+    // progress line per committed chunk, never per row.
+    async stageSettings(settings, asAt) {
+      if (edition === null) throw new Error("prepareResume must be called before stageSettings");
+      // BUG-265: the filing is the run's second long loop — one
+      // INSERT per setting, ~20,000 live — so a tally lands every
+      // 1,000 settings, a heartbeat every 10,000, and a
+      // 1,000-setting chunk that takes more than 3x the recent
+      // average earns a warning.
+      const fileTally = progress?.tally({
+        label: "file",
+        total: settings.length,
+        every: 1000,
+        unit: "settings",
+      });
+      const fileWatch = createBatchWatch();
+      let chunkStarted = Date.now();
+      for (let i = startIndex; i < settings.length; i += 1) {
+        const s = settings[i];
+        await client.query(
+          `INSERT INTO nurseries_stage (urn, name, setting_type, address, postcode, latitude, longitude,
+             source_name, source_date, seq)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+          [
+            s.urn,
+            s.name,
+            s.settingType,
+            s.address,
+            s.postcode,
+            s.lat,
+            s.lng,
+            SOURCE_NAME,
+            asAt,
+            staged,
+          ],
+        );
+        staged += 1;
+        fileTally?.tick(staged);
+        progress?.heartbeat({
+          stage: "filing",
+          done: staged,
+          total: settings.length,
+          every: 10_000,
+        });
+        if (staged % CHUNK === 0) {
+          const { tookMs, averageMs, slow } = fileWatch.observe(Date.now() - chunkStarted);
+          if (slow) {
+            progress?.warning({
+              what: "filing chunk duration",
+              value: `chunk ending at setting ${formatCount(staged)} took ${formatDuration(tookMs)}`,
+              threshold: `3x recent average ${formatDuration(averageMs)}`,
+            });
+          }
+          chunkStarted = Date.now();
+          await checkpointNow();
+        }
+      }
+      if (staged > checkpointed) await checkpointNow();
+      fileTally?.finish(staged);
+    },
+    // Count-check the staged set, then swap it into the live
+    // table in one transaction. A successful swap clears
+    // staging + checkpoint.
+    async finishFiling(settings) {
+      try {
+        const stagedRes = await client.query("SELECT count(*)::int AS n FROM nurseries_stage");
+        if (stagedRes.rows[0].n !== settings.length)
+          throw new Error("the staged setting count does not match — rolling back");
+        await client.query("BEGIN");
+        try {
+          await client.query("DELETE FROM nurseries");
+          await client.query(
+            `INSERT INTO nurseries (urn, name, setting_type, address, postcode, latitude, longitude,
+             source_name, source_date, loaded_at)
+           SELECT urn, name, setting_type, address, postcode, latitude, longitude,
+             source_name, source_date, loaded_at FROM nurseries_stage`,
+          );
+          const filed = await client.query("SELECT count(*)::int AS n FROM nurseries");
+          if (filed.rows[0].n !== settings.length)
+            throw new Error("the filed setting count does not match — rolling back");
+          await client.query("COMMIT");
+        } catch (error) {
+          await client.query("ROLLBACK").catch(() => {});
+          throw error;
+        }
+        // The run is complete: staging + checkpoint go together,
+        // so nothing is left behind for the next edition.
+        await resume.clear();
+      } finally {
+        await closeClient();
+      }
+    },
+    async abortFiling() {
+      // The staging + checkpoint STAY: they are the next run's
+      // resume point. A run that never prepared leaves whatever
+      // a previous run left, and the next run's prepare()
+      // validates or discards it.
+      await closeClient();
+    },
+  };
+}
+
 async function main() {
   const startedAt = Date.now();
   const args = process.argv.slice(2);
   const verifyOnly = args.includes("--verify-only");
+  // BUG-368: resume from the last checkpointed chunk instead of
+  // restarting; with no checkpoint this is a fresh start.
+  const restart = args.includes("--restart");
   const fileAt = args.indexOf("--file");
   const fixtureMode = fileAt !== -1;
   const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
@@ -443,7 +660,7 @@ async function main() {
   // whole register. Anything unrecognised fails loudly here
   // rather than being silently dropped (the per-postcode
   // loaders' bare-invocation trap cannot exist in this shape).
-  const known = new Set(["--verify-only", "--file"]);
+  const known = new Set(["--verify-only", "--file", "--restart"]);
   for (let i = 0; i < args.length; i += 1) {
     if (args[i] === "--file") {
       i += 1;
@@ -455,11 +672,21 @@ async function main() {
   // BUG-265: one logger for the run — the build tally and the
   // filing tally below.
   const progress = createProgressLogger({ name: "load-nurseries" });
+  // BUG-368: the filer opens ahead of the read, so a failure
+  // anywhere in the run can name its resume point; the resume
+  // decision itself waits until the build has fixed the edition
+  // and the expected count. A filing run fails before fetching
+  // when there is no database to file into.
+  let filer = null;
+  if (!verifyOnly) {
+    if (!process.env.DATABASE_URL)
+      throw new Error("DATABASE_URL is not set — filing requires a database");
+    filer = await beginFiling(progress, { restart });
+  }
 
   let text;
   let asAt;
   let positionOf;
-  let client = null;
   let settings;
   let stats;
   try {
@@ -470,27 +697,32 @@ async function main() {
       asAt = meta.registerAsAt;
       const postcodes = JSON.parse(await readFile(join(fixtureDir, "postcodes.json"), "utf8"));
       positionOf = (pc) => postcodes[(pc ?? "").trim().toUpperCase()] ?? null;
-      if (!verifyOnly) {
-        if (!process.env.DATABASE_URL)
-          throw new Error("DATABASE_URL is not set — filing requires a database");
-        client = new pg.Client({ connectionString: process.env.DATABASE_URL });
-        await client.connect();
-      }
+      // Filing needs a database even in fixture mode (CI files the
+      // fixture into its throwaway PostGIS); positions still come
+      // from the fixture's own postcode list. The filer above
+      // already opened it — nothing more to connect here.
     } else {
       ({ text, asAt: asAt } = await discoverRegister());
       if (!process.env.DATABASE_URL)
         throw new Error(
           "DATABASE_URL is not set — nursery points are positioned from the postcode directory, so a database is required",
         );
-      client = new pg.Client({ connectionString: process.env.DATABASE_URL });
-      await client.connect();
-      const res = await client.query(
-        "SELECT postcode, latitude, longitude FROM postcode_cache WHERE latitude IS NOT NULL",
-      );
-      const directory = new Map(
-        res.rows.map((r) => [r.postcode, { lat: r.latitude, lng: r.longitude }]),
-      );
-      positionOf = (pc) => directory.get((pc ?? "").trim().toUpperCase()) ?? null;
+      // The postcode directory is read on its own short-lived
+      // client: the filer owns the filing connection, and this
+      // read closes as soon as the directory is built.
+      const directoryClient = new pg.Client({ connectionString: process.env.DATABASE_URL });
+      await directoryClient.connect();
+      try {
+        const res = await directoryClient.query(
+          "SELECT postcode, latitude, longitude FROM postcode_cache WHERE latitude IS NOT NULL",
+        );
+        const directory = new Map(
+          res.rows.map((r) => [r.postcode, { lat: r.latitude, lng: r.longitude }]),
+        );
+        positionOf = (pc) => directory.get((pc ?? "").trim().toUpperCase()) ?? null;
+      } finally {
+        await directoryClient.end();
+      }
     }
 
     const { records, asAt: fileAsAt } = parseRegister(text);
@@ -526,8 +758,11 @@ async function main() {
       stage: "read",
       filed: 0,
       error,
-      resume: "re-run the loader from the start (nothing is filed until the swap)",
+      resume: filer
+        ? filer.resumeNote()
+        : "re-run the loader from the start (nothing is filed until the swap)",
     });
+    if (filer) await filer.abortFiling();
     throw error;
   }
 
@@ -543,87 +778,40 @@ async function main() {
 
   if (verifyOnly) {
     console.log(`${summary()} · golden homes OK (verify only, nothing filed)`);
-    if (client) await client.end();
     return;
   }
 
+  // BUG-368: the edition is the register's own as-at date, and
+  // the build has fixed the expected count, so the resume
+  // decision lands here, before any staging: resume from the
+  // checkpoint, or start from zero.
+  await filer.prepareResume(asAt, settings.length);
+
+  // BUG-265: the filing is the run's second long loop — one
+  // INSERT per setting, ~20,000 live — checkpointed every 1,000
+  // settings inside stageSettings, so a kill resumes instead of
+  // restarting. The swap itself is finishFiling's own
+  // transaction, as before.
+  progress.stage(`filing ${formatCount(settings.length)} settings`);
+  const activeFiler = filer;
+  filer = null;
   try {
-    await client.query("BEGIN");
-    await client.query(
-      `CREATE TEMP TABLE nurseries_stage (LIKE nurseries INCLUDING DEFAULTS) ON COMMIT DROP`,
-    );
-    // BUG-265: the filing is the run's second long loop — one
-    // INSERT per setting, ~20,000 live — so a tally lands every
-    // 1,000 settings, a heartbeat every 10,000, and a
-    // 1,000-setting chunk that takes more than 3x the recent
-    // average earns a warning.
-    progress.stage(`filing ${formatCount(settings.length)} settings`);
-    const fileTally = progress.tally({
-      label: "file",
-      total: settings.length,
-      every: 1000,
-      unit: "settings",
-    });
-    const fileWatch = createBatchWatch();
-    let filedSettings = 0;
-    let chunkStarted = Date.now();
-    for (const s of settings) {
-      await client.query(
-        `INSERT INTO nurseries_stage (urn, name, setting_type, address, postcode, latitude, longitude,
-           source_name, source_date)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [s.urn, s.name, s.settingType, s.address, s.postcode, s.lat, s.lng, SOURCE_NAME, asAt],
-      );
-      filedSettings += 1;
-      fileTally.tick(filedSettings);
-      progress.heartbeat({
-        stage: "filing",
-        done: filedSettings,
-        total: settings.length,
-        every: 10_000,
-      });
-      if (filedSettings % 1000 === 0) {
-        const { tookMs, averageMs, slow } = fileWatch.observe(Date.now() - chunkStarted);
-        if (slow) {
-          progress.warning({
-            what: "filing chunk duration",
-            value: `chunk ending at setting ${formatCount(filedSettings)} took ${formatDuration(tookMs)}`,
-            threshold: `3x recent average ${formatDuration(averageMs)}`,
-          });
-        }
-        chunkStarted = Date.now();
-      }
-    }
-    fileTally.finish(filedSettings);
-    const staged = await client.query("SELECT count(*)::int AS n FROM nurseries_stage");
-    if (staged.rows[0].n !== settings.length)
-      throw new Error("the staged setting count does not match — rolling back");
-    await client.query("DELETE FROM nurseries");
-    await client.query(
-      `INSERT INTO nurseries (urn, name, setting_type, address, postcode, latitude, longitude,
-         source_name, source_date, loaded_at)
-       SELECT urn, name, setting_type, address, postcode, latitude, longitude,
-         source_name, source_date, loaded_at FROM nurseries_stage`,
-    );
-    const filed = await client.query("SELECT count(*)::int AS n FROM nurseries");
-    if (filed.rows[0].n !== settings.length)
-      throw new Error("the filed setting count does not match — rolling back");
-    await client.query("COMMIT");
+    await activeFiler.stageSettings(settings, asAt);
+    await activeFiler.finishFiling(settings);
   } catch (error) {
-    // BUG-265: the filing is one transaction — on a rollback
-    // the live table is untouched.
+    // BUG-368: the staging + checkpoint stay put, so the next
+    // run resumes where this one stopped; the live table is
+    // untouched (the swap is one transaction — a rollback there
+    // leaves the last good filing serving).
     progress.failed({
       stage: "filing",
       filed: 0,
       total: settings.length,
       error,
-      resume:
-        "re-run the loader from the start (the filing rolled back, the live table is untouched)",
+      resume: activeFiler.resumeNote(),
     });
-    await client.query("ROLLBACK");
+    await activeFiler.abortFiling();
     throw error;
-  } finally {
-    await client.end();
   }
   console.log(`${summary()} · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`);
 }

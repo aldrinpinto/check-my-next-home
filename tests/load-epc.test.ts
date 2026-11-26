@@ -3,8 +3,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { IMPROVEMENT_NAMES, improvementName } from "../lib/epc-improvements";
 import {
+  beginFiling,
   checkConstructionGolden,
   checkMeasuresGolden,
+  fetchPostcodeAnswer,
   liveCertificates,
 } from "../loaders/load-epc.mjs";
 import { createProgressLogger } from "../loaders/progress.mjs";
@@ -507,5 +509,243 @@ describe("BUG-265 progress logging — the live fetch", () => {
     } finally {
       globalThis.fetch = realFetch;
     }
+  });
+});
+
+describe("resume (BUG-368)", () => {
+  // A fake pg client: the staged answers, the postcode
+  // cache's live answers and the loader_checkpoint row as
+  // arrays, with just enough SQL to run the filer. Answers
+  // are stored as the JSON strings stageAnswer writes, and
+  // the cache merge keeps them as parsed objects, as the
+  // real jsonb column would.
+  type StagedRow = { postcode: string; answer: string; skipped: number; seq: number };
+  type CheckpointRow = {
+    loader: string;
+    edition: string;
+    expected: number | null;
+    next_start_index: number;
+    read_count: number;
+    filed_count: number;
+    state: Record<string, unknown> | null;
+  };
+  const POSTCODES = ["CM1 6ER", "CM3 2JT", "E16 1GN", "KT17 1FH"];
+  const EDITION = "2026-11-26";
+  function createFakeClient() {
+    let staged: StagedRow[] = [];
+    const cache = new Map<string, { epc?: Record<string, unknown> }>(
+      POSTCODES.map((pc) => [pc, {}]),
+    );
+    const checkpoints = new Map<string, CheckpointRow>();
+    let insertCalls = 0;
+    let failAfterInserts: number | null = null;
+    let snapshot: {
+      staged: StagedRow[];
+      cache: Map<string, { epc?: Record<string, unknown> }>;
+      checkpoints: Map<string, CheckpointRow>;
+    } | null = null;
+    const query = async (sql: string, params: unknown[] = []) => {
+      const text = sql.replace(/\s+/g, " ");
+      if (text === "BEGIN") {
+        snapshot = {
+          staged: [...staged],
+          cache: new Map([...cache].map(([k, v]) => [k, { ...v }])),
+          checkpoints: new Map(checkpoints),
+        };
+        return { rows: [] };
+      }
+      if (text === "COMMIT") {
+        snapshot = null;
+        return { rows: [] };
+      }
+      if (text === "ROLLBACK") {
+        if (snapshot) {
+          staged = snapshot.staged;
+          cache.clear();
+          for (const [k, v] of snapshot.cache) cache.set(k, v);
+          checkpoints.clear();
+          for (const [k, v] of snapshot.checkpoints) checkpoints.set(k, v);
+        }
+        snapshot = null;
+        return { rows: [] };
+      }
+      if (/CREATE TABLE IF NOT EXISTS epc_stage/.test(text)) return { rows: [] };
+      if (/INSERT INTO epc_stage/.test(text)) {
+        insertCalls += 1;
+        if (failAfterInserts !== null && insertCalls > failAfterInserts)
+          throw new Error("simulated kill: the database connection dropped mid-insert");
+        staged.push({
+          postcode: params[0] as string,
+          answer: params[1] as string,
+          skipped: params[2] as number,
+          seq: params[3] as number,
+        });
+        return { rows: [], rowCount: 1 };
+      }
+      if (
+        /SELECT loader, edition, expected, next_start_index, read_count, filed_count, state, updated_at/.test(
+          text,
+        )
+      ) {
+        const row = checkpoints.get(params[0] as string);
+        return { rows: row ? [row] : [] };
+      }
+      if (/INSERT INTO loader_checkpoint/.test(text)) {
+        checkpoints.set(params[0] as string, {
+          loader: params[0] as string,
+          edition: params[1] as string,
+          expected: params[2] as number | null,
+          next_start_index: params[3] as number,
+          read_count: params[4] as number,
+          filed_count: params[5] as number,
+          state: JSON.parse(params[6] as string) as Record<string, unknown>,
+        });
+        return { rows: [] };
+      }
+      if (/DELETE FROM loader_checkpoint WHERE loader =/.test(text)) {
+        checkpoints.delete(params[0] as string);
+        return { rows: [] };
+      }
+      if (/SELECT count\(\*\)::int AS n, coalesce\(sum\(seq\)/.test(text)) {
+        return {
+          rows: [
+            {
+              n: staged.length,
+              s: staged.reduce((a, r) => a + r.seq, 0),
+              m: staged.length ? Math.max(...staged.map((r) => r.seq)) : 0,
+            },
+          ],
+        };
+      }
+      if (/DELETE FROM epc_stage WHERE seq >=/.test(text)) {
+        staged = staged.filter((r) => r.seq < (params[0] as number));
+        return { rows: [], rowCount: 0 };
+      }
+      if (/DELETE FROM epc_stage/.test(text)) {
+        staged = [];
+        return { rows: [] };
+      }
+      if (/SELECT postcode, answer, skipped FROM epc_stage ORDER BY seq/.test(text)) {
+        return { rows: staged.map((r) => ({ ...r })) };
+      }
+      if (/UPDATE postcode_cache SET answers = answers \|\|/.test(text)) {
+        const pc = params[1] as string;
+        const row = cache.get(pc);
+        if (!row) return { rows: [], rowCount: 0 };
+        row.epc = JSON.parse(params[0] as string).epc as Record<string, unknown>;
+        return { rows: [], rowCount: 1 };
+      }
+      if (/SELECT answers->'epc' AS epc FROM postcode_cache/.test(text)) {
+        const row = cache.get(params[0] as string);
+        return { rows: row?.epc ? [{ epc: row.epc }] : [] };
+      }
+      throw new Error(`fake client: unhandled SQL: ${sql}`);
+    };
+    return {
+      query,
+      staged: () => staged,
+      cacheEpc: (pc: string) => cache.get(pc)?.epc,
+      checkpoints,
+      setFailAfterInserts: (n: number | null) => {
+        failAfterInserts = n;
+      },
+    };
+  }
+  type FakeClient = ReturnType<typeof createFakeClient>;
+  async function runEpc(
+    fake: FakeClient,
+    { restart = false, lines = null as string[] | null } = {},
+  ) {
+    const captured: string[] = lines ?? [];
+    const progress = createProgressLogger({
+      name: "load-epc",
+      log: (line: string) => captured.push(line),
+    });
+    const filer = await beginFiling(progress, { client: fake as never, restart });
+    await filer.prepareResume(EDITION, POSTCODES.length);
+    const answers = new Map<string, Record<string, unknown>>();
+    for (const { postcode, answer } of filer.stagedAnswers())
+      answers.set(postcode, answer as Record<string, unknown>);
+    for (const pc of POSTCODES) {
+      if (answers.has(pc)) continue;
+      const { answer, skipped } = await fetchPostcodeAnswer({
+        fixture,
+        fileDir: fixtureDir,
+        pc,
+        progress,
+      });
+      answers.set(pc, answer as Record<string, unknown>);
+      await filer.stageAnswer(pc, answer, skipped);
+    }
+    await filer.finishFiling(POSTCODES, answers);
+    return { filer, answers, lines: captured };
+  }
+
+  it("kill mid-fetch resumes and files every postcode exactly once", async () => {
+    const fake = createFakeClient();
+    // Kill after two staged postcodes: the checkpoint at 2,
+    // the third postcode never fetched.
+    const killLines: string[] = [];
+    fake.setFailAfterInserts(2);
+    await expect(runEpc(fake, { lines: killLines })).rejects.toThrow(/simulated kill/);
+    expect(fake.staged().length).toBe(2);
+    expect(fake.checkpoints.get("load-epc")?.next_start_index).toBe(2);
+    expect(
+      killLines.some((l) => /checkpoint 2\/4 postcodes \(50%\) · staged 2 · resume from 2/.test(l)),
+    ).toBe(true);
+
+    fake.setFailAfterInserts(null);
+    const { filer, answers, lines } = await runEpc(fake);
+    expect(answers.size).toBe(4);
+    expect(
+      lines.some((l) =>
+        /resuming from checkpoint · 2 rows staged · edition 2026-11-26 · resume from 2/.test(l),
+      ),
+    ).toBe(true);
+    // Every postcode filed once, with the fetched certificate counts.
+    for (const pc of POSTCODES) {
+      const filed = fake.cacheEpc(pc) as { certificateCount: number } | undefined;
+      expect(filed?.certificateCount).toBe(
+        (answers.get(pc) as { certificateCount: number }).certificateCount,
+      );
+      expect(filed?.certificateCount).toBeGreaterThan(0);
+    }
+    // The merge cleared staging and the checkpoint together.
+    expect(fake.staged().length).toBe(0);
+    expect(fake.checkpoints.get("load-epc")).toBeUndefined();
+    expect(filer.resumeNote()).toBe("the start (nothing staged yet)");
+  });
+
+  it("an edition change discards the staged answers and starts from zero", async () => {
+    const fake = createFakeClient();
+    fake.setFailAfterInserts(2);
+    await expect(runEpc(fake)).rejects.toThrow(/simulated kill/);
+    expect(fake.staged().length).toBe(2);
+
+    const progress = createProgressLogger({ name: "load-epc", log: () => {} });
+    const filer = await beginFiling(progress, { client: fake as never });
+    const prep = await filer.prepareResume("2099-01-01", POSTCODES.length);
+    expect(prep.resumed).toBe(false);
+    expect(fake.staged().length).toBe(0);
+    expect(fake.checkpoints.get("load-epc")).toBeUndefined();
+  });
+
+  it("--restart discards the checkpoint and starts from zero", async () => {
+    const fake = createFakeClient();
+    fake.setFailAfterInserts(2);
+    await expect(runEpc(fake)).rejects.toThrow(/simulated kill/);
+    expect(fake.staged().length).toBe(2);
+
+    fake.setFailAfterInserts(null);
+    const { answers } = await runEpc(fake, { restart: true });
+    expect(answers.size).toBe(4);
+    for (const pc of POSTCODES) {
+      const filed = fake.cacheEpc(pc) as { certificateCount: number } | undefined;
+      expect(filed?.certificateCount).toBe(
+        (answers.get(pc) as { certificateCount: number }).certificateCount,
+      );
+    }
+    expect(fake.staged().length).toBe(0);
+    expect(fake.checkpoints.get("load-epc")).toBeUndefined();
   });
 });

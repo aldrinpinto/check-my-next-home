@@ -51,9 +51,12 @@
 // haversine miles on the published points, earth radius
 // 3956 (the D22 basis).
 
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { createLoaderResume } from "./loader-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -350,10 +353,249 @@ function checkGolden(processed, fixtureMode) {
   if (fails.length > 0) throw new Error(`golden checks failed:\n - ${fails.join("\n - ")}`);
 }
 
+// --- filing ------------------------------------------------------------
+
+// Stage, count, swap — with resume support (BUG-368): the
+// site staging is a PERSISTENT table now (migration 0048)
+// and one loader_checkpoint row records the last fully
+// staged 500-row chunk, so a killed run re-reads and
+// re-processes the whole file (fast and deterministic) and
+// stages only the sites past the checkpoint. The supplier
+// gate is NOT resumed: its rows are few and derive from
+// the same in-memory processed set, so finishFiling clears
+// the gate stage and re-inserts them fresh before the swap.
+// BUG-248 atomicity is unchanged: live tables change ONLY
+// on a complete, verified swap, in its own transaction;
+// staging + checkpoint are dropped (clear()) after a
+// successful swap, and stay on any failure.
+/**
+ * @param {import("./progress.mjs").ProgressLogger | null} [progress]
+ * @param {{ restart?: boolean, client?: any }} [options]
+ */
+export async function beginFiling(
+  progress = null,
+  { restart = false, client: injectedClient = null } = {},
+) {
+  // The client is injectable so the resume tests can file
+  // against a fake database; production passes none and a
+  // real client is opened as before.
+  const client = injectedClient ?? new pg.Client({ connectionString: process.env.DATABASE_URL });
+  const ownsClient = !injectedClient;
+  if (ownsClient) await client.connect();
+  try {
+    // Stage tables are spelled out rather than copied with
+    // LIKE (M4.7's lesson). brownfield_sites' geom is a
+    // generated column and is never inserted.
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS brownfield_stage (
+         reference text, organisation_entity text, site_address text,
+         hectares double precision, planning_permission_status text,
+         minimum_net_dwellings integer, maximum_net_dwellings integer,
+         site_plan_url text, latitude double precision, longitude double precision,
+         source_name text, source_date date,
+         loaded_at timestamptz NOT NULL DEFAULT now(),
+         seq bigint NOT NULL, UNIQUE (seq)
+       )`,
+    );
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS brownfield_gate_stage (
+         organisation_entity text, current_sites integer,
+         source_name text, source_date date,
+         loaded_at timestamptz NOT NULL DEFAULT now()
+       )`,
+    );
+  } catch (error) {
+    if (ownsClient) await client.end().catch(() => {});
+    throw error;
+  }
+  const resume = createLoaderResume(client, {
+    loader: "load-brownfield",
+    stageTable: "brownfield_stage",
+    progress,
+    restart,
+  });
+  let edition = null;
+  let expected = null;
+  let staged = 0;
+  // The failure line's resume note: the last checkpoint
+  // written (prepare seeds it with the resumed checkpoint,
+  // the staging loop advances it).
+  let lastNote = "the start (nothing staged yet)";
+  return {
+    resumeNote: () => lastNote,
+    filedSoFar: () => staged,
+    // Decide, from the edition and the staged rows, whether
+    // the run resumes or starts from zero. Returns the
+    // prepare result; the caller slices the filed array
+    // from its checkpoint's next_start_index.
+    async prepareResume(ed, exp) {
+      edition = ed;
+      expected = exp;
+      const prep = await resume.prepare({ edition: ed, expected: exp });
+      if (prep.resumed) {
+        staged = prep.checkpoint.filed_count;
+        lastNote = resume.resumeNote();
+      }
+      return prep;
+    },
+    // Stage the sites the caller passes (already sliced
+    // from the resume offset), in the house chunks of 500,
+    // checkpointing per chunk. The BUG-265 tally, the
+    // heartbeat and the slow-chunk warning ride as before.
+    async stageSites(items, sourceDate) {
+      const CHUNK = 500;
+      const chunks = Math.ceil(items.length / CHUNK);
+      const stageTally = progress?.tally({
+        label: "stage",
+        total: chunks,
+        every: 10,
+        unit: "chunks",
+      });
+      const stageWatch = createBatchWatch();
+      let chunkIndex = 0;
+      for (let at = 0; at < items.length; at += CHUNK) {
+        const started = Date.now();
+        const chunk = items.slice(at, at + CHUNK);
+        const values = [];
+        const params = [];
+        const base = resume.takeSeq(chunk.length);
+        chunk.forEach((item, i) => {
+          const b = i * 13;
+          values.push(
+            `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8},$${b + 9},$${b + 10},$${b + 11},$${b + 12},$${b + 13})`,
+          );
+          params.push(
+            item.row.reference || null,
+            item.row["organisation-entity"] || null,
+            item.row["site-address"] || null,
+            numberOrNull(item.row.hectares),
+            item.row["planning-permission-status"] || null,
+            integerOrNull(item.row["minimum-net-dwellings"]),
+            integerOrNull(item.row["maximum-net-dwellings"]),
+            item.row["site-plan-url"] || null,
+            item.lat,
+            item.lng,
+            SOURCE_BROWNFIELD,
+            sourceDate,
+            base + i,
+          );
+        });
+        await client.query(
+          `INSERT INTO brownfield_stage (reference, organisation_entity, site_address, hectares, planning_permission_status, minimum_net_dwellings, maximum_net_dwellings, site_plan_url, latitude, longitude, source_name, source_date, seq)
+           VALUES ${values.join(",")}`,
+          params,
+        );
+        staged += chunk.length;
+        await resume.checkpoint({
+          edition,
+          expected,
+          nextStartIndex: staged,
+          read: staged,
+          filed: staged,
+          unit: "sites",
+        });
+        lastNote = resume.resumeNote();
+        chunkIndex += 1;
+        const { tookMs, averageMs, slow } = stageWatch.observe(Date.now() - started);
+        stageTally?.tick(chunkIndex);
+        progress?.heartbeat({ stage: "stage", done: chunkIndex, total: chunks });
+        if (slow) {
+          progress?.warning({
+            what: "stage chunk duration",
+            value: `chunk ${chunkIndex} took ${formatDuration(tookMs)}`,
+            threshold: `3x recent average ${formatDuration(averageMs)}`,
+          });
+        }
+      }
+      stageTally?.finish(chunks);
+    },
+    // Count-check the staged sites, re-stage the supplier
+    // gate fresh from the processed publishers map, then
+    // swap both tables in one transaction and verify the
+    // filed counts. Staging + checkpoint go together after
+    // a successful swap.
+    async finishFiling(expectedFiled, publishers, sourceDate) {
+      try {
+        const stagedRes = await client.query("SELECT count(*)::int AS n FROM brownfield_stage");
+        if (stagedRes.rows[0].n !== expectedFiled)
+          throw new Error("the staged site count does not match — rolling back");
+        // The gate is the small tail of the same filing:
+        // cleared and re-inserted fresh (one multi-row
+        // INSERT) before the swap transaction. A kill here
+        // leaves the layer staging checkpointed and the
+        // next run re-stages the gate the same way.
+        await client.query("DELETE FROM brownfield_gate_stage");
+        if (publishers.size > 0) {
+          const values = [];
+          const params = [];
+          let i = 0;
+          for (const [org, count] of publishers) {
+            const b = i * 4;
+            values.push(`($${b + 1},$${b + 2},$${b + 3},$${b + 4})`);
+            params.push(org, count, SOURCE_BROWNFIELD, sourceDate);
+            i += 1;
+          }
+          await client.query(
+            `INSERT INTO brownfield_gate_stage (organisation_entity, current_sites, source_name, source_date)
+             VALUES ${values.join(",")}`,
+            params,
+          );
+        }
+        await client.query("BEGIN");
+        try {
+          await client.query("DELETE FROM brownfield_sites");
+          await client.query(
+            `INSERT INTO brownfield_sites (reference, organisation_entity, site_address, hectares, planning_permission_status, minimum_net_dwellings, maximum_net_dwellings, site_plan_url, latitude, longitude, source_name, source_date, loaded_at)
+             SELECT reference, organisation_entity, site_address, hectares, planning_permission_status, minimum_net_dwellings, maximum_net_dwellings, site_plan_url, latitude, longitude, source_name, source_date, loaded_at FROM brownfield_stage`,
+          );
+          await client.query("DELETE FROM brownfield_publishers");
+          await client.query(
+            `INSERT INTO brownfield_publishers (organisation_entity, current_sites, source_name, source_date, loaded_at)
+             SELECT organisation_entity, current_sites, source_name, source_date, loaded_at FROM brownfield_gate_stage`,
+          );
+          const filedCount = await client.query("SELECT count(*)::int AS n FROM brownfield_sites");
+          if (filedCount.rows[0].n !== expectedFiled)
+            throw new Error("the filed site count does not match — rolling back");
+          const gateCount = await client.query(
+            "SELECT count(*)::int AS n FROM brownfield_publishers",
+          );
+          if (gateCount.rows[0].n !== publishers.size)
+            throw new Error("the filed gate count does not match — rolling back");
+          await client.query("COMMIT");
+        } catch (error) {
+          await client.query("ROLLBACK").catch(() => {});
+          throw error;
+        }
+        await resume.clear();
+        lastNote = "the start (nothing staged yet)";
+      } finally {
+        if (ownsClient) await client.end().catch(() => {});
+      }
+    },
+    async abortFiling() {
+      // The staging + checkpoint STAY: they are the next
+      // run's resume point.
+      if (ownsClient) await client.end().catch(() => {});
+    },
+  };
+}
+
+// The edition for a run: the retrieval date plus a hash of
+// the file text — the file carries no edition date, so the
+// date guards a next-day resume (staged rows would
+// otherwise carry mixed source_dates) and the hash guards
+// a same-day republication.
+export function brownfieldEdition(sourceDate, text) {
+  return `${sourceDate}:${createHash("sha256").update(text).digest("hex").slice(0, 16)}`;
+}
+
 async function main() {
   const startedAt = Date.now();
   const args = process.argv.slice(2);
   const verifyOnly = args.includes("--verify-only");
+  // BUG-368: resume from the last checkpointed chunk instead
+  // of restarting; with no checkpoint this is a fresh start.
+  const restart = args.includes("--restart");
   const fileAt = args.indexOf("--file");
   const fixtureMode = fileAt !== -1;
   const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
@@ -425,137 +667,43 @@ async function main() {
   if (!process.env.DATABASE_URL)
     throw new Error("DATABASE_URL is not set — filing requires a database");
 
-  const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
-  await client.connect();
+  // BUG-368: the filing is resumable — the edition is the
+  // retrieval date plus a hash of the file text, so a kill
+  // mid-stage resumes from the last checkpointed chunk
+  // instead of re-staging the whole file.
+  const filer = await beginFiling(progress, { restart });
+  const edition = brownfieldEdition(sourceDate, text);
   try {
-    await client.query("BEGIN");
-    // Stage tables are spelled out rather than copied with
-    // LIKE (M4.7's lesson). brownfield_sites' geom is a
-    // generated column and is never inserted.
-    await client.query(
-      `CREATE TEMP TABLE brownfield_stage (
-         reference text, organisation_entity text, site_address text,
-         hectares double precision, planning_permission_status text,
-         minimum_net_dwellings integer, maximum_net_dwellings integer,
-         site_plan_url text, latitude double precision, longitude double precision,
-         source_name text, source_date date,
-         loaded_at timestamptz NOT NULL DEFAULT now()
-       ) ON COMMIT DROP`,
-    );
-    await client.query(
-      `CREATE TEMP TABLE brownfield_gate_stage (
-         organisation_entity text, current_sites integer,
-         source_name text, source_date date,
-         loaded_at timestamptz NOT NULL DEFAULT now()
-       ) ON COMMIT DROP`,
-    );
-    const CHUNK = 500;
-    // BUG-265: the staging is the run's long loop — ~70 chunks
-    // of 500 live — so a tally lands every 10 chunks against
-    // the chunk count, a heartbeat every 10, and a chunk that
-    // takes more than 3x the recent average earns a warning.
-    // (The supplier-gate inserts that follow are the small tail
-    // of the same filing, inside this same transaction.)
+    const prep = await filer.prepareResume(edition, processed.filed.length);
+    const startOffset = prep.resumed ? prep.checkpoint.next_start_index : 0;
     progress.stage(`filing ${formatCount(processed.filed.length)} sites`);
-    const chunks = Math.ceil(processed.filed.length / CHUNK);
-    const stageTally = progress.tally({
-      label: "stage",
-      total: chunks,
-      every: 10,
-      unit: "chunks",
-    });
-    const stageWatch = createBatchWatch();
-    let chunkIndex = 0;
-    for (let at = 0; at < processed.filed.length; at += CHUNK) {
-      const started = Date.now();
-      const chunk = processed.filed.slice(at, at + CHUNK);
-      const values = [];
-      const params = [];
-      chunk.forEach((item, i) => {
-        const base = i * 12;
-        values.push(
-          `($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8},$${base + 9},$${base + 10},$${base + 11},$${base + 12})`,
-        );
-        params.push(
-          item.row.reference || null,
-          item.row["organisation-entity"] || null,
-          item.row["site-address"] || null,
-          numberOrNull(item.row.hectares),
-          item.row["planning-permission-status"] || null,
-          integerOrNull(item.row["minimum-net-dwellings"]),
-          integerOrNull(item.row["maximum-net-dwellings"]),
-          item.row["site-plan-url"] || null,
-          item.lat,
-          item.lng,
-          SOURCE_BROWNFIELD,
-          sourceDate,
-        );
-      });
-      await client.query(
-        `INSERT INTO brownfield_stage (reference, organisation_entity, site_address, hectares, planning_permission_status, minimum_net_dwellings, maximum_net_dwellings, site_plan_url, latitude, longitude, source_name, source_date)
-         VALUES ${values.join(",")}`,
-        params,
-      );
-      chunkIndex += 1;
-      const { tookMs, averageMs, slow } = stageWatch.observe(Date.now() - started);
-      stageTally.tick(chunkIndex);
-      progress.heartbeat({ stage: "stage", done: chunkIndex, total: chunks });
-      if (slow) {
-        progress.warning({
-          what: "stage chunk duration",
-          value: `chunk ${chunkIndex} took ${formatDuration(tookMs)}`,
-          threshold: `3x recent average ${formatDuration(averageMs)}`,
-        });
-      }
-    }
-    stageTally.finish(chunks);
-    for (const [org, count] of processed.publishers) {
-      await client.query(
-        `INSERT INTO brownfield_gate_stage (organisation_entity, current_sites, source_name, source_date)
-         VALUES ($1,$2,$3,$4)`,
-        [org, count, SOURCE_BROWNFIELD, sourceDate],
-      );
-    }
-    const staged = await client.query("SELECT count(*)::int AS n FROM brownfield_stage");
-    if (staged.rows[0].n !== processed.filed.length)
-      throw new Error("the staged site count does not match — rolling back");
-    await client.query("DELETE FROM brownfield_sites");
-    await client.query(
-      `INSERT INTO brownfield_sites (reference, organisation_entity, site_address, hectares, planning_permission_status, minimum_net_dwellings, maximum_net_dwellings, site_plan_url, latitude, longitude, source_name, source_date, loaded_at)
-       SELECT reference, organisation_entity, site_address, hectares, planning_permission_status, minimum_net_dwellings, maximum_net_dwellings, site_plan_url, latitude, longitude, source_name, source_date, loaded_at FROM brownfield_stage`,
+    await filer.stageSites(processed.filed.slice(startOffset), sourceDate);
+    progress.stage(
+      `swap started — filing ${formatCount(processed.filed.length)} staged sites into brownfield_sites`,
     );
-    await client.query("DELETE FROM brownfield_publishers");
-    await client.query(
-      `INSERT INTO brownfield_publishers (organisation_entity, current_sites, source_name, source_date, loaded_at)
-       SELECT organisation_entity, current_sites, source_name, source_date, loaded_at FROM brownfield_gate_stage`,
-    );
-    const filedCount = await client.query("SELECT count(*)::int AS n FROM brownfield_sites");
-    if (filedCount.rows[0].n !== processed.filed.length)
-      throw new Error("the filed site count does not match — rolling back");
-    const gateCount = await client.query("SELECT count(*)::int AS n FROM brownfield_publishers");
-    if (gateCount.rows[0].n !== processed.publishers.size)
-      throw new Error("the filed gate count does not match — rolling back");
-    await client.query("COMMIT");
+    await filer.finishFiling(processed.filed.length, processed.publishers, sourceDate);
   } catch (error) {
-    // BUG-265: the filing is one transaction — on a rollback
-    // the live tables are untouched.
+    // BUG-368: the failure line carries the resume note,
+    // so it names the point the next run resumes from.
+    // The filing is not one transaction any more — on a
+    // failure the live tables are untouched and the
+    // staging stays as the resume point.
     progress.failed({
       stage: "filing",
-      filed: 0,
+      filed: filer.filedSoFar(),
       total: processed.filed.length,
       error,
-      resume:
-        "re-run the loader from the start (the filing rolled back, the live tables are untouched)",
+      resume: filer.resumeNote(),
     });
-    await client.query("ROLLBACK").catch(() => {});
+    await filer.abortFiling();
     throw error;
-  } finally {
-    await client.end();
   }
   console.log(`${summary()} · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`);
 }
 
-main().catch((error) => {
-  console.error(`load-brownfield FAILED: ${error.message}`);
-  process.exitCode = 1;
-});
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(`load-brownfield FAILED: ${error.message}`);
+    process.exitCode = 1;
+  });
+}

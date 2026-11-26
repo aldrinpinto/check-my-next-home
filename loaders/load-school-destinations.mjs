@@ -106,6 +106,7 @@ import { Readable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { createLoaderResume } from "./loader-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -713,12 +714,32 @@ export function checkGolden(collections) {
 // supersede guards → delete → insert → count), so a failed run keeps the
 // last good filing and the two stages never serve half a release.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Filing. The whole table swaps in one transaction (stage → join check →
+// supersede guards → delete → insert → count), so a failed run keeps the
+// last good filing and the two stages never serve half a release.
+//
+// With resume support (BUG-368) the stage is a PERSISTENT table
+// (migration 0048) and a loader_checkpoint row records the last
+// fully staged chunk: a killed run resumes instead of restarting.
+// Without the resume option the filing is exactly the one-shot
+// transaction above (a TEMP stage inside one BEGIN…COMMIT), so the
+// existing filing tests keep passing unchanged. The edition is the
+// cohort year, version and publication date the two stages agree
+// on; the resume point is the count of rows staged, and a resumed
+// run re-parses both files (the parse is the read; the staged rows
+// are the resume) and stages only the rows past the checkpoint.
+// ---------------------------------------------------------------------------
 /**
  * @param {any} client
  * @param {any} filing
- * @param {{ enforceJoin: boolean, progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ * @param {{ enforceJoin: boolean, progress?: import("./progress.mjs").ProgressLogger | null, resume?: { restart?: boolean } | null }} [options]
  */
-export async function fileDestinations(client, filing, { enforceJoin, progress = null } = {}) {
+export async function fileDestinations(
+  client,
+  filing,
+  { enforceJoin, progress = null, resume: resumeOpts = null } = {},
+) {
   // BUG-265: the staging tally and the swap marker live
   // here; the failure line is in the catch below.
   const records = [...filing.collections.ks4.filed, ...filing.collections.ks5.filed];
@@ -731,10 +752,50 @@ export async function fileDestinations(client, filing, { enforceJoin, progress =
     unit: "chunks",
   });
   const stageWatch = createBatchWatch();
+  // The tally counts absolute chunks, so a resumed run's
+  // first tick lands at its true position.
   let chunksDone = 0;
   let stagedRows = 0;
-  await client.query("BEGIN");
+  // BUG-368: the edition is the cohort year, version and
+  // publication date the two stages agree on.
+  const edition = `${filing.collections.ks4.cohortYear}/${filing.collections.ks4.version}/${filing.published}`;
+  let resume = null;
   try {
+    if (resumeOpts) {
+      await client.query(`CREATE TABLE IF NOT EXISTS school_destinations_stage (
+          urn text, stage text, cohort_year text, version text, cohort_count integer,
+          overall double precision, overall_low boolean, education double precision, education_low boolean,
+          higher_education double precision, higher_education_low boolean,
+          apprenticeships double precision, apprenticeships_low boolean,
+          employment double precision, employment_low boolean,
+          state text, source_name text, source_date date,
+          seq bigint NOT NULL, UNIQUE (seq)
+        )`);
+      resume = createLoaderResume(client, {
+        loader: "load-school-destinations",
+        stageTable: "school_destinations_stage",
+        progress,
+        restart: resumeOpts.restart ?? false,
+      });
+      const prep = await resume.prepare({ edition, expected: records.length });
+      if (prep.resumed) {
+        stagedRows = prep.checkpoint.filed_count;
+        // Ceil, not floor: the last chunk may be partial, and a
+        // fully staged resume must finish at total/total, not
+        // one short (a kill during the swap resumes here).
+        chunksDone = Math.ceil(stagedRows / CHUNK);
+      }
+    } else {
+      await client.query("BEGIN");
+      await client.query(`CREATE TEMP TABLE school_destinations_stage (
+        urn text, stage text, cohort_year text, version text, cohort_count integer,
+        overall double precision, overall_low boolean, education double precision, education_low boolean,
+        higher_education double precision, higher_education_low boolean,
+        apprenticeships double precision, apprenticeships_low boolean,
+        employment double precision, employment_low boolean,
+        state text, source_name text, source_date date
+      ) ON COMMIT DROP`);
+    }
     // Edition detection: the edition already standing
     // files nothing.
     const standing = await client.query(
@@ -757,7 +818,11 @@ export async function fileDestinations(client, filing, { enforceJoin, progress =
       );
     });
     if (unchanged) {
-      await client.query("COMMIT");
+      // The live table already serves this edition: in
+      // resume mode clear whatever a killed run left, so
+      // nothing stale stands under the next edition.
+      if (resume) await resume.clear();
+      else await client.query("COMMIT");
       return { filed: false, reason: "edition unchanged" };
     }
     // Supersede guards: an older cohort never replaces a
@@ -780,27 +845,21 @@ export async function fileDestinations(client, filing, { enforceJoin, progress =
           `${stage}: the filed ${edition.cohort_year} cohort is already Revised — a Provisional pull never supersedes it`,
         );
     }
-    await client.query(`CREATE TEMP TABLE school_destinations_stage (
-        urn text, stage text, cohort_year text, version text, cohort_count integer,
-        overall double precision, overall_low boolean, education double precision, education_low boolean,
-        higher_education double precision, higher_education_low boolean,
-        apprenticeships double precision, apprenticeships_low boolean,
-        employment double precision, employment_low boolean,
-        state text, source_name text, source_date date
-      ) ON COMMIT DROP`);
-    const CHUNK = 200;
     progress?.stage(
       `staging ${formatCount(records.length)} destination rows (${formatCount(filing.collections.ks4.filed.length)} key stage 4, ${formatCount(filing.collections.ks5.filed.length)} 16-19)`,
     );
-    for (let at = 0; at < records.length; at += CHUNK) {
+    for (let at = stagedRows; at < records.length; at += CHUNK) {
       const chunk = records.slice(at, at + CHUNK);
       const started = Date.now();
       const values = [];
       const params = [];
+      const base = resume ? resume.takeSeq(chunk.length) : 0;
       chunk.forEach((record, i) => {
-        const base = i * 18;
+        const b = resume ? i * 19 : i * 18;
         values.push(
-          `($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8},$${base + 9},$${base + 10},$${base + 11},$${base + 12},$${base + 13},$${base + 14},$${base + 15},$${base + 16},$${base + 17},$${base + 18})`,
+          resume
+            ? `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8},$${b + 9},$${b + 10},$${b + 11},$${b + 12},$${b + 13},$${b + 14},$${b + 15},$${b + 16},$${b + 17},$${b + 18},$${b + 19})`
+            : `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8},$${b + 9},$${b + 10},$${b + 11},$${b + 12},$${b + 13},$${b + 14},$${b + 15},$${b + 16},$${b + 17},$${b + 18})`,
         );
         const share = (field) => [record.shares[field].value, record.shares[field].low];
         params.push(
@@ -818,9 +877,12 @@ export async function fileDestinations(client, filing, { enforceJoin, progress =
           SOURCE_NAME,
           filing.published,
         );
+        if (resume) params.push(base + i);
       });
       await client.query(
-        `INSERT INTO school_destinations_stage (urn, stage, cohort_year, version, cohort_count, overall, overall_low, education, education_low, higher_education, higher_education_low, apprenticeships, apprenticeships_low, employment, employment_low, state, source_name, source_date) VALUES ${values.join(",")}`,
+        resume
+          ? `INSERT INTO school_destinations_stage (urn, stage, cohort_year, version, cohort_count, overall, overall_low, education, education_low, higher_education, higher_education_low, apprenticeships, apprenticeships_low, employment, employment_low, state, source_name, source_date, seq) VALUES ${values.join(",")}`
+          : `INSERT INTO school_destinations_stage (urn, stage, cohort_year, version, cohort_count, overall, overall_low, education, education_low, higher_education, higher_education_low, apprenticeships, apprenticeships_low, employment, employment_low, state, source_name, source_date) VALUES ${values.join(",")}`,
         params,
       );
       stagedRows += chunk.length;
@@ -833,6 +895,16 @@ export async function fileDestinations(client, filing, { enforceJoin, progress =
           what: "stage chunk duration",
           value: `chunk ${chunksDone} took ${formatDuration(tookMs)}`,
           threshold: `3x recent average ${formatDuration(averageMs)}`,
+        });
+      }
+      if (resume) {
+        await resume.checkpoint({
+          edition,
+          expected: records.length,
+          nextStartIndex: stagedRows,
+          read: stagedRows,
+          filed: stagedRows,
+          unit: "rows",
         });
       }
     }
@@ -858,28 +930,53 @@ export async function fileDestinations(client, filing, { enforceJoin, progress =
       }
     }
     progress?.stage("swap started — replacing the filed destinations");
-    await client.query("DELETE FROM school_destinations");
-    await client.query(
-      `INSERT INTO school_destinations (urn, stage, cohort_year, version, cohort_count, overall, overall_low, education, education_low, higher_education, higher_education_low, apprenticeships, apprenticeships_low, employment, employment_low, state, source_name, source_date)
-       SELECT urn, stage, cohort_year, version, cohort_count, overall, overall_low, education, education_low, higher_education, higher_education_low, apprenticeships, apprenticeships_low, employment, employment_low, state, source_name, source_date FROM school_destinations_stage`,
-    );
-    const filedCount = await client.query("SELECT count(*)::int AS n FROM school_destinations");
-    if (filedCount.rows[0].n !== records.length)
-      throw new Error("the filed row count does not match — rolling back");
-    await client.query("COMMIT");
+    if (resume) {
+      await client.query("BEGIN");
+      try {
+        await client.query("DELETE FROM school_destinations");
+        await client.query(
+          `INSERT INTO school_destinations (urn, stage, cohort_year, version, cohort_count, overall, overall_low, education, education_low, higher_education, higher_education_low, apprenticeships, apprenticeships_low, employment, employment_low, state, source_name, source_date)
+           SELECT urn, stage, cohort_year, version, cohort_count, overall, overall_low, education, education_low, higher_education, higher_education_low, apprenticeships, apprenticeships_low, employment, employment_low, state, source_name, source_date FROM school_destinations_stage`,
+        );
+        const filedCount = await client.query("SELECT count(*)::int AS n FROM school_destinations");
+        if (filedCount.rows[0].n !== records.length)
+          throw new Error("the filed row count does not match — rolling back");
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw error;
+      }
+      // The run is complete: staging + checkpoint go together,
+      // so nothing is left behind for the next edition.
+      await resume.clear();
+    } else {
+      await client.query("DELETE FROM school_destinations");
+      await client.query(
+        `INSERT INTO school_destinations (urn, stage, cohort_year, version, cohort_count, overall, overall_low, education, education_low, higher_education, higher_education_low, apprenticeships, apprenticeships_low, employment, employment_low, state, source_name, source_date)
+         SELECT urn, stage, cohort_year, version, cohort_count, overall, overall_low, education, education_low, higher_education, higher_education_low, apprenticeships, apprenticeships_low, employment, employment_low, state, source_name, source_date FROM school_destinations_stage`,
+      );
+      const filedCount = await client.query("SELECT count(*)::int AS n FROM school_destinations");
+      if (filedCount.rows[0].n !== records.length)
+        throw new Error("the filed row count does not match — rolling back");
+      await client.query("COMMIT");
+    }
     return { filed: true };
   } catch (error) {
     // BUG-265: the failure line names the filing stage and
     // how many rows were staged — the swap rolled back, so
     // the last good filing stands and a re-run starts over.
+    // BUG-368: in resume mode the line names the point the
+    // next run resumes from instead.
     progress?.failed({
       stage: "filing",
       filed: stagedRows,
       total: records.length,
       error,
-      resume: "re-run from scratch (the swap rolled back, the last good filing stands)",
+      resume: resume
+        ? resume.resumeNote()
+        : "re-run from scratch (the swap rolled back, the last good filing stands)",
     });
-    await client.query("ROLLBACK").catch(() => {});
+    if (!resumeOpts) await client.query("ROLLBACK").catch(() => {});
     throw error;
   }
 }
@@ -897,6 +994,9 @@ async function main() {
   const startedAt = Date.now();
   const args = process.argv.slice(2);
   const verifyOnly = args.includes("--verify-only");
+  // BUG-368: resume from the last checkpointed chunk instead of
+  // restarting; with no checkpoint this is a fresh start.
+  const restart = args.includes("--restart");
   const fileAt = args.indexOf("--file");
   const fixtureMode = fileAt !== -1;
   const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
@@ -976,7 +1076,14 @@ async function main() {
   await client.connect();
   let result;
   try {
-    result = await fileDestinations(client, filing, { enforceJoin: !fixtureMode, progress });
+    // BUG-368: stage resumably — a killed run's staging +
+    // checkpoint survive, and the next run resumes from the
+    // checkpoint instead of re-staging.
+    result = await fileDestinations(client, filing, {
+      enforceJoin: !fixtureMode,
+      progress,
+      resume: { restart },
+    });
   } finally {
     await client.end();
   }

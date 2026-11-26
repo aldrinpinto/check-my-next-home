@@ -86,6 +86,7 @@ import {
   formatCount,
   formatDuration,
 } from "./progress.mjs";
+import { createLoaderResume } from "./loader-resume.mjs";
 
 const USER_AGENT = "CheckMyNextHome/1.0 (+https://checkmynexthome.co.uk)";
 
@@ -571,17 +572,31 @@ export function goldenChecks(filing, { full }) {
 }
 
 // ------------------------------------------------------------------
-// Filing — one transaction, stage then swap
+// Filing — stage then swap, with resume support (BUG-368)
 // ------------------------------------------------------------------
 
 const CHUNK = 500;
 
+// The two stage tables are PERSISTENT now (migration 0048)
+// and each carries its own loader_checkpoint row
+// (load-pollution-inventory:sites / :releases), so a killed
+// run resumes staging from the checkpoint instead of
+// re-staging the whole workbook. The workbook read/parse
+// still re-runs — only the staging is saved. The edition
+// is the inventory year; the expected total per table is
+// its row count. The swap stays atomic across both tables,
+// and a successful swap clears both stagings + checkpoints
+// together (BUG-248 unchanged).
 /**
  * @param {{ query: (text: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }> }} client
  * @param {PiFiling} filing
- * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, restart?: boolean }} [options]
  */
-export async function filePollutionInventory(client, filing, { progress = null } = {}) {
+export async function filePollutionInventory(
+  client,
+  filing,
+  { progress = null, restart = false } = {},
+) {
   // BUG-265: the staging is the run's long phase — a tally
   // over the stage chunks (sites, then releases), a slow-
   // chunk warning and a heartbeat, so the log moves while
@@ -597,8 +612,50 @@ export async function filePollutionInventory(client, filing, { progress = null }
     unit: "chunks",
   });
   const stageWatch = createBatchWatch();
-  let chunksDone = 0;
-  let stagedRows = 0;
+  const edition = `pi-${filing.year}`;
+  const sitesResume = createLoaderResume(client, {
+    loader: "load-pollution-inventory:sites",
+    stageTable: "industrial_sites_stage",
+    progress,
+    restart,
+  });
+  const releasesResume = createLoaderResume(client, {
+    loader: "load-pollution-inventory:releases",
+    stageTable: "industrial_site_releases_stage",
+    progress,
+    restart,
+  });
+  // The resume note names the furthest point reached —
+  // the releases table stages second, so its note wins
+  // once it has checkpointed anything.
+  const resumeNote = () => {
+    const releases = releasesResume.resumeNote();
+    return releases === "the start (nothing staged yet)" ? sitesResume.resumeNote() : releases;
+  };
+  await client.query(`CREATE TABLE IF NOT EXISTS industrial_sites_stage (
+      permit_id text, operator text, site_address text, site_postcode text,
+      activity_description text, sector text, sub_sector text,
+      easting double precision, northing double precision,
+      latitude double precision, longitude double precision,
+      data_year integer, source_name text, source_date date,
+      seq bigint NOT NULL, UNIQUE (seq)
+    )`);
+  await client.query(`CREATE TABLE IF NOT EXISTS industrial_site_releases_stage (
+      permit_id text, substance text, threshold_kg double precision,
+      quantity_kg double precision, below_threshold boolean, data_year integer,
+      seq bigint NOT NULL, UNIQUE (seq)
+    )`);
+  const sitesPrep = await sitesResume.prepare({ edition, expected: filing.sites.length });
+  const releasesPrep = await releasesResume.prepare({
+    edition,
+    expected: filing.releases.length,
+  });
+  const sitesStartAt = sitesPrep.resumed ? sitesPrep.checkpoint.next_start_index : 0;
+  const releasesStartAt = releasesPrep.resumed ? releasesPrep.checkpoint.next_start_index : 0;
+  let chunksDone = Math.floor(sitesStartAt / CHUNK) + Math.floor(releasesStartAt / CHUNK);
+  let stagedSites = sitesPrep.resumed ? sitesPrep.checkpoint.filed_count : 0;
+  let stagedReleases = releasesPrep.resumed ? releasesPrep.checkpoint.filed_count : 0;
+  let stagedRows = stagedSites + stagedReleases;
   // One staged chunk's worth of progress: the tally, the
   // heartbeat and the slow-chunk warning, in one place so
   // the sites and releases loops can never drift apart.
@@ -617,27 +674,16 @@ export async function filePollutionInventory(client, filing, { progress = null }
       });
     }
   }
-  await client.query("BEGIN");
   try {
-    await client.query(`CREATE TEMP TABLE industrial_sites_stage (
-        permit_id text, operator text, site_address text, site_postcode text,
-        activity_description text, sector text, sub_sector text,
-        easting double precision, northing double precision,
-        latitude double precision, longitude double precision,
-        data_year integer, source_name text, source_date date
-      ) ON COMMIT DROP`);
-    await client.query(`CREATE TEMP TABLE industrial_site_releases_stage (
-        permit_id text, substance text, threshold_kg double precision,
-        quantity_kg double precision, below_threshold boolean, data_year integer
-      ) ON COMMIT DROP`);
-    for (let i = 0; i < filing.sites.length; i += CHUNK) {
+    for (let i = sitesStartAt; i < filing.sites.length; i += CHUNK) {
       const chunk = filing.sites.slice(i, i + CHUNK);
       const values = [];
       const params = [];
+      const base = sitesResume.takeSeq(chunk.length);
       chunk.forEach((s, j) => {
-        const b = j * 14;
+        const b = j * 15;
         values.push(
-          `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7}, $${b + 8}, $${b + 9}, $${b + 10}, $${b + 11}, $${b + 12}, $${b + 13}, $${b + 14})`,
+          `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7}, $${b + 8}, $${b + 9}, $${b + 10}, $${b + 11}, $${b + 12}, $${b + 13}, $${b + 14}, $${b + 15})`,
         );
         params.push(
           s.permitId,
@@ -654,23 +700,39 @@ export async function filePollutionInventory(client, filing, { progress = null }
           filing.year,
           SOURCE_NAME,
           filing.sourceDate,
+          base + j,
         );
       });
       await stageChunk(() =>
         client.query(
-          `INSERT INTO industrial_sites_stage (permit_id, operator, site_address, site_postcode, activity_description, sector, sub_sector, easting, northing, latitude, longitude, data_year, source_name, source_date) VALUES ${values.join(", ")}`,
+          `INSERT INTO industrial_sites_stage (permit_id, operator, site_address, site_postcode, activity_description, sector, sub_sector, easting, northing, latitude, longitude, data_year, source_name, source_date, seq) VALUES ${values.join(", ")}`,
           params,
         ),
       );
+      stagedSites += chunk.length;
       stagedRows += chunk.length;
+      // BUG-368: one checkpoint line per committed chunk —
+      // the save is visible in the logs, and a kill after
+      // this line loses at most the chunk in flight.
+      await sitesResume.checkpoint({
+        edition,
+        expected: filing.sites.length,
+        nextStartIndex: i + chunk.length,
+        read: i + chunk.length,
+        filed: stagedSites,
+        unit: "rows",
+      });
     }
-    for (let i = 0; i < filing.releases.length; i += CHUNK) {
+    for (let i = releasesStartAt; i < filing.releases.length; i += CHUNK) {
       const chunk = filing.releases.slice(i, i + CHUNK);
       const values = [];
       const params = [];
+      const base = releasesResume.takeSeq(chunk.length);
       chunk.forEach((r, j) => {
-        const b = j * 6;
-        values.push(`($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6})`);
+        const b = j * 7;
+        values.push(
+          `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7})`,
+        );
         params.push(
           r.permitId,
           r.substance,
@@ -678,58 +740,102 @@ export async function filePollutionInventory(client, filing, { progress = null }
           r.quantityKg,
           r.belowThreshold,
           filing.year,
+          base + j,
         );
       });
       await stageChunk(() =>
         client.query(
-          `INSERT INTO industrial_site_releases_stage (permit_id, substance, threshold_kg, quantity_kg, below_threshold, data_year) VALUES ${values.join(", ")}`,
+          `INSERT INTO industrial_site_releases_stage (permit_id, substance, threshold_kg, quantity_kg, below_threshold, data_year, seq) VALUES ${values.join(", ")}`,
           params,
         ),
       );
+      stagedReleases += chunk.length;
       stagedRows += chunk.length;
+      await releasesResume.checkpoint({
+        edition,
+        expected: filing.releases.length,
+        nextStartIndex: i + chunk.length,
+        read: i + chunk.length,
+        filed: stagedReleases,
+        unit: "rows",
+      });
     }
     stageTally?.finish(chunks);
-    // The swap: the old vintage goes only once the new one
-    // is fully staged — and the counts are asserted inside
-    // the transaction, so a short filing rolls back whole.
-    progress?.stage("swap started — replacing the filed vintage");
-    await client.query("DELETE FROM industrial_site_releases");
-    await client.query("DELETE FROM industrial_sites");
-    await client.query(
-      `INSERT INTO industrial_sites (permit_id, operator, site_address, site_postcode, activity_description, sector, sub_sector, easting, northing, latitude, longitude, geom, data_year, source_name, source_date)
-       SELECT permit_id, operator, site_address, site_postcode, activity_description, sector, sub_sector, easting, northing, latitude, longitude,
-              CASE WHEN latitude IS NOT NULL AND longitude IS NOT NULL
-                   THEN ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)::geography END,
-              data_year, source_name, source_date
-       FROM industrial_sites_stage`,
-    );
-    await client.query(
-      `INSERT INTO industrial_site_releases (permit_id, substance, threshold_kg, quantity_kg, below_threshold, data_year)
-       SELECT permit_id, substance, threshold_kg, quantity_kg, below_threshold, data_year FROM industrial_site_releases_stage`,
-    );
-    const { rows: siteCount } = await client.query(
-      "SELECT count(*)::int AS n FROM industrial_sites",
-    );
-    const { rows: releaseCount } = await client.query(
-      "SELECT count(*)::int AS n FROM industrial_site_releases",
-    );
-    if (siteCount[0].n !== filing.sites.length || releaseCount[0].n !== filing.releases.length)
-      throw new Error(
-        `the swap filed ${siteCount[0].n} sites and ${releaseCount[0].n} releases, expected ${filing.sites.length} and ${filing.releases.length}`,
-      );
-    await client.query("COMMIT");
   } catch (err) {
-    // BUG-265: the failure line names the filing stage and
-    // how far the staging got — the swap rolled back, so
-    // the last good vintage stands and a re-run starts over.
+    // BUG-368: the staging is durable per chunk — no
+    // transaction to roll back, and the staged rows +
+    // checkpoints STAY for the next run to resume from.
     progress?.failed({
       stage: "filing",
       filed: stagedRows,
       total: filing.sites.length + filing.releases.length,
       error: err,
-      resume: "re-run from scratch (the swap rolled back, the last good vintage stands)",
+      resume: resumeNote(),
     });
-    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  }
+  try {
+    const { rows: stagedSiteCount } = await client.query(
+      "SELECT count(*)::int AS n FROM industrial_sites_stage",
+    );
+    const { rows: stagedReleaseCount } = await client.query(
+      "SELECT count(*)::int AS n FROM industrial_site_releases_stage",
+    );
+    if (
+      stagedSiteCount[0].n !== filing.sites.length ||
+      stagedReleaseCount[0].n !== filing.releases.length
+    )
+      throw new Error(
+        `the staged site count (${stagedSiteCount[0].n}) or release count (${stagedReleaseCount[0].n}) does not match — rolling back`,
+      );
+    // The swap: the old vintage goes only once the new one
+    // is fully staged — and the counts are asserted inside
+    // the transaction, so a short filing rolls back whole.
+    progress?.stage("swap started — replacing the filed vintage");
+    await client.query("BEGIN");
+    try {
+      await client.query("DELETE FROM industrial_site_releases");
+      await client.query("DELETE FROM industrial_sites");
+      await client.query(
+        `INSERT INTO industrial_sites (permit_id, operator, site_address, site_postcode, activity_description, sector, sub_sector, easting, northing, latitude, longitude, geom, data_year, source_name, source_date)
+       SELECT permit_id, operator, site_address, site_postcode, activity_description, sector, sub_sector, easting, northing, latitude, longitude,
+              CASE WHEN latitude IS NOT NULL AND longitude IS NOT NULL
+                   THEN ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)::geography END,
+              data_year, source_name, source_date
+       FROM industrial_sites_stage`,
+      );
+      await client.query(
+        `INSERT INTO industrial_site_releases (permit_id, substance, threshold_kg, quantity_kg, below_threshold, data_year)
+       SELECT permit_id, substance, threshold_kg, quantity_kg, below_threshold, data_year FROM industrial_site_releases_stage`,
+      );
+      const { rows: siteCount } = await client.query(
+        "SELECT count(*)::int AS n FROM industrial_sites",
+      );
+      const { rows: releaseCount } = await client.query(
+        "SELECT count(*)::int AS n FROM industrial_site_releases",
+      );
+      if (siteCount[0].n !== filing.sites.length || releaseCount[0].n !== filing.releases.length)
+        throw new Error(
+          `the swap filed ${siteCount[0].n} sites and ${releaseCount[0].n} releases, expected ${filing.sites.length} and ${filing.releases.length}`,
+        );
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw err;
+    }
+    // The run is complete: both stagings + checkpoints go
+    // together, so nothing is left behind for the next
+    // vintage.
+    await sitesResume.clear();
+    await releasesResume.clear();
+  } catch (err) {
+    progress?.failed({
+      stage: "filing",
+      filed: stagedRows,
+      total: filing.sites.length + filing.releases.length,
+      error: err,
+      resume: resumeNote(),
+    });
     throw err;
   }
 }
@@ -850,6 +956,7 @@ export async function loadPollutionInventoryRows({ fileDir = null } = {}) {
 async function run() {
   const args = process.argv.slice(2);
   const verifyOnly = args.includes("--verify-only");
+  const restart = args.includes("--restart");
   const fileAt = args.indexOf("--file");
   const fileDir = fileAt >= 0 ? args[fileAt + 1] : null;
   if (fileAt >= 0 && !fileDir) throw new Error("--file needs a directory");
@@ -899,7 +1006,7 @@ async function run() {
   try {
     const client = await pool.connect();
     try {
-      await filePollutionInventory(client, filing, { progress });
+      await filePollutionInventory(client, filing, { progress, restart });
     } finally {
       client.release();
     }

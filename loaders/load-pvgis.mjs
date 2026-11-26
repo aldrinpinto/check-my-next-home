@@ -71,6 +71,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { createLoaderResume } from "./loader-resume.mjs";
 import {
   HEARTBEAT_EVERY_BATCHES,
   createBatchWatch,
@@ -230,12 +231,17 @@ async function fetchJson(url) {
 /**
  * @param {any[]} cells
  * @param {(url: string) => Promise<any>} fetchOne
- * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, onSampled?: ((row: any) => Promise<void>) | null, resumeNote?: (() => string) | null }} [options]
  */
-export async function sampleCells(cells, fetchOne = fetchJson, { progress = null } = {}) {
+export async function sampleCells(
+  cells,
+  fetchOne = fetchJson,
+  { progress = null, onSampled = null, resumeNote = null } = {},
+) {
   const rows = [];
   let next = 0;
   let done = 0;
+  let stopped = false;
   const sampleTally = progress?.tally({
     label: "sampling",
     total: cells.length,
@@ -247,36 +253,61 @@ export async function sampleCells(cells, fetchOne = fetchJson, { progress = null
   // cells: every tenth of the run at least, never per cell.
   const heartbeatEvery = Math.max(HEARTBEAT_EVERY_BATCHES, Math.ceil(cells.length / 10));
   const worker = async () => {
-    while (next < cells.length) {
-      const cell = cells[next++];
-      const started = Date.now();
-      const json = await fetchOne(pvgisUrl(cell.latitude, cell.longitude));
-      const { tookMs, averageMs, slow } = sampleWatch.observe(Date.now() - started);
-      rows.push(parsePvcalcResponse(json, cell));
-      done += 1;
-      sampleTally?.tick(done);
-      progress?.heartbeat({ stage: "sampling", done, total: cells.length, every: heartbeatEvery });
-      if (slow) {
-        progress?.warning({
-          what: "sample cell duration",
-          value: `cell ${cell.cellRef} took ${formatDuration(tookMs)}`,
-          threshold: `3x recent average ${formatDuration(averageMs)}`,
+    try {
+      // BUG-368: a worker that fails stops the others —
+      // without this the surviving workers would keep
+      // sampling (and, on a live run, staging) after the
+      // call has already failed and its client has closed.
+      while (!stopped && next < cells.length) {
+        const cell = cells[next++];
+        const started = Date.now();
+        const json = await fetchOne(pvgisUrl(cell.latitude, cell.longitude));
+        const { tookMs, averageMs, slow } = sampleWatch.observe(Date.now() - started);
+        const row = parsePvcalcResponse(json, cell);
+        rows.push(row);
+        // BUG-368: a live filing run stages each sampled cell
+        // as it lands (onSampled), so a kill during the long
+        // sampling phase loses at most the cells in flight.
+        // Verify-only and tests pass no hook and keep the old
+        // collect-then-file shape.
+        if (onSampled && !stopped) await onSampled(row);
+        done += 1;
+        sampleTally?.tick(done);
+        progress?.heartbeat({
+          stage: "sampling",
+          done,
+          total: cells.length,
+          every: heartbeatEvery,
         });
+        if (slow) {
+          progress?.warning({
+            what: "sample cell duration",
+            value: `cell ${cell.cellRef} took ${formatDuration(tookMs)}`,
+            threshold: `3x recent average ${formatDuration(averageMs)}`,
+          });
+        }
       }
+    } catch (err) {
+      stopped = true;
+      throw err;
     }
   };
-  try {
-    await Promise.all([worker(), worker(), worker()]);
-  } catch (err) {
+  const settled = await Promise.allSettled([worker(), worker(), worker()]);
+  const failure = settled.find((r) => r.status === "rejected");
+  if (failure) {
+    const err = /** @type {PromiseRejectedResult} */ (failure).reason;
     // BUG-265: the failure line names the sampling stage
     // and how many cells were sampled — a partial grid
     // would serve silent holes, so the load files nothing.
+    // BUG-368: a resumable run's line names the point the
+    // next run resumes from instead.
     progress?.failed({
       stage: "sampling",
       filed: done,
       total: cells.length,
       error: err,
       resume:
+        resumeNote?.() ??
         "re-run from scratch (sampling re-samples every cell, nothing is filed until the swap)",
     });
     throw err;
@@ -325,12 +356,250 @@ export function rowsFromFixture(fixture) {
 
 const CHUNK = 500;
 
+// The resume edition: the SARAH3 vintage's last year end
+// plus the radiation database — a new database vintage is
+// a new edition, and its staged rows never mix with the old.
+export const SOLAR_EDITION = `${SOURCE_DATE}/${EXPECTED_RADIATION_DB}`;
+
+// --- filing ------------------------------------------------------------
+//
+// Stage, count, swap — with resume support (BUG-368): staging is
+// a PERSISTENT table now (migration 0048), and a loader_checkpoint
+// row records the last fully staged chunk, so a killed run resumes
+// instead of restarting. beginSolarFiling opens the staging table;
+// stageRows inserts in the house chunks of 500, checkpointing
+// after each chunk; finishFiling runs the counts and the swap
+// exactly as the one-shot filer did, in its own transaction. The
+// single-edition swap: the whole solar grid is replaced in this
+// transaction, so a failed run leaves the last good grid serving
+// untouched.
+//
+// THE RESUME UNITS. The read is API sampling, one cell at a
+// time, so the resume point is the count of cells staged — a
+// resumed run samples only the cells not already staged
+// (stagedCellRefs) and stages them with the next seqs. The
+// staged rows are read back for the golden checks (stagedRows),
+// so the checks run over the whole grid either way.
+/**
+ * Open the filing run's database client and resume handle
+ * (BUG-368). The client is injectable so the resume tests
+ * can file against a fake database; production passes none
+ * and a real client is opened as before.
+ *
+ * @param {import("./progress.mjs").ProgressLogger | null} [progress]
+ * @param {{ restart?: boolean, client?: any }} [options]
+ */
+export async function beginSolarFiling(
+  progress = null,
+  { restart = false, client: injectedClient = null } = {},
+) {
+  const client = injectedClient ?? new pg.Client({ connectionString: process.env.DATABASE_URL });
+  const ownsClient = !injectedClient;
+  if (ownsClient) await client.connect();
+  try {
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS solar_stage (
+         cell_ref text, latitude double precision, longitude double precision,
+         yield_kwh_per_kwp numeric, irradiation_kwh_m2 numeric,
+         peak_power_kwp numeric, system_loss_pct numeric,
+         slope_deg numeric, azimuth_deg numeric,
+         mounting text, pv_technology text, radiation_db text,
+         year_min integer, year_max integer,
+         seq bigint NOT NULL, UNIQUE (seq)
+       )`,
+    );
+  } catch (error) {
+    if (ownsClient) await client.end().catch(() => {});
+    throw error;
+  }
+  const resume = createLoaderResume(client, {
+    loader: "load-pvgis",
+    stageTable: "solar_stage",
+    progress,
+    restart,
+  });
+  let staged = 0;
+  let expected = null;
+  /** @type {{ resumed: boolean, reason?: string, checkpoint?: any, prefix?: boolean }} */
+  let resumePrep = { resumed: false };
+  const stageWatch = createBatchWatch();
+  async function insertChunk(chunk) {
+    const started = Date.now();
+    const values = [];
+    const params = [];
+    const base = resume.takeSeq(chunk.length);
+    chunk.forEach((r, j) => {
+      const b = j * 15;
+      values.push(
+        `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7}, $${b + 8}, $${b + 9}, $${b + 10}, $${b + 11}, $${b + 12}, $${b + 13}, $${b + 14}, $${b + 15})`,
+      );
+      params.push(
+        r.cellRef,
+        r.latitude,
+        r.longitude,
+        r.yieldKwhPerKwp,
+        r.irradiationKwhM2,
+        r.peakPowerKwp,
+        r.systemLossPct,
+        r.slopeDeg,
+        r.azimuthDeg,
+        r.mounting,
+        r.pvTechnology,
+        r.radiationDb,
+        r.yearMin,
+        r.yearMax,
+        base + j,
+      );
+    });
+    await client.query(
+      `INSERT INTO solar_stage (cell_ref, latitude, longitude, yield_kwh_per_kwp, irradiation_kwh_m2, peak_power_kwp, system_loss_pct, slope_deg, azimuth_deg, mounting, pv_technology, radiation_db, year_min, year_max, seq) VALUES ${values.join(", ")}`,
+      params,
+    );
+    staged += chunk.length;
+    const { tookMs, averageMs, slow } = stageWatch.observe(Date.now() - started);
+    if (slow) {
+      progress?.warning({
+        what: "stage chunk duration",
+        value: `chunk took ${formatDuration(tookMs)}`,
+        threshold: `3x recent average ${formatDuration(averageMs)}`,
+      });
+    }
+    await resume.checkpoint({
+      edition: SOLAR_EDITION,
+      expected,
+      nextStartIndex: staged,
+      read: staged,
+      filed: staged,
+      unit: "cells",
+    });
+  }
+  return {
+    stagedCount: () => staged,
+    resumePrep: () => resumePrep,
+    resumeNote: () => resume.resumeNote(),
+    // Decide, from the edition and the staged rows, whether this
+    // run resumes or starts from zero. Called once the cell set
+    // is known, before the first cell is sampled.
+    async prepareResume(expectedCount) {
+      expected = expectedCount;
+      resumePrep = await resume.prepare({ edition: SOLAR_EDITION, expected });
+      if (resumePrep.resumed) staged = resumePrep.checkpoint.filed_count;
+      return resumePrep;
+    },
+    // The cell_refs already staged — the resumed run samples
+    // only the cells outside this set.
+    async stagedCellRefs() {
+      const { rows } = await client.query("SELECT cell_ref FROM solar_stage");
+      return new Set(rows.map((r) => r.cell_ref));
+    },
+    // Stage rows in the house chunks, checkpointing after each
+    // fully staged chunk. Called per sampled batch during the
+    // live run, and once with the whole set by fileSolarGrid.
+    async stageRows(rows) {
+      for (let at = 0; at < rows.length; at += CHUNK) {
+        await insertChunk(rows.slice(at, at + CHUNK));
+      }
+    },
+    // The staged grid, in stage order, for the golden checks —
+    // the checks run over the whole grid whether this run
+    // sampled it fresh or resumed it.
+    async stagedRows() {
+      const { rows } = await client.query(
+        `SELECT cell_ref, latitude, longitude, yield_kwh_per_kwp, irradiation_kwh_m2,
+           peak_power_kwp, system_loss_pct, slope_deg, azimuth_deg, mounting,
+           pv_technology, radiation_db, year_min, year_max
+         FROM solar_stage ORDER BY seq`,
+      );
+      return rows.map((r) => ({
+        cellRef: r.cell_ref,
+        latitude: r.latitude,
+        longitude: r.longitude,
+        yieldKwhPerKwp: Number(r.yield_kwh_per_kwp),
+        irradiationKwhM2: Number(r.irradiation_kwh_m2),
+        peakPowerKwp: Number(r.peak_power_kwp),
+        systemLossPct: Number(r.system_loss_pct),
+        slopeDeg: Number(r.slope_deg),
+        azimuthDeg: Number(r.azimuth_deg),
+        mounting: r.mounting,
+        pvTechnology: r.pv_technology,
+        radiationDb: r.radiation_db,
+        yearMin: r.year_min,
+        yearMax: r.year_max,
+      }));
+    },
+    async finishFiling(expectedCount) {
+      try {
+        progress?.stage("swap started — replacing the solar grid");
+        const stagedRes = await client.query("SELECT count(*)::int AS n FROM solar_stage");
+        if (stagedRes.rows[0].n !== expectedCount)
+          throw new Error("the staged cell count does not match — rolling back");
+        await client.query("BEGIN");
+        try {
+          await client.query(`DELETE FROM solar_grid`);
+          await client.query(
+            `INSERT INTO solar_grid (cell_ref, latitude, longitude, yield_kwh_per_kwp, irradiation_kwh_m2, peak_power_kwp, system_loss_pct, slope_deg, azimuth_deg, mounting, pv_technology, radiation_db, year_min, year_max, source_name, source_date)
+             SELECT cell_ref, latitude, longitude, yield_kwh_per_kwp, irradiation_kwh_m2, peak_power_kwp, system_loss_pct, slope_deg, azimuth_deg, mounting, pv_technology, radiation_db, year_min, year_max, $1, $2 FROM solar_stage`,
+            [SOURCE_NAME, SOURCE_DATE],
+          );
+          await client.query("COMMIT");
+        } catch (error) {
+          await client.query("ROLLBACK").catch(() => {});
+          throw error;
+        }
+        // The run is complete: staging + checkpoint go together,
+        // so nothing is left behind for the next vintage.
+        await resume.clear();
+      } finally {
+        if (ownsClient) await client.end().catch(() => {});
+      }
+    },
+    async abortFiling() {
+      // The staging + checkpoint STAY: they are the next run's
+      // resume point.
+      if (ownsClient) await client.end().catch(() => {});
+    },
+  };
+}
+
 /**
  * @param {any} client
  * @param {any[]} rows
- * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, resume?: { restart?: boolean } | null }} [options]
  */
-export async function fileSolarGrid(client, rows, { progress = null } = {}) {
+export async function fileSolarGrid(
+  client,
+  rows,
+  { progress = null, resume: resumeOpts = null } = {},
+) {
+  // Without the resume option the filing is exactly the
+  // one-shot transaction below (a TEMP stage inside one
+  // BEGIN…COMMIT), so the existing filing tests keep passing
+  // unchanged. With it the filing runs through the resume
+  // filer above.
+  if (resumeOpts) {
+    const filer = await beginSolarFiling(progress, {
+      restart: resumeOpts.restart ?? false,
+      client,
+    });
+    try {
+      await filer.prepareResume(rows.length);
+      // The staged prefix is the first stagedCount() rows of
+      // the same array — re-staging them would double the grid.
+      await filer.stageRows(rows.slice(filer.stagedCount()));
+      await filer.finishFiling(rows.length);
+    } catch (error) {
+      progress?.failed({
+        stage: "filing",
+        filed: filer.stagedCount(),
+        total: rows.length,
+        error,
+        resume: filer.resumeNote(),
+      });
+      await filer.abortFiling();
+      throw error;
+    }
+    return;
+  }
   // BUG-265: the staging is the filing phase — a tally over
   // the stage chunks, a slow-chunk warning and a heartbeat,
   // so the log moves while the grid files.
@@ -428,10 +697,14 @@ async function main() {
   const startedAt = Date.now();
   const args = process.argv.slice(2);
   const verifyOnly = args.includes("--verify-only");
+  // BUG-368: resume from the last checkpointed cell instead of
+  // re-sampling the whole grid; with no checkpoint this is a
+  // fresh start.
+  const restart = args.includes("--restart");
   const fileAt = args.indexOf("--file");
   const fixtureMode = fileAt !== -1;
   const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
-  const known = new Set(["--verify-only", "--file"]);
+  const known = new Set(["--verify-only", "--file", "--restart"]);
   for (let i = 0; i < args.length; i += 1) {
     if (args[i] === "--file") {
       i += 1;
@@ -447,6 +720,13 @@ async function main() {
   const progress = createProgressLogger({ name: "load-pvgis" });
 
   let rows;
+  // BUG-368: the live run's filer — staging is persistent
+  // and checkpointed, so a kill during the long sampling
+  // phase resumes from the last staged cell. Only the live
+  // path uses it; fixture and verify-only keep their old
+  // shapes (the fixture files through the resume filer at
+  // the bottom, over its three rows).
+  let filer = null;
   if (fixtureMode) {
     const fixture = JSON.parse(await readFile(join(fixtureDir, "responses.json"), "utf8"));
     rows = rowsFromFixture(fixture);
@@ -492,21 +772,59 @@ async function main() {
         `sanity failure: ${cells.length} populated cells is outside the expected band 500–10,000`,
       );
     }
-    progress.stage(`sampling ${formatCount(cells.length)} populated cells from PVGIS`);
-    rows = await sampleCells(cells, fetchJson, { progress });
+    filer = await beginSolarFiling(progress, { restart });
+    try {
+      await filer.prepareResume(cells.length);
+      const alreadyStaged = await filer.stagedCellRefs();
+      const remaining = cells.filter((c) => !alreadyStaged.has(c.cellRef));
+      progress.stage(
+        `sampling ${formatCount(remaining.length)} populated cells from PVGIS` +
+          (alreadyStaged.size > 0 ? ` (${formatCount(alreadyStaged.size)} already staged)` : ""),
+      );
+      // Sampled cells stage in batches of 100 as they land,
+      // through one chain so the batches commit in order and
+      // the checkpoint never runs backwards.
+      let pendingSampled = [];
+      let stagingChain = Promise.resolve();
+      const stagePending = () => {
+        if (pendingSampled.length === 0) return stagingChain;
+        const batch = pendingSampled.splice(0, pendingSampled.length);
+        stagingChain = stagingChain.then(() => filer.stageRows(batch));
+        return stagingChain;
+      };
+      await sampleCells(remaining, fetchJson, {
+        progress,
+        resumeNote: () => filer.resumeNote(),
+        onSampled: async (row) => {
+          pendingSampled.push(row);
+          if (pendingSampled.length >= 100) await stagePending();
+        },
+      });
+      await stagePending();
+      // The staged grid is the filing's rows — the golden
+      // checks run over the whole grid whether this run
+      // sampled it fresh or resumed it.
+      rows = await filer.stagedRows();
+    } catch (error) {
+      await filer.abortFiling();
+      throw error;
+    }
   }
   try {
     goldenChecks(rows);
   } catch (err) {
     // BUG-265: the golden checks fail before anything is
     // filed — the failure line names the checks stage.
+    // BUG-368: a live run's staged cells stand checkpointed,
+    // so the line names the resume point.
     progress.failed({
       stage: "checks",
       filed: rows.length,
       total: rows.length,
       error: err,
-      resume: "re-run from scratch (nothing is filed until the swap)",
+      resume: filer ? filer.resumeNote() : "re-run from scratch (nothing is filed until the swap)",
     });
+    if (filer) await filer.abortFiling();
     throw err;
   }
   const base = `load-pvgis · PVGIS-SARAH3 (2005–2023) · standard basis 1 kWp, 35° south, building-integrated, 14% loss · ${rows.length.toLocaleString("en-GB")} cells`;
@@ -514,11 +832,32 @@ async function main() {
     console.log(`${base} — golden cells OK (verify only, nothing filed)`);
     return;
   }
+  if (filer) {
+    try {
+      await filer.finishFiling(rows.length);
+    } catch (error) {
+      progress.failed({
+        stage: "filing",
+        filed: filer.stagedCount(),
+        total: rows.length,
+        error,
+        resume: filer.resumeNote(),
+      });
+      await filer.abortFiling();
+      throw error;
+    }
+    console.log(
+      `${base} filed — golden cells OK · ${Math.round((Date.now() - startedAt) / 1000)}s`,
+    );
+    return;
+  }
   const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
   try {
     const client = await pool.connect();
     try {
-      await fileSolarGrid(client, rows, { progress });
+      // BUG-368: the fixture files through the resume filer,
+      // over its three rows.
+      await fileSolarGrid(client, rows, { progress, resume: { restart } });
     } finally {
       client.release();
     }
