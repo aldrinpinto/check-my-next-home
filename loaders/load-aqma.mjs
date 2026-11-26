@@ -81,7 +81,8 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { createGoldenSift } from "./flood-stream.mjs";
+import { createGoldenSift, GOLDEN_WINDOW_MILES } from "./flood-stream.mjs";
+import { createLoaderResume } from "./loader-resume.mjs";
 import { createProgressLogger, formatCount } from "./progress.mjs";
 
 const SERVICE_BASE =
@@ -430,33 +431,51 @@ async function fetchJson(url, what) {
 // assertion is that nothing comes within 2 miles, all
 // inside the sift's 2-mile window. What the run retains
 // is the totals and the sift.
-async function driveRead(batches, onItems, edition, { progress = null } = {}) {
+async function driveRead(
+  batches,
+  onItems,
+  edition,
+  { progress = null, seed = null, seedItems = [] } = {},
+) {
   const processor = createFeatureProcessor();
   const sift = createGoldenSift(HOMES);
+  // BUG-368: a resumed run's staged golden candidates are
+  // offered first, so the sift covers the whole read — the
+  // staged rows were already proved against this edition.
+  for (const item of seedItems) sift.offer({ ...item, bbox: bboxOfNested(item.polygons) });
   // BUG-265: the paged read is the run's long phase — a line
   // per 2,000-feature page, no total (the service carries no
-  // count up front), and a closing line.
+  // count up front), and a closing line. On a resume the
+  // tally counts the whole read, seed included.
   const readTally = progress?.tally({ label: "read", every: PAGE_SIZE, unit: "features" });
   for await (const features of batches) {
     const items = processor.processBatch(features);
     for (const item of items) sift.offer({ ...item, bbox: bboxOfNested(item.polygons) });
     if (onItems) await onItems(items, edition);
-    readTally?.tick(processor.total());
+    readTally?.tick(processor.total() + (seed?.total ?? 0));
   }
-  readTally?.finish(processor.total());
+  const total = processor.total() + (seed?.total ?? 0);
+  readTally?.finish(total);
+  const perNation = { E: 0, W: 0, S: 0, N: 0 };
+  for (const nation of Object.keys(perNation))
+    perNation[nation] = processor.perNation[nation] + (seed?.perNation?.[nation] ?? 0);
   return {
-    total: processor.total(),
-    filed: processor.filedCount(),
-    perNation: processor.perNation,
+    total,
+    filed: processor.filedCount() + (seed?.filed ?? 0),
+    perNation,
     items: sift.items,
   };
 }
 
-export async function readLive({ onItems = null, progress = null } = {}) {
+export async function readLive({ onItems = null, progress = null, onEdition = null } = {}) {
   const meta = await fetchJson(SERVICE_META_URL, "the AQMA service metadata");
   const edition = parseEdition(meta);
+  // BUG-368: the edition fires the resume decision — the
+  // runner returns the offset the read starts from, the
+  // seeded totals, and the staged golden candidates.
+  const resume = (await onEdition?.(edition)) ?? { startOffset: 0 };
   async function* pages() {
-    for (let offset = 0; ; offset += PAGE_SIZE) {
+    for (let offset = resume.startOffset; ; offset += PAGE_SIZE) {
       const params = new URLSearchParams({
         where: "1=1",
         outFields: "*",
@@ -473,68 +492,126 @@ export async function readLive({ onItems = null, progress = null } = {}) {
       if (batch.length < PAGE_SIZE) break;
     }
   }
-  const processed = await driveRead(pages(), onItems, edition, { progress });
+  const processed = await driveRead(pages(), onItems, edition, {
+    progress,
+    seed: resume.seed ?? null,
+    seedItems: resume.seedItems ?? [],
+  });
   return { ...processed, edition };
 }
 
 /**
  * @param {string} fixtureDir
- * @param {{ onItems?: ((items: any[], edition: string) => Promise<void>) | null, progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ * @param {{ onItems?: ((items: any[], edition: string) => Promise<void>) | null, progress?: import("./progress.mjs").ProgressLogger | null, onEdition?: ((edition: string) => Promise<{ startOffset: number, seed?: { total: number, filed: number, perNation: Record<string, number> }, seedItems?: any[] }>) | null }} [options]
  */
-export async function readFixture(fixtureDir, { onItems = null, progress = null } = {}) {
+export async function readFixture(
+  fixtureDir,
+  { onItems = null, progress = null, onEdition = null } = {},
+) {
   const meta = JSON.parse(await readFile(join(fixtureDir, "service.json"), "utf8"));
   const edition = parseEdition(meta);
+  // BUG-368: same resume decision point as the live read.
+  const resume = (await onEdition?.(edition)) ?? { startOffset: 0 };
   const text = await readFile(join(fixtureDir, "aqma.geojson"), "utf8");
   const features = JSON.parse(text).features ?? [];
   async function* slices() {
-    for (let at = 0; at < features.length; at += PAGE_SIZE)
+    for (let at = resume.startOffset; at < features.length; at += PAGE_SIZE)
       yield features.slice(at, at + PAGE_SIZE);
   }
-  const processed = await driveRead(slices(), onItems, edition, { progress });
+  const processed = await driveRead(slices(), onItems, edition, {
+    progress,
+    seed: resume.seed ?? null,
+    seedItems: resume.seedItems ?? [],
+  });
   return { ...processed, edition };
 }
 
 // --- filing ------------------------------------------------------------
 
-// Stage, count, swap — one transaction, fed as a stream
-// (BUG-195, the flood shape). beginFiling opens the
-// transaction and the staging table; stageItems converts
-// each batch to WKT and inserts it in the house chunks of
-// 10 rows; finishFiling runs the counts and the swap
-// exactly as the one-shot filer did. The single-edition
-// swap: the whole aqma layer is replaced in this
-// transaction, so a revoked area disappears at this
-// filing and a failed run leaves the last good filing
-// serving untouched.
-async function beginFiling() {
-  const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
-  await client.connect();
+// Stage, count, swap — streamed (BUG-195, the flood shape), with
+// resume support (BUG-368): staging is a PERSISTENT table now
+// (migration 0048), and a loader_checkpoint row records the last
+// fully staged chunk, so a killed run resumes instead of
+// restarting. beginFiling opens the staging table; stageItems
+// converts each batch to WKT and inserts it in the house chunks
+// of 10 rows, checkpointing after each chunk; finishFiling runs
+// the counts and the swap exactly as the one-shot filer did, in
+// its own transaction. The single-edition swap: the whole aqma
+// layer is replaced in this transaction, so a revoked area
+// disappears at this filing and a failed run leaves the last
+// good filing serving untouched.
+//
+// THE RESUME UNITS. The read is paged by resultOffset and the
+// processor never drops a feature, so the resume point is the
+// count of features offered whose staging has committed
+// (flushedOffered) — the pending tail is offered but NOT staged,
+// so it never counts and a resume skips exactly the staged
+// rows, losing none of the tail. The checkpoint's state carries
+// the per-nation tallies, so a resumed run's coverage counts
+// cover the whole read. The golden sift is rebuilt from the
+// staged rows near the golden homes (stagedGoldenItems), so the
+// golden checks run over the whole read either way.
+/**
+ * Open the filing run's database client and resume handle
+ * (BUG-368). The client is injectable so the resume tests
+ * can file against a fake database; production passes none
+ * and a real client is opened as before.
+ *
+ * @param {import("./progress.mjs").ProgressLogger | null} [progress]
+ * @param {{ restart?: boolean, client?: any }} [options]
+ */
+export async function beginFiling(
+  progress = null,
+  { restart = false, client: injectedClient = null } = {},
+) {
+  // The client is injectable so the resume tests can file
+  // against a fake database; production passes none and a
+  // real client is opened as before (BUG-366).
+  const client = injectedClient ?? new pg.Client({ connectionString: process.env.DATABASE_URL });
+  const ownsClient = !injectedClient;
+  if (ownsClient) await client.connect();
   try {
-    await client.query("BEGIN");
     await client.query(
-      `CREATE TEMP TABLE planning_stage (
+      `CREATE TABLE IF NOT EXISTS aqma_stage (
          constraint_type text, name text, geom geometry(MultiPolygon, 4326),
          source_reference text, organisation text, quality text, detail text,
          source_name text, source_date date,
-         loaded_at timestamptz NOT NULL DEFAULT now()
-       ) ON COMMIT DROP`,
+         loaded_at timestamptz NOT NULL DEFAULT now(),
+         seq bigint NOT NULL, UNIQUE (seq)
+       )`,
     );
   } catch (error) {
-    await client.query("ROLLBACK").catch(() => {});
-    await client.end().catch(() => {});
+    if (ownsClient) await client.end().catch(() => {});
     throw error;
   }
+  const resume = createLoaderResume(client, {
+    loader: "load-aqma",
+    stageTable: "aqma_stage",
+    progress,
+    restart,
+  });
   const CHUNK = 10;
   const pending = [];
+  let offered = 0;
+  let staged = 0;
+  let flushedOffered = 0;
+  let seqNext = 0;
+  let edition = null;
+  /** @type {{ resumed: boolean, reason?: string, checkpoint?: any, prefix?: boolean }} */
+  let resumePrep = { resumed: false };
+  let resumeState = {};
+  const perNation = { E: 0, W: 0, S: 0, N: 0 };
   async function flushPending(flushTail = false) {
     while (pending.length >= CHUNK || (flushTail && pending.length > 0)) {
       const chunk = pending.splice(0, Math.min(CHUNK, pending.length));
       const values = [];
       const params = [];
+      const base = seqNext;
+      seqNext += chunk.length;
       chunk.forEach((row, i) => {
-        const base = i * 9;
+        const b = i * 10;
         values.push(
-          `($${base + 1},$${base + 2},ST_Multi(ST_GeomFromText($${base + 3}, 4326)),$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8},$${base + 9})`,
+          `($${b + 1},$${b + 2},ST_Multi(ST_GeomFromText($${b + 3}, 4326)),$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8},$${b + 9},$${b + 10})`,
         );
         params.push(
           "aqma",
@@ -546,25 +623,98 @@ async function beginFiling() {
           row.pollutants.join("; "),
           SOURCE_NAME,
           row.edition,
+          base + i,
         );
       });
       await client.query(
-        `INSERT INTO planning_stage (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date)
+        `INSERT INTO aqma_stage (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, seq)
          VALUES ${values.join(",")}`,
         params,
       );
+      staged += chunk.length;
+      flushedOffered += chunk.length;
+      if (edition) {
+        await resume.checkpoint({
+          edition,
+          expected: null,
+          nextStartIndex: flushedOffered,
+          read: flushedOffered,
+          filed: staged,
+          state: { perNation: { ...perNation } },
+          unit: "features",
+        });
+      }
     }
   }
   return {
-    async stageItems(items, edition) {
+    offeredCount: () => offered,
+    stagedCount: () => staged,
+    flushedOfferedCount: () => flushedOffered,
+    resumePrep: () => resumePrep,
+    resumeNote: () => resume.resumeNote(),
+    // Decide, from the edition and the staged rows, whether this
+    // run resumes or starts from zero. Called by the runner once
+    // the read has resolved the edition, before the first page
+    // is staged.
+    async prepareResume(ed) {
+      edition = ed;
+      resumePrep = await resume.prepare({ edition, expected: null });
+      if (resumePrep.resumed) {
+        const cp = resumePrep.checkpoint;
+        flushedOffered = cp.next_start_index;
+        offered = cp.next_start_index;
+        staged = cp.filed_count;
+        seqNext = cp.filed_count;
+        resumeState = cp.state ?? {};
+        Object.assign(perNation, { E: 0, W: 0, S: 0, N: 0 }, resumeState.perNation ?? {});
+      }
+      return resumePrep;
+    },
+    // The staged portion's golden candidates, for rebuilding the
+    // sift after a resume — the envelope test mirrors the sift's
+    // bbox test, so the rebuilt set is exactly what the live sift
+    // would have retained for that portion. Called after
+    // prepareResume, which has already trimmed the staged tail
+    // past the checkpoint, so no cap is needed.
+    async stagedGoldenItems() {
+      const homes = Object.values(HOMES);
+      const windowParam = 2 + homes.length * 2;
+      const conditions = [];
+      const params = [];
+      homes.forEach((home, i) => {
+        const base = 2 + i * 2;
+        conditions.push(
+          `ST_DWithin(ST_Envelope(geom)::geography, ST_SetSRID(ST_MakePoint($${base}, $${base + 1}), 4326)::geography, $${windowParam})`,
+        );
+        params.push(home.lng, home.lat);
+      });
+      params.push(GOLDEN_WINDOW_MILES * 1609.344);
+      const { rows } = await client.query(
+        `SELECT name, source_reference, organisation, detail, ST_AsGeoJSON(geom) AS geojson FROM aqma_stage WHERE (${conditions.join(" OR ")})`,
+        params,
+      );
+      return rows.map((r) => ({
+        ref: Number(r.source_reference),
+        name: r.name,
+        authority: r.organisation,
+        pollutants: (r.detail ?? "")
+          .split(";")
+          .map((s) => s.trim())
+          .filter(Boolean),
+        polygons: geojsonPolygons(JSON.parse(r.geojson)),
+      }));
+    },
+    async stageItems(items, ed) {
       for (const item of items) {
+        offered += 1;
+        perNation[item.nation] += 1;
         pending.push({
           name: item.name,
           wkt: polygonsToWkt(item.polygons),
           ref: item.ref,
           authority: item.authority,
           pollutants: item.pollutants,
-          edition,
+          edition: ed,
         });
         if (pending.length >= CHUNK) await flushPending();
       }
@@ -572,30 +722,39 @@ async function beginFiling() {
     async finishFiling(expectedCount) {
       try {
         await flushPending(true);
-        const staged = await client.query("SELECT count(*)::int AS n FROM planning_stage");
-        if (staged.rows[0].n !== expectedCount)
+        const stagedRes = await client.query("SELECT count(*)::int AS n FROM aqma_stage");
+        if (stagedRes.rows[0].n !== expectedCount)
           throw new Error("the staged area count does not match — rolling back");
-        await client.query("DELETE FROM planning_layers WHERE constraint_type = 'aqma'");
-        await client.query(
-          `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
-           SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM planning_stage`,
-        );
-        const filedCount = await client.query(
-          "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type = 'aqma'",
-        );
-        if (filedCount.rows[0].n !== expectedCount)
-          throw new Error("the filed area count does not match — rolling back");
-        await client.query("COMMIT");
-      } catch (error) {
-        await client.query("ROLLBACK").catch(() => {});
-        throw error;
+        await client.query("BEGIN");
+        try {
+          await client.query("DELETE FROM planning_layers WHERE constraint_type = 'aqma'");
+          await client.query(
+            `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
+           SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM aqma_stage`,
+          );
+          const filedCount = await client.query(
+            "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type = 'aqma'",
+          );
+          if (filedCount.rows[0].n !== expectedCount)
+            throw new Error("the filed area count does not match — rolling back");
+          await client.query("COMMIT");
+        } catch (error) {
+          await client.query("ROLLBACK").catch(() => {});
+          throw error;
+        }
+        // The run is complete: staging + checkpoint go together,
+        // so nothing is left behind for the next edition.
+        await resume.clear();
       } finally {
-        await client.end();
+        if (ownsClient) await client.end().catch(() => {});
       }
     },
     async abortFiling() {
-      await client.query("ROLLBACK").catch(() => {});
-      await client.end().catch(() => {});
+      // The staging + checkpoint STAY: they are the next run's
+      // resume point. A run that never prepared leaves whatever
+      // a previous run left, and the next run's prepare()
+      // validates or discards it.
+      if (ownsClient) await client.end().catch(() => {});
     },
   };
 }
@@ -604,6 +763,9 @@ async function main() {
   const startedAt = Date.now();
   const args = process.argv.slice(2);
   const verifyOnly = args.includes("--verify-only");
+  // BUG-368: resume from the last checkpointed chunk instead of
+  // restarting; with no checkpoint this is a fresh start.
+  const restart = args.includes("--restart");
   const fileAt = args.indexOf("--file");
   const fixtureMode = fileAt !== -1;
   const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
@@ -620,16 +782,36 @@ async function main() {
   if (!verifyOnly) {
     if (!process.env.DATABASE_URL)
       throw new Error("DATABASE_URL is not set — filing requires a database");
-    filer = await beginFiling();
+    filer = await beginFiling(progress, { restart });
   }
 
   let processed;
   try {
     progress.stage("reading the AQMA boundaries");
     const onItems = filer ? (items, edition) => filer.stageItems(items, edition) : null;
+    // BUG-368: the edition fires the resume decision — the
+    // filer prepares (resume or fresh start) and hands back
+    // the offset the read starts from, with the seeded totals
+    // and the staged golden candidates for the sift.
+    const onEdition = filer
+      ? async (edition) => {
+          const prep = await filer.prepareResume(edition);
+          if (!prep.resumed) return { startOffset: 0 };
+          const cp = prep.checkpoint;
+          return {
+            startOffset: cp.next_start_index,
+            seed: {
+              total: cp.read_count,
+              filed: cp.filed_count,
+              perNation: cp.state?.perNation ?? {},
+            },
+            seedItems: await filer.stagedGoldenItems(),
+          };
+        }
+      : null;
     processed = fixtureMode
-      ? await readFixture(fixtureDir, { onItems, progress })
-      : await readLive({ onItems, progress });
+      ? await readFixture(fixtureDir, { onItems, progress, onEdition })
+      : await readLive({ onItems, progress, onEdition });
     if (!fixtureMode) checkCoverageCounts(processed.filed, processed.perNation);
     checkGolden({ filed: processed.items });
   } catch (error) {
@@ -639,7 +821,9 @@ async function main() {
       stage: "read",
       filed: 0,
       error,
-      resume: "re-run the loader from the start (nothing is filed until the swap)",
+      resume: filer
+        ? filer.resumeNote()
+        : "re-run the loader from the start (nothing is filed until the swap)",
     });
     if (filer) await filer.abortFiling();
     throw error;
@@ -670,8 +854,9 @@ async function main() {
       filed: 0,
       total: processed.filed,
       error,
-      resume:
-        "re-run the loader from the start (the swap rolled back, the live layer is untouched)",
+      // BUG-368: a swap failure leaves the staged read
+      // checkpointed, so the next run resumes at the swap.
+      resume: activeFiler.resumeNote(),
     });
     throw error;
   }

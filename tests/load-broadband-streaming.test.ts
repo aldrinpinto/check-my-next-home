@@ -32,18 +32,22 @@ const FIXTURE_FILES = [
   "202601_fixed_pc_coverage/postcode_files_r2/202601_fixed_pc_coverage_r2_KT.csv",
 ];
 
-type StageRow = { answer: Record<string, unknown>; merged: boolean };
+type StageRow = { answer: Record<string, unknown>; merged: boolean; seq: number };
 type CacheAnswers = Record<string, unknown>;
 
 // A fake pg client that interprets the filer's statements
-// against in-memory stage / cache tables, with real transaction
+// against in-memory stage / cache / checkpoint tables, with real transaction
 // semantics (BEGIN snapshots, ROLLBACK restores, COMMIT keeps)
 // and an injectable failure on the Nth merge statement.
 function createFakeClient() {
   let stage: Map<string, StageRow> | null = null;
   let cache = new Map<string, CacheAnswers>();
-  let snapshot: { stage: Map<string, StageRow> | null; cache: Map<string, CacheAnswers> } | null =
-    null;
+  let checkpoints = new Map<string, Record<string, unknown>>();
+  let snapshot: {
+    stage: Map<string, StageRow> | null;
+    cache: Map<string, CacheAnswers>;
+    checkpoints: Map<string, Record<string, unknown>>;
+  } | null = null;
   const statements: string[] = [];
   let mergeCalls = 0;
   let failMergeAtCall = -1;
@@ -63,6 +67,12 @@ function createFakeClient() {
     cachePostcodes() {
       return [...cache.keys()];
     },
+    checkpoint(loader: string) {
+      return checkpoints.get(loader);
+    },
+    stageRows() {
+      return stage ? [...stage.entries()] : [];
+    },
     failOnMergeCall(n: number) {
       failMergeAtCall = n;
     },
@@ -72,6 +82,7 @@ function createFakeClient() {
         snapshot = {
           stage: stage === null ? null : new Map(stage),
           cache: new Map(cache),
+          checkpoints: new Map(checkpoints),
         };
         return { rows: [], rowCount: 0 };
       }
@@ -83,6 +94,7 @@ function createFakeClient() {
         if (snapshot) {
           stage = snapshot.stage;
           cache = snapshot.cache;
+          checkpoints = snapshot.checkpoints;
           snapshot = null;
         }
         return { rows: [], rowCount: 0 };
@@ -91,18 +103,66 @@ function createFakeClient() {
         stage = null;
         return { rows: [], rowCount: 0 };
       }
-      if (/CREATE TEMP TABLE broadband_stage/.test(sql)) {
-        stage = new Map();
+      if (/CREATE TABLE IF NOT EXISTS broadband_stage/.test(sql)) {
+        if (stage === null) stage = new Map();
         return { rows: [], rowCount: 0 };
+      }
+      if (/DELETE FROM broadband_stage WHERE seq >=/.test(sql)) {
+        let n = 0;
+        for (const [pc, row] of [...(stage?.entries() ?? [])]) {
+          if (row.seq >= (params[0] as number)) {
+            stage?.delete(pc);
+            n += 1;
+          }
+        }
+        return { rows: [], rowCount: n };
+      }
+      if (/DELETE FROM broadband_stage/.test(sql)) {
+        const n = stage?.size ?? 0;
+        stage?.clear();
+        return { rows: [], rowCount: n };
+      }
+      if (/SELECT count\(\*\)::int AS n, coalesce\(sum\(seq\)/.test(sql)) {
+        const rows = [...(stage?.values() ?? [])];
+        return {
+          rows: [{ n: rows.length, s: rows.reduce((a, r) => a + r.seq, 0) }],
+          rowCount: 1,
+        };
+      }
+      if (/SELECT count\(\*\)::int AS n FROM broadband_stage WHERE merged/.test(sql)) {
+        const n = [...(stage?.values() ?? [])].filter((r) => r.merged).length;
+        return { rows: [{ n }], rowCount: 1 };
+      }
+      if (/FROM loader_checkpoint WHERE loader =/.test(sql) && /^SELECT/.test(sql.trim())) {
+        const row = checkpoints.get(params[0] as string);
+        return { rows: row ? [clone(row)] : [], rowCount: row ? 1 : 0 };
+      }
+      if (/INSERT INTO loader_checkpoint/.test(sql)) {
+        const row = {
+          loader: params[0],
+          edition: params[1],
+          expected: params[2],
+          next_start_index: params[3],
+          read_count: params[4],
+          filed_count: params[5],
+          state: JSON.parse(params[6] as string),
+        };
+        checkpoints.set(params[0] as string, row);
+        return { rows: [], rowCount: 1 };
+      }
+      if (/DELETE FROM loader_checkpoint WHERE loader =/.test(sql)) {
+        const had = checkpoints.delete(params[0] as string);
+        return { rows: [], rowCount: had ? 1 : 0 };
       }
       if (/INSERT INTO broadband_stage/.test(sql)) {
         let inserted = 0;
-        for (let j = 0; j < params.length; j += 2) {
+        for (let j = 0; j < params.length; j += 3) {
           const postcode = params[j] as string;
           if (stage && !stage.has(postcode)) {
             stage.set(postcode, {
               answer: JSON.parse(params[j + 1] as string) as Record<string, unknown>,
               merged: false,
+              seq: params[j + 2] as number,
             });
             inserted += 1;
           }
@@ -176,7 +236,7 @@ function createRecordingClient() {
     async query(sql: string, params: unknown[] = []) {
       if (/INSERT INTO broadband_stage/.test(sql)) {
         let inserted = 0;
-        for (let j = 0; j < params.length; j += 2) {
+        for (let j = 0; j < params.length; j += 3) {
           const postcode = params[j] as string;
           if (!staged.has(postcode)) {
             staged.set(postcode, params[j + 1] as string);
@@ -366,8 +426,11 @@ describe("progress lines (BUG-204)", () => {
       expect(updated).toBe(12_000);
       expect(fake.cacheAnswers("ZZ9 9ZZ")?.broadband).toBeUndefined();
       expect(fake.cacheAnswers(rows[0].postcode)?.other).toBe(1);
-      // The sweep's up-front COUNT was issued once.
-      expect(fake.statements.filter((s) => /count\(\*\)::int AS n/.test(s)).length).toBe(1);
+      // The sweep's up-front COUNT was issued once (the merged-total
+      // COUNT after the merge is a different statement).
+      expect(
+        fake.statements.filter((s) => /count\(\*\)::int AS n FROM postcode_cache/.test(s)).length,
+      ).toBe(1);
       // The merge's closing line (3 chunks of 5,000) and the
       // sweep's opening line with its real batch count.
       expect(lines.some((l) => /progress · merge 3\/3 chunks \(100%\)/.test(l))).toBe(true);
@@ -515,4 +578,162 @@ describe("the filer's failure semantics (BUG-191)", () => {
       expect(maxInTxn).toBeLessThanOrEqual(2);
     },
   );
+});
+
+describe("resume (BUG-368)", () => {
+  const EDITION = "2026-01";
+  const seedOldCache = (
+    fake: ReturnType<typeof createFakeClient>,
+    rows: { postcode: string }[],
+  ) => {
+    for (const row of rows)
+      fake.seedCache(row.postcode, { broadband: { ...OLD_ANSWER }, other: 1 });
+    fake.seedCache("ZZ9 9ZZ", { broadband: { ...OLD_ANSWER } });
+  };
+
+  it(
+    "a kill mid-parse resumes from the checkpoint and files every row exactly once",
+    { timeout: 30_000 },
+    async () => {
+      const rows = syntheticRows(1_200);
+      const fake = createFakeClient();
+      seedOldCache(fake, rows);
+      const lines: string[] = [];
+      const progress = createProgressLogger({
+        name: "load-broadband",
+        log: (line: string) => lines.push(line),
+      });
+
+      // Run one: stages the first 1,000 rows (two 500-row flushes,
+      // each checkpointed) and dies before the last 200 arrive —
+      // the filer is abandoned mid-stream, as a kill would leave it.
+      const filerA = await createBroadbandFiler(
+        fake as never,
+        {
+          progress,
+          resume: { edition: EDITION },
+        } as never,
+      );
+      await filerA.prepareResume(EDITION);
+      await filerA.stageItems(rows.slice(0, 1_000) as never);
+      expect(filerA.stagedCount()).toBe(1_000);
+      expect(fake.checkpoint("load-broadband")?.filed_count).toBe(1_000);
+      expect(fake.checkpoint("load-broadband")?.next_start_index).toBe(1_000);
+      // One checkpoint line per committed flush, never per row.
+      expect(lines.filter((l) => /checkpoint \d/.test(l)).length).toBe(2);
+      expect(
+        lines.some((l) => /checkpoint 500 postcodes · staged 500 · resume from 500/.test(l)),
+      ).toBe(true);
+
+      // Run two: same edition, same database — it resumes from
+      // the checkpoint, skips the 1,000 staged rows, and stages
+      // only the remaining 200.
+      const filerB = await createBroadbandFiler(
+        fake as never,
+        {
+          progress,
+          resume: { edition: EDITION },
+        } as never,
+      );
+      const prep = await filerB.prepareResume(EDITION);
+      expect(prep.resumed).toBe(true);
+      expect(filerB.stagedCount()).toBe(1_000);
+      expect(filerB.flushedOfferedCount()).toBe(1_000);
+      expect(
+        lines.some((l) =>
+          /resuming from checkpoint · 1,000 rows staged · edition 2026-01 · resume from 1,000/.test(
+            l,
+          ),
+        ),
+      ).toBe(true);
+      await filerB.stageItems(rows.slice(1_000) as never);
+      await filerB.flushPending();
+      expect(filerB.stagedCount()).toBe(1_200);
+      const updated = await filerB.finishFiling();
+      expect(updated).toBe(1_200);
+      for (const row of rows) {
+        const answer = fake.cacheAnswers(row.postcode)?.broadband as
+          { snapshot: string } | undefined;
+        expect(answer?.snapshot).toBe("2026-01");
+      }
+      expect(fake.cacheAnswers("ZZ9 9ZZ")?.broadband).toBeUndefined();
+      // The successful swap clears staging + checkpoint: nothing
+      // is left behind for the next release.
+      expect(fake.checkpoint("load-broadband")).toBeUndefined();
+      expect(fake.stageRows()).toHaveLength(0);
+      expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+    },
+  );
+
+  it(
+    "a mid-merge kill resumes at the merge and completes without re-merging",
+    { timeout: 30_000 },
+    async () => {
+      const rows = syntheticRows(1_200);
+      const fake = createFakeClient();
+      seedOldCache(fake, rows);
+      fake.failOnMergeCall(1);
+
+      const filerA = await createBroadbandFiler(
+        fake as never,
+        {
+          resume: { edition: EDITION },
+        } as never,
+      );
+      await filerA.prepareResume(EDITION);
+      await filerA.stageItems(rows as never);
+      await filerA.flushPending();
+      await expect(filerA.finishFiling()).rejects.toThrow(/simulated mid-merge failure/);
+      await filerA.abortFiling();
+      // The merge failure leaves staging + checkpoint in place:
+      // that is the next run's resume point.
+      expect(fake.checkpoint("load-broadband")?.filed_count).toBe(1_200);
+      expect(fake.stageRows()).toHaveLength(1_200);
+
+      const filerB = await createBroadbandFiler(
+        fake as never,
+        {
+          resume: { edition: EDITION },
+        } as never,
+      );
+      const prep = await filerB.prepareResume(EDITION);
+      expect(prep.resumed).toBe(true);
+      const updated = await filerB.finishFiling();
+      expect(updated).toBe(1_200);
+      for (const row of rows) {
+        const answer = fake.cacheAnswers(row.postcode)?.broadband as
+          { snapshot: string } | undefined;
+        expect(answer?.snapshot).toBe("2026-01");
+      }
+      expect(fake.checkpoint("load-broadband")).toBeUndefined();
+    },
+  );
+
+  it("an edition change discards the checkpoint and starts from zero", async () => {
+    const rows = syntheticRows(600);
+    const fake = createFakeClient();
+    const filerA = await createBroadbandFiler(
+      fake as never,
+      {
+        resume: { edition: EDITION },
+      } as never,
+    );
+    await filerA.prepareResume(EDITION);
+    await filerA.stageItems(rows as never);
+    await filerA.flushPending();
+    expect(fake.checkpoint("load-broadband")?.filed_count).toBe(600);
+
+    const filerB = await createBroadbandFiler(
+      fake as never,
+      {
+        resume: { edition: "2026-02" },
+      } as never,
+    );
+    const prep = await filerB.prepareResume("2026-02");
+    expect(prep.resumed).toBe(false);
+    expect(prep.reason).toMatch(/edition changed/);
+    expect(filerB.stagedCount()).toBe(0);
+    expect(fake.stageRows()).toHaveLength(0);
+    expect(fake.checkpoint("load-broadband")).toBeUndefined();
+  });
 });

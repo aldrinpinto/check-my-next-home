@@ -79,6 +79,7 @@ import {
   formatCount,
   formatDuration,
 } from "./progress.mjs";
+import { createLoaderResume } from "./loader-resume.mjs";
 import pg from "pg";
 import yauzl from "yauzl";
 
@@ -400,7 +401,47 @@ function staleKeysRemoved(removed) {
  * @param {any} client
  * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
  */
-export async function createBroadbandFiler(client, { progress = null } = {}) {
+// The streaming filer (BUG-191, the BUG-187 flood shape), with
+// resume support (BUG-368): staging is a PERSISTENT table now
+// (migration 0048), and a loader_checkpoint row records the
+// last fully staged chunk, so a killed run resumes instead of
+// restarting. The stage is no longer dropped at creation or at
+// finish: without resume it is emptied (DELETE) so every run
+// still starts from scratch, exactly as the TEMP table did; with
+// resume, prepareResume owns the clearing — a checkpointed stage
+// survives the filer being created, and the swap's clear() drops
+// staging + checkpoint together after a successful run.
+// stageItems inserts each batch in its own transaction and
+// checkpoints after each flush (one line per committed chunk);
+// finishFiling merges in bounded chunks and only then sweeps
+// stale keys, and abortFiling leaves the live table exactly as
+// it was. The merge steps are idempotent (the same answer
+// written again), and the sweep is unreachable until the merge
+// has completed in full.
+//
+// THE RESUME UNITS. Parse: the input position is the count of
+// rows offered whose staging has committed (flushedOffered) —
+// the pending tail is offered but NOT staged, so it never counts
+// and a resume skips exactly the staged rows, losing none of the
+// tail. Merge: the merged flag — a resumed merge picks up the
+// unmerged rows and re-merges nothing. Sweep: the scan cursor
+// postcode, checkpointed after each batch with the removed count.
+// The checkpoint's state carries the phase, so a run that died
+// mid-merge or mid-sweep skips the parse entirely.
+//
+// THE SEQ GAP CAVEAT. A staged row's seq is its ordinal among
+// the rows offered to the flush. A duplicate postcode in the
+// release consumes a seq without staging a row (ON CONFLICT DO
+// NOTHING), which leaves a gap in the staged seqs — and the next
+// run's prepare() detects the gap, discards the checkpoint and
+// restarts from zero, with a log line saying so. That is safe
+// (never a wrong filing) and should not happen: a postcode
+// belongs to exactly one area file, and the structural check
+// refuses a release with duplicates before anything merges.
+export async function createBroadbandFiler(
+  client,
+  { progress = null, resume: resumeOpts = null } = {},
+) {
   async function transact(work) {
     await client.query("BEGIN");
     try {
@@ -413,37 +454,98 @@ export async function createBroadbandFiler(client, { progress = null } = {}) {
     }
   }
   await transact(async () => {
-    await client.query("DROP TABLE IF EXISTS broadband_stage");
-    await client.query(`CREATE TEMP TABLE broadband_stage (
-        postcode text PRIMARY KEY, answer jsonb NOT NULL, merged boolean NOT NULL DEFAULT false
+    await client.query(`CREATE TABLE IF NOT EXISTS broadband_stage (
+        postcode text PRIMARY KEY, answer jsonb NOT NULL, merged boolean NOT NULL DEFAULT false,
+        seq bigint NOT NULL, UNIQUE (seq)
       )`);
+    // Without resume the stage is rebuilt from scratch by every
+    // run, as the TEMP table was. With resume, prepareResume
+    // (below) owns the clearing.
+    if (!resumeOpts) await client.query("DELETE FROM broadband_stage");
   });
   let pending = [];
   let offered = 0;
   let staged = 0;
+  let flushedOffered = 0;
+  let seqNext = 0;
+  let resume = null;
+  let edition = resumeOpts?.edition ?? null;
+  /** @type {{ resumed: boolean, reason?: string, checkpoint?: any, prefix?: boolean }} */
+  let resumePrep = { resumed: false };
+  let resumeState = {};
+  let goldensSeen = new Set();
+  let sweepCursor = "";
   async function flushPending() {
     while (pending.length > 0) {
       const chunk = pending.slice(0, STAGE_CHUNK);
       pending = pending.slice(STAGE_CHUNK);
       const values = [];
       const params = [];
+      const base = seqNext;
+      seqNext += chunk.length;
       chunk.forEach((r, j) => {
-        const b = j * 2;
-        values.push(`($${b + 1}, $${b + 2}::jsonb)`);
-        params.push(r.postcode, JSON.stringify(r.answer));
+        const b = j * 3;
+        values.push(`($${b + 1}, $${b + 2}::jsonb, $${b + 3})`);
+        params.push(r.postcode, JSON.stringify(r.answer), base + j);
       });
       const res = await transact(() =>
         client.query(
-          `INSERT INTO broadband_stage (postcode, answer) VALUES ${values.join(", ")} ON CONFLICT (postcode) DO NOTHING`,
+          `INSERT INTO broadband_stage (postcode, answer, seq) VALUES ${values.join(", ")} ON CONFLICT (postcode) DO NOTHING`,
           params,
         ),
       );
       staged += res.rowCount ?? 0;
+      flushedOffered += chunk.length;
+      if (resume) {
+        await resume.checkpoint({
+          edition,
+          expected: null,
+          nextStartIndex: flushedOffered,
+          read: flushedOffered,
+          filed: staged,
+          state: { phase: "parse", goldens: [...goldensSeen] },
+          unit: "postcodes",
+        });
+      }
     }
   }
   return {
     offeredCount: () => offered,
     stagedCount: () => staged,
+    // The rows already offered whose staging has committed —
+    // the parse resume point — and the golden postcodes seen
+    // (seeded from the checkpoint on a resume).
+    flushedOfferedCount: () => flushedOffered,
+    goldensSeen: () => new Set(goldensSeen),
+    resumePrep: () => resumePrep,
+    resumeNote: () =>
+      resume ? resume.resumeNote() : "re-run from scratch (nothing is filed until the merge)",
+    // Decide, from the release edition and the staged rows,
+    // whether this run resumes or starts from zero. Called by
+    // the runner once the release is known (the edition is the
+    // snapshot, with the revision when the release carries one)
+    // and before the first row is staged.
+    async prepareResume(ed, { restart = false } = {}) {
+      edition = ed;
+      resume = createLoaderResume(client, {
+        loader: "load-broadband",
+        stageTable: "broadband_stage",
+        progress,
+        restart,
+      });
+      resumePrep = await resume.prepare({ edition, expected: null });
+      if (resumePrep.resumed) {
+        const cp = resumePrep.checkpoint;
+        flushedOffered = cp.next_start_index;
+        offered = cp.next_start_index;
+        staged = cp.filed_count;
+        seqNext = cp.filed_count;
+        resumeState = cp.state ?? {};
+        goldensSeen = new Set(resumeState.goldens ?? []);
+        sweepCursor = resumeState.cursor ?? "";
+      }
+      return resumePrep;
+    },
     // Flush the pending buffer into the staging table. Until this
     // runs, stagedCount() understates what has been offered — the
     // tail under STAGE_CHUNK sits in memory — so any caller that
@@ -453,6 +555,7 @@ export async function createBroadbandFiler(client, { progress = null } = {}) {
     flushPending,
     async stageItems(rows) {
       offered += rows.length;
+      for (const r of rows) if (GOLDEN_SET.has(r.postcode)) goldensSeen.add(r.postcode);
       pending.push(...rows);
       if (pending.length >= STAGE_CHUNK) await flushPending();
     },
@@ -502,6 +605,25 @@ export async function createBroadbandFiler(client, { progress = null } = {}) {
         throw err;
       }
       mergeTally?.finish(chunks);
+      // The merged total, read back from the stage: a run
+      // resumed mid-merge re-merges only the unmerged rows,
+      // so the accumulator understates the release — the
+      // stage's own merged count is the true figure.
+      const mergedRows = await client.query(
+        "SELECT count(*)::int AS n FROM broadband_stage WHERE merged",
+      );
+      const mergedTotal = mergedRows.rows[0]?.n ?? updated;
+      if (resume) {
+        await resume.checkpoint({
+          edition,
+          expected: null,
+          nextStartIndex: flushedOffered,
+          read: flushedOffered,
+          filed: staged,
+          state: { phase: "merge", goldens: [...goldensSeen], updated: mergedTotal },
+          unit: "postcodes",
+        });
+      }
       // The stale-key sweep — only here, after the whole release
       // has merged. The scan walks the directory in postcode
       // order; each bounded batch deletes in its own transaction,
@@ -524,8 +646,8 @@ export async function createBroadbandFiler(client, { progress = null } = {}) {
           ? progress?.tally({ label: "sweep", total: sweepBatches, every: 10, unit: "batches" })
           : null;
       let sweepBatch = 0;
-      let removed = 0;
-      let cursor = "";
+      let removed = resumeState.removed ?? 0;
+      let cursor = sweepCursor;
       // BUG-248: the sweep's batches get the same watch as the
       // merge's chunks — slow-batch warning, heartbeat, and a
       // failure line that names the sweep as the stage.
@@ -551,6 +673,23 @@ export async function createBroadbandFiler(client, { progress = null } = {}) {
               threshold: `3x recent average ${formatDuration(averageMs)}`,
             });
           }
+          if (resume) {
+            await resume.checkpoint({
+              edition,
+              expected: null,
+              nextStartIndex: flushedOffered,
+              read: flushedOffered,
+              filed: staged,
+              state: {
+                phase: "sweep",
+                goldens: [...goldensSeen],
+                updated: mergedTotal,
+                cursor,
+                removed,
+              },
+              unit: "postcodes",
+            });
+          }
           if (batch.length < SWEEP_CHUNK) break;
         }
       } catch (err) {
@@ -564,26 +703,45 @@ export async function createBroadbandFiler(client, { progress = null } = {}) {
         throw err;
       }
       sweepTally?.finish(sweepBatch, staleKeysRemoved(removed));
-      await client.query("DROP TABLE IF EXISTS broadband_stage");
-      return updated;
+      // The run is complete: staging + checkpoint go together,
+      // so nothing is left behind for the next release. Without
+      // resume the stage is simply emptied, as the TEMP table's
+      // drop did.
+      if (resume) await resume.clear();
+      else await client.query("DELETE FROM broadband_stage");
+      return mergedTotal;
     },
     async abortFiling() {
       await client.query("ROLLBACK").catch(() => {});
-      await client.query("DROP TABLE IF EXISTS broadband_stage").catch(() => {});
+      // With resume the staging + checkpoint STAY: they are the
+      // next run's resume point. Without resume the stage is
+      // emptied, as the TEMP table's drop did.
+      if (!resume) await client.query("DELETE FROM broadband_stage").catch(() => {});
     },
   };
 }
 
 // The batch form over the streaming filer (the BUG-187 defences
-// precedent): file an already-collected rows array.
+// precedent): file an already-collected rows array. With an
+// edition it files resumably (BUG-368): a killed batch run's
+// staging + checkpoint survive, and the next call with the same
+// edition resumes from the checkpoint instead of re-staging.
 /**
  * @param {any} client
  * @param {any[]} rows
- * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, edition?: string | null, restart?: boolean }} [options]
  */
-export async function fileBroadband(client, rows, { progress = null } = {}) {
-  const filer = await createBroadbandFiler(client, { progress });
+export async function fileBroadband(
+  client,
+  rows,
+  { progress = null, edition = null, restart = false } = {},
+) {
+  const filer = await createBroadbandFiler(client, {
+    progress,
+    resume: edition ? { edition, restart } : null,
+  });
   try {
+    if (edition) await filer.prepareResume(edition, { restart });
     await filer.stageItems(rows);
     return await filer.finishFiling();
   } catch (err) {
@@ -742,7 +900,10 @@ function createFileRowFeeder(release, emit) {
 // when trackPostcodes is set (verify-only, which has no staging
 // insert to detect duplicates with), the postcode set. A filing
 // run never sets it: the whole release is never held in memory.
-export async function streamBroadbandRows({ fileDir = null, trackPostcodes = false } = {}, onRows) {
+export async function streamBroadbandRows(
+  { fileDir = null, trackPostcodes = false, onRelease = null } = {},
+  onRows,
+) {
   const stats = { parsed: 0, goldensSeen: new Set(), postcodes: trackPostcodes ? new Set() : null };
   const emit = async (batch) => {
     stats.parsed += batch.length;
@@ -755,6 +916,10 @@ export async function streamBroadbandRows({ fileDir = null, trackPostcodes = fal
   let release;
   if (fileDir) {
     release = JSON.parse(await readFile(join(fileDir, "release.json"), "utf8"));
+    // onRelease returning false stops the read after the release
+    // is known: a run resuming mid-merge or mid-sweep needs the
+    // edition to validate the checkpoint, and no rows at all.
+    if (onRelease && (await onRelease(release)) === false) return { release, stats };
     const paths = [];
     const walk = async (dir) => {
       for (const entry of await readdir(dir, { withFileTypes: true })) {
@@ -765,6 +930,10 @@ export async function streamBroadbandRows({ fileDir = null, trackPostcodes = fal
     };
     await walk(fileDir);
     if (paths.length === 0) throw new Error(`broadband: no postcode files in ${fileDir}`);
+    // Sorted: a resumed run skips the first N rows of this read,
+    // so the file order must be identical on every run — readdir
+    // order is not a promise.
+    paths.sort();
     for (const path of paths) {
       const feeder = createFileRowFeeder(release, emit);
       const decoder = new StringDecoder("utf8");
@@ -786,6 +955,7 @@ export async function streamBroadbandRows({ fileDir = null, trackPostcodes = fal
     const matched = names.filter((name) => POSTCODE_FILE.test(name));
     if (matched.length === 0) throw new Error("broadband: the release ZIP holds no postcode files");
     release = releaseFromNames(matched.map((k) => k.split("/").pop()));
+    if (onRelease && (await onRelease(release)) === false) return { release, stats };
     await streamZipEntries(
       buffer,
       (name) => POSTCODE_FILE.test(name),
@@ -873,43 +1043,82 @@ async function run() {
       // BUG-204: one logger for the run — the parse tally
       // below, the merge and sweep tallies inside the filer.
       const progress = createProgressLogger({ name: "load-broadband" });
-      const filer = await createBroadbandFiler(client, { progress });
-      let streamed;
+      const restart = args.includes("--restart");
+      // Resume mode: the filer keeps the checkpointed stage until
+      // prepareResume (in onRelease, once the release is known)
+      // decides whether it resumes or is cleared.
+      const filer = await createBroadbandFiler(client, { progress, resume: { restart } });
       let parsed = 0;
+      let release = null;
+      let skipRows = 0;
+      let phase = "parse";
       try {
         const parseTally = progress.tally({ label: "parse", every: 100000, unit: "postcodes" });
-        streamed = await streamBroadbandRows({ fileDir }, async (batch) => {
-          await filer.stageItems(batch);
-          parsed += batch.length;
-          parseTally.tick(parsed);
-          // BUG-248: the parse is the first long phase — a
-          // heartbeat every 1,000,000 postcodes or 15 minutes.
-          progress.heartbeat({ stage: "parse", done: parsed, every: 1_000_000 });
-        });
-        parseTally.finish(parsed);
-        // The duplicates figure is parsed minus staged, and the
-        // staging counter only advances on a flush — flush the
-        // pending tail before checking, or it reads as duplicates
-        // (CI #320). Staging is a TEMP table, so this files
-        // nothing; the merge still runs only after the check.
-        await filer.flushPending();
-        structuralCheckStats(
+        await streamBroadbandRows(
           {
-            parsed: streamed.stats.parsed,
-            duplicates: streamed.stats.parsed - filer.stagedCount(),
-            goldensSeen: streamed.stats.goldensSeen,
+            fileDir,
+            onRelease: async (rel) => {
+              release = rel;
+              const ed = `${rel.snapshot}${rel.revision ? `/${rel.revision}` : ""}`;
+              const prep = await filer.prepareResume(ed, { restart });
+              if (prep.resumed) {
+                const cp = prep.checkpoint;
+                skipRows = cp.next_start_index;
+                parsed = cp.read_count;
+                phase = cp.state?.phase ?? "parse";
+                // A run that died mid-merge or mid-sweep has its
+                // staging complete: no rows are needed at all.
+                if (phase === "merge" || phase === "sweep") return false;
+              }
+              return true;
+            },
           },
-          { full: !fileDir },
+          async (batch) => {
+            // A resumed parse skips the rows the checkpoint
+            // already covers — across batches, so the skip
+            // survives the feeder's batching.
+            if (skipRows > 0) {
+              if (batch.length <= skipRows) {
+                skipRows -= batch.length;
+                return;
+              }
+              batch = batch.slice(skipRows);
+              skipRows = 0;
+            }
+            await filer.stageItems(batch);
+            parsed += batch.length;
+            parseTally.tick(parsed);
+            // BUG-248: the parse is the first long phase — a
+            // heartbeat every 1,000,000 postcodes or 15 minutes.
+            progress.heartbeat({ stage: "parse", done: parsed, every: 1_000_000 });
+          },
         );
+        parseTally.finish(parsed);
+        if (phase === "parse") {
+          // The duplicates figure is parsed minus staged, and the
+          // staging counter only advances on a flush — flush the
+          // pending tail before checking, or it reads as duplicates
+          // (CI #320). Staging is persistent now, so this files
+          // nothing; the merge still runs only after the check.
+          await filer.flushPending();
+          structuralCheckStats(
+            {
+              parsed,
+              duplicates: parsed - filer.stagedCount(),
+              goldensSeen: filer.goldensSeen(),
+            },
+            { full: !fileDir },
+          );
+        }
       } catch (err) {
         // BUG-248: the parse (and the structural check after
         // it) fails before anything is filed — the resume is
-        // a clean re-run.
+        // the checkpoint, when one stands, else a clean re-run.
         progress.failed({
           stage: "parse",
           filed: parsed,
           error: err,
-          resume: "re-run from scratch (nothing is filed until the merge)",
+          resume: filer.resumeNote(),
         });
         await filer.abortFiling();
         throw err;
@@ -921,9 +1130,8 @@ async function run() {
         await filer.abortFiling();
         throw err;
       }
-      const { release, stats } = streamed;
       console.log(
-        `load-broadband · Connected Nations ${release.snapshotLabel}${release.revision ? ` (${release.revision})` : ""} · ${stats.parsed.toLocaleString("en-GB")} postcodes — ${updated.toLocaleString("en-GB")} answers filed`,
+        `load-broadband · Connected Nations ${release.snapshotLabel}${release.revision ? ` (${release.revision})` : ""} · ${parsed.toLocaleString("en-GB")} postcodes — ${updated.toLocaleString("en-GB")} answers filed`,
       );
     } finally {
       client.release();

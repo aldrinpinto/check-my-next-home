@@ -41,6 +41,7 @@ import {
   formatCount,
   formatDuration,
 } from "./progress.mjs";
+import { createLoaderResume } from "./loader-resume.mjs";
 
 const SOURCE_NAME = "ONS Postcode Directory";
 
@@ -399,6 +400,7 @@ function checkGolden(getRecord, originLabel) {
 async function main() {
   const args = process.argv.slice(2);
   const verifyOnly = args.includes("--verify-only");
+  const restart = args.includes("--restart");
   const fileFlag = args.indexOf("--file");
   const startedAt = Date.now();
 
@@ -439,13 +441,26 @@ async function main() {
   const connectionString = process.env.DATABASE_URL;
   let client = null;
   let cacheBefore = 0;
+  // BUG-368: the staging is a PERSISTENT table now (migration
+  // 0048) and the run resumes from a loader_checkpoint row
+  // instead of restarting. The resume key is the edition
+  // (label + source date): a republication between runs
+  // invalidates the checkpoint. The seq is a live row's ordinal
+  // in the staged set; a duplicate postcode consumes one without
+  // staging a row, which the next run's prepare() detects as a
+  // gap and restarts from zero, with a log line saying so — safe,
+  // and the directory carries no duplicate live postcodes.
+  let resume = null;
+  /** @type {{ resumed: boolean, reason?: string, checkpoint?: any, prefix?: boolean }} */
+  let resumePrep = { resumed: false };
+  let skipRows = 0;
+  let seqNext = 0;
   if (!verifyOnly) {
     if (!connectionString) throw new Error("DATABASE_URL is not set — see .env.example (Key K6).");
     client = new pg.Client({ connectionString });
     await client.connect();
-    await client.query("BEGIN");
     await client.query(`
-      CREATE TEMP TABLE onspd_stage (
+      CREATE TABLE IF NOT EXISTS onspd_stage (
         postcode text PRIMARY KEY,
         latitude double precision,
         longitude double precision,
@@ -453,9 +468,39 @@ async function main() {
         ward text,
         region text,
         lsoa_code text,
-        msoa_code text
-      ) ON COMMIT DROP
+        msoa_code text,
+        seq bigint NOT NULL,
+        UNIQUE (seq)
+      )
     `);
+    resume = createLoaderResume(client, {
+      loader: "load-postcodes",
+      stageTable: "onspd_stage",
+      progress,
+      restart,
+    });
+    resumePrep = await resume.prepare({
+      edition: `${edition.editionLabel} (${edition.sourceDate})`,
+      expected: null,
+    });
+    if (resumePrep.resumed) {
+      const cp = resumePrep.checkpoint;
+      const state = cp.state ?? {};
+      skipRows = cp.next_start_index;
+      counts.total = cp.read_count;
+      counts.live = cp.filed_count;
+      counts.terminated = state.terminated ?? 0;
+      counts.noCoords = state.noCoords ?? 0;
+      counts.duplicates = state.duplicates ?? 0;
+      seqNext = cp.filed_count;
+      // The golden homes in the skipped prefix never pass the
+      // read loop again: rebuild them from the staging table.
+      const { rows: goldenRows } = await client.query(
+        "SELECT postcode, latitude, longitude, council, ward, region, lsoa_code AS lsoa, msoa_code AS msoa FROM onspd_stage WHERE postcode = ANY($1)",
+        [GOLDEN.map((g) => g.postcode)],
+      );
+      for (const r of goldenRows) goldenFound.set(r.postcode, r);
+    }
     const before = await client.query("SELECT count(*)::int AS n FROM postcode_cache");
     cacheBefore = before.rows[0].n;
   }
@@ -471,23 +516,68 @@ async function main() {
     : null;
   const stageWatch = createBatchWatch();
   let flushes = 0;
+  // Live rows actually staged (distinct postcodes) — the
+  // checkpoint's filed count. counts.live counts live rows
+  // offered, which is the same number unless the directory
+  // carries a duplicate postcode (see the resume note above).
+  let staged = resumePrep.resumed ? resumePrep.checkpoint.filed_count : 0;
   const flush = async () => {
     if (!client || batch.length === 0) return;
     const started = Date.now();
     const values = [];
+    const base = seqNext;
+    seqNext += batch.length;
     const tuples = batch.map((r, i) => {
-      const base = i * 8;
-      values.push(r.postcode, r.latitude, r.longitude, r.council, r.ward, r.region, r.lsoa, r.msoa);
-      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8})`;
+      const b = i * 9;
+      values.push(
+        r.postcode,
+        r.latitude,
+        r.longitude,
+        r.council,
+        r.ward,
+        r.region,
+        r.lsoa,
+        r.msoa,
+        base + i,
+      );
+      return `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7}, $${b + 8}, $${b + 9})`;
     });
-    const result = await client.query(
-      `INSERT INTO onspd_stage (postcode, latitude, longitude, council, ward, region, lsoa_code, msoa_code)
+    // Each flush is its own transaction now (BUG-368): the run
+    // no longer holds one transaction open for the whole read,
+    // and the checkpoint after it records exactly the rows
+    // this flush made durable.
+    await client.query("BEGIN");
+    let result;
+    try {
+      result = await client.query(
+        `INSERT INTO onspd_stage (postcode, latitude, longitude, council, ward, region, lsoa_code, msoa_code, seq)
        VALUES ${tuples.join(", ")} ON CONFLICT (postcode) DO NOTHING`,
-      values,
-    );
+        values,
+      );
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw err;
+    }
     counts.duplicates += batch.length - (result.rowCount ?? 0);
+    staged += result.rowCount ?? 0;
     batch = [];
     flushes += 1;
+    if (resume) {
+      await resume.checkpoint({
+        edition: `${edition.editionLabel} (${edition.sourceDate})`,
+        expected: null,
+        nextStartIndex: counts.total,
+        read: counts.total,
+        filed: staged,
+        state: {
+          terminated: counts.terminated,
+          noCoords: counts.noCoords,
+          duplicates: counts.duplicates,
+        },
+        unit: "rows",
+      });
+    }
     const { tookMs, averageMs, slow } = stageWatch.observe(Date.now() - started);
     stageTally?.tick(flushes, `${formatCount(counts.live)} live postcodes staged`);
     progress.heartbeat({ stage: "staging", done: flushes });
@@ -516,6 +606,11 @@ async function main() {
             continue;
           }
           counts.total++;
+          // BUG-368: a resumed run skips the rows the checkpoint
+          // already covers — their terminated / no-coords /
+          // duplicate tallies stand checkpointed, so they are
+          // counted here and nowhere else.
+          if (counts.total <= skipRows) continue;
           if (row[cols.doterm]) {
             counts.terminated++;
             continue;
@@ -581,6 +676,11 @@ async function main() {
     } else {
       phase = "filing";
       progress.stage(`filing ${formatCount(counts.live)} live postcodes into postcode_cache`);
+      // The filing is one transaction of its own (BUG-368): the
+      // read's chunked commits are behind it, and the swap either
+      // lands whole or rolls back, exactly as the old single
+      // transaction did.
+      await client.query("BEGIN");
       await client.query(
         `INSERT INTO postcode_cache (postcode, latitude, longitude, council, ward, region, lsoa_code, msoa_code, source_name, source_date)
          SELECT postcode, latitude, longitude, council, ward, region, lsoa_code, msoa_code, $1, $2 FROM onspd_stage
@@ -603,6 +703,9 @@ async function main() {
       const byPostcode = new Map(filed.rows.map((r) => [r.postcode, r]));
       checkGolden((pc) => byPostcode.get(pc), "postcode_cache");
       await client.query("COMMIT");
+      // The run is complete: staging + checkpoint go together,
+      // so nothing is left behind for the next edition.
+      if (resume) await resume.clear();
       const after = await client.query("SELECT count(*)::int AS n FROM postcode_cache");
       console.log(
         `load-postcodes · edition ${edition.editionLabel} (${edition.sourceDate}) · ${counts.live.toLocaleString("en-GB")} live postcodes filed · ` +
@@ -618,7 +721,9 @@ async function main() {
       stage: phase,
       filed: counts.live,
       error,
-      resume: "re-run from scratch (the stage table is rebuilt each run)",
+      resume: resume
+        ? resume.resumeNote()
+        : "re-run from scratch (the stage table is rebuilt each run)",
     });
     if (client) await client.query("ROLLBACK").catch(() => {});
     throw error;

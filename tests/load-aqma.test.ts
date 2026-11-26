@@ -6,6 +6,7 @@ import {
   BAND_LOW,
   NATION_FLOORS,
   SNAPSHOT,
+  beginFiling,
   checkCoverage,
   checkGolden,
   nationOf,
@@ -414,5 +415,304 @@ describe("progress logging (BUG-265)", () => {
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatch(/progress · read 72 features$/);
     expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+  });
+});
+
+describe("resume (BUG-368)", () => {
+  // A fake pg client: the staged rows, the live layer and the
+  // loader_checkpoint row as arrays, with just enough SQL to
+  // run the filer. The WKT the filer inserts is converted back
+  // to GeoJSON for the staged-golden rebuild, so the sift on a
+  // resumed run filters exactly as it would live.
+  type StagedRow = {
+    name: string;
+    wkt: string;
+    ref: string;
+    authority: string;
+    pollutants: string;
+    edition: string;
+    seq: number;
+  };
+  type CheckpointRow = {
+    loader: string;
+    edition: string;
+    expected: number | null;
+    next_start_index: number;
+    read_count: number;
+    filed_count: number;
+    state: Record<string, unknown> | null;
+  };
+  function wktToGeoJson(wkt: string): { type: "MultiPolygon"; coordinates: number[][][][] } {
+    const body = wkt.replace(/^MULTIPOLYGON\s*/, "");
+    let i = 0;
+    const parseGroup = (): unknown[] => {
+      const out: unknown[] = [];
+      i++; // consume "("
+      while (i < body.length) {
+        const ch = body[i];
+        if (ch === "(") out.push(parseGroup());
+        else if (ch === ")") {
+          i++;
+          return out;
+        } else if (ch === ",") i++;
+        else {
+          const m = /^(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)/.exec(body.slice(i));
+          if (!m) {
+            i++;
+            continue;
+          }
+          out.push([parseFloat(m[1]), parseFloat(m[2])]);
+          i += m[0].length;
+        }
+      }
+      return out;
+    };
+    return { type: "MultiPolygon", coordinates: parseGroup() as number[][][][] };
+  }
+  function createFakeClient() {
+    let staged: StagedRow[] = [];
+    let live: StagedRow[] = [];
+    const checkpoints = new Map<string, CheckpointRow>();
+    let insertCalls = 0;
+    let failAfterInserts: number | null = null;
+    let snapshot: {
+      staged: StagedRow[];
+      live: StagedRow[];
+      checkpoints: Map<string, CheckpointRow>;
+    } | null = null;
+    const statements: string[] = [];
+    const query = async (sql: string, params: unknown[] = []) => {
+      statements.push(sql);
+      const text = sql.replace(/\s+/g, " ");
+      if (text === "BEGIN") {
+        snapshot = { staged: [...staged], live: [...live], checkpoints: new Map(checkpoints) };
+        return { rows: [] };
+      }
+      if (text === "COMMIT") {
+        snapshot = null;
+        return { rows: [] };
+      }
+      if (text === "ROLLBACK") {
+        if (snapshot) {
+          staged = snapshot.staged;
+          live = snapshot.live;
+          checkpoints.clear();
+          for (const [k, v] of snapshot.checkpoints) checkpoints.set(k, v);
+        }
+        snapshot = null;
+        return { rows: [] };
+      }
+      if (/CREATE TABLE IF NOT EXISTS aqma_stage/.test(text)) return { rows: [] };
+      if (/INSERT INTO aqma_stage/.test(text)) {
+        insertCalls += 1;
+        if (failAfterInserts !== null && insertCalls > failAfterInserts)
+          throw new Error("simulated kill: the database connection dropped mid-insert");
+        for (let r = 0; r < params.length / 10; r++) {
+          const b = r * 10;
+          staged.push({
+            name: params[b + 1] as string,
+            wkt: params[b + 2] as string,
+            ref: params[b + 3] as string,
+            authority: params[b + 4] as string,
+            pollutants: params[b + 6] as string,
+            edition: params[b + 8] as string,
+            seq: params[b + 9] as number,
+          });
+        }
+        return { rows: [], rowCount: params.length / 10 };
+      }
+      if (
+        /SELECT loader, edition, expected, next_start_index, read_count, filed_count, state, updated_at/.test(
+          text,
+        )
+      ) {
+        const row = checkpoints.get(params[0] as string);
+        return { rows: row ? [row] : [] };
+      }
+      if (/INSERT INTO loader_checkpoint/.test(text)) {
+        checkpoints.set(params[0] as string, {
+          loader: params[0] as string,
+          edition: params[1] as string,
+          expected: params[2] as number | null,
+          next_start_index: params[3] as number,
+          read_count: params[4] as number,
+          filed_count: params[5] as number,
+          // The real jsonb column returns a parsed object; the
+          // writer sends a JSON string (loader-resume.mjs).
+          state: JSON.parse(params[6] as string) as Record<string, unknown>,
+        });
+        return { rows: [] };
+      }
+      if (/DELETE FROM loader_checkpoint WHERE loader =/.test(text)) {
+        checkpoints.delete(params[0] as string);
+        return { rows: [] };
+      }
+      if (/SELECT count\(\*\)::int AS n, coalesce\(sum\(seq\)/.test(text)) {
+        return {
+          rows: [
+            {
+              n: staged.length,
+              s: staged.reduce((a, r) => a + r.seq, 0),
+              m: staged.length ? Math.max(...staged.map((r) => r.seq)) : 0,
+            },
+          ],
+        };
+      }
+      if (/DELETE FROM aqma_stage WHERE seq >=/.test(text)) {
+        staged = staged.filter((r) => r.seq < (params[0] as number));
+        return { rows: [], rowCount: 0 };
+      }
+      if (/DELETE FROM aqma_stage/.test(text)) {
+        staged = [];
+        return { rows: [] };
+      }
+      if (/SELECT count\(\*\)::int AS n FROM aqma_stage/.test(text))
+        return { rows: [{ n: staged.length }] };
+      if (/ST_AsGeoJSON\(geom\)/.test(text)) {
+        return {
+          rows: staged.map((r) => ({
+            name: r.name,
+            source_reference: r.ref,
+            organisation: r.authority,
+            detail: r.pollutants,
+            geojson: JSON.stringify(wktToGeoJson(r.wkt)),
+          })),
+        };
+      }
+      if (/DELETE FROM planning_layers WHERE constraint_type = 'aqma'/.test(text)) {
+        live = [];
+        return { rows: [] };
+      }
+      if (/INSERT INTO planning_layers/.test(text)) {
+        live = [...staged];
+        return { rows: [] };
+      }
+      if (
+        /SELECT count\(\*\)::int AS n FROM planning_layers WHERE constraint_type = 'aqma'/.test(
+          text,
+        )
+      )
+        return { rows: [{ n: live.length }] };
+      throw new Error(`fake client: unhandled SQL: ${sql}`);
+    };
+    return {
+      query,
+      statements,
+      staged: () => staged,
+      live: () => live,
+      liveRefs: () => live.map((r) => r.ref),
+      checkpoints,
+      setFailAfterInserts: (n: number | null) => {
+        failAfterInserts = n;
+      },
+    };
+  }
+  type FakeClient = ReturnType<typeof createFakeClient>;
+  async function runLoad(
+    fake: FakeClient,
+    {
+      restart = false,
+      lines = null as string[] | null,
+    }: { restart?: boolean; lines?: string[] | null } = {},
+  ) {
+    const captured: string[] = lines ?? [];
+    const progress = createProgressLogger({
+      name: "load-aqma",
+      log: (line: string) => captured.push(line),
+    });
+    const filer = await beginFiling(progress, { client: fake as never, restart });
+    const onEdition = async (edition: string) => {
+      const prep = await filer.prepareResume(edition);
+      if (!prep.resumed) return { startOffset: 0 };
+      const cp = prep.checkpoint;
+      return {
+        startOffset: cp.next_start_index,
+        seed: {
+          total: cp.read_count,
+          filed: cp.filed_count,
+          perNation: (cp.state?.perNation ?? {}) as Record<string, number>,
+        },
+        seedItems: await filer.stagedGoldenItems(),
+      };
+    };
+    const processed = await readFixture(fixtureDir, {
+      onItems: (items, edition) => filer.stageItems(items, edition),
+      progress,
+      onEdition,
+    });
+    return { filer, processed, lines: captured };
+  }
+  const fixtureRefs = () => processFeatures(fixture).filed.map((f) => String(f.ref));
+
+  it("kill mid-read resumes and files every area exactly once", { timeout: 30_000 }, async () => {
+    const fake = createFakeClient();
+    // Kill after three 10-row chunks: 30 rows staged, the
+    // checkpoint at 30, the fourth chunk never landed.
+    const killLines: string[] = [];
+    fake.setFailAfterInserts(3);
+    await expect(runLoad(fake, { lines: killLines })).rejects.toThrow(/simulated kill/);
+    expect(fake.staged().length).toBe(30);
+    expect(fake.checkpoints.get("load-aqma")?.next_start_index).toBe(30);
+    expect(
+      killLines.some((l) => /checkpoint 30 features · staged 30 · resume from 30/.test(l)),
+    ).toBe(true);
+
+    fake.setFailAfterInserts(null);
+    const { filer, processed, lines } = await runLoad(fake);
+    expect(processed.total).toBe(72);
+    expect(processed.filed).toBe(72);
+    expect(processed.perNation).toEqual({ E: 62, W: 5, S: 4, N: 1 });
+    expect(() => checkGolden({ filed: processed.items })).not.toThrow();
+    expect(
+      lines.some((l) =>
+        /resuming from checkpoint · 30 rows staged · edition 2026-10-20 · resume from 30/.test(l),
+      ),
+    ).toBe(true);
+    await filer.finishFiling(processed.filed);
+    expect(fake.liveRefs().sort()).toEqual(fixtureRefs().sort());
+    // The swap cleared staging and the checkpoint together.
+    expect(fake.staged().length).toBe(0);
+    expect(fake.checkpoints.get("load-aqma")).toBeUndefined();
+    expect(filer.resumeNote()).toBe("the start (nothing staged yet)");
+  });
+
+  it(
+    "an edition change discards the staged rows and starts from zero",
+    { timeout: 30_000 },
+    async () => {
+      const fake = createFakeClient();
+      fake.setFailAfterInserts(3);
+      await expect(runLoad(fake)).rejects.toThrow(/simulated kill/);
+      expect(fake.staged().length).toBe(30);
+
+      const lines: string[] = [];
+      const progress = createProgressLogger({
+        name: "load-aqma",
+        log: (line: string) => lines.push(line),
+      });
+      const filer = await beginFiling(progress, { client: fake as never });
+      const prep = await filer.prepareResume("2099-01-01");
+      expect(prep.resumed).toBe(false);
+      expect(fake.staged().length).toBe(0);
+      expect(fake.checkpoints.get("load-aqma")).toBeUndefined();
+    },
+  );
+
+  it("--restart discards the checkpoint and starts from zero", { timeout: 30_000 }, async () => {
+    const fake = createFakeClient();
+    fake.setFailAfterInserts(3);
+    await expect(runLoad(fake)).rejects.toThrow(/simulated kill/);
+    expect(fake.staged().length).toBe(30);
+
+    fake.setFailAfterInserts(null);
+    const { filer, processed } = await runLoad(fake, { restart: true });
+    expect(processed.total).toBe(72);
+    expect(processed.filed).toBe(72);
+    // The restart filed the whole read from zero — the swap
+    // proves it, and the staged rows are gone with it.
+    await filer.finishFiling(processed.filed);
+    expect(fake.liveRefs().sort()).toEqual(fixtureRefs().sort());
+    expect(fake.staged().length).toBe(0);
+    expect(fake.checkpoints.get("load-aqma")).toBeUndefined();
   });
 });

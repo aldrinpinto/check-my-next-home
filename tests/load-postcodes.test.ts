@@ -34,6 +34,19 @@ describe("postcode directory loader", () => {
     expect(loader).not.toContain("TRUNCATE");
   });
 
+  // Resume (BUG-368): the wiring is pinned in source — the
+  // loader's main run is not exported, so no fake-DB unit
+  // test can reach it. A kill-and-resume proof against a
+  // real database is the local-db-spike rehearsal's job.
+  it("stages into a persistent table and checkpoints per flush (BUG-368)", () => {
+    expect(loader).toContain("CREATE TABLE IF NOT EXISTS onspd_stage");
+    expect(loader).not.toContain("CREATE TEMP TABLE");
+    expect(loader).toContain("resume.prepare({");
+    expect(loader).toContain("resume.checkpoint");
+    expect(loader).toContain("resume.clear()");
+    expect(loader).toContain("--restart");
+  });
+
   it("skips terminated postcodes and proves both golden homes", () => {
     expect(loader).toContain("doterm");
     expect(loader).toContain("CM3 2JT");

@@ -142,6 +142,7 @@ import {
   formatCount,
   formatDuration,
 } from "./progress.mjs";
+import { createLoaderResume, writeCheckpoint } from "./loader-resume.mjs";
 import pg from "pg";
 
 const FULL_FILE_URL =
@@ -372,6 +373,7 @@ export function parseModeArgs(args) {
   let fileDir = null;
   let edition = null;
   let verifyOnly = false;
+  let restart = false;
   const rest = [];
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
@@ -392,6 +394,10 @@ export function parseModeArgs(args) {
       i += 1;
     } else if (arg === "--verify-only") {
       verifyOnly = true;
+    } else if (arg === "--restart") {
+      // BUG-368: discard any checkpoint + staging and file the
+      // national pass from the start.
+      restart = true;
     } else if (arg === "--") {
       rest.push(...args.slice(i + 1));
       break;
@@ -401,7 +407,7 @@ export function parseModeArgs(args) {
       rest.push(arg);
     }
   }
-  return { mode, fileDir, edition, verifyOnly, rest };
+  return { mode, fileDir, edition, verifyOnly, rest, restart };
 }
 
 function recordValues(record, sourceDate, sourceName = SOURCE_NAME) {
@@ -706,7 +712,7 @@ export async function stampNoSalePostcodes(client, edition, { progress = null } 
 // before anything is filed (BUG-188).
 /**
  * @param {any} client
- * @param {{ fullLines: AsyncIterable<string> | Iterable<string>, updateLines: Iterable<string>, edition: string | null, verifyOnly?: boolean, expectedFullBytes?: number | null, progress?: any }} options
+ * @param {{ fullLines: AsyncIterable<string> | Iterable<string>, updateLines: Iterable<string>, edition: string | null, verifyOnly?: boolean, expectedFullBytes?: number | null, progress?: any, restart?: boolean, resumeEdition?: string | null }} options
  */
 export async function runNational(
   client,
@@ -717,6 +723,8 @@ export async function runNational(
     verifyOnly = false,
     expectedFullBytes = null,
     progress = null,
+    restart = false,
+    resumeEdition = null,
   },
 ) {
   const startedAt = Date.now();
@@ -725,9 +733,14 @@ export async function runNational(
   // shape serves both tables) but stores neither the source
   // name nor the edition in its rows — both stay null here and
   // the swap writes the pass's constants as it files (BUG-201).
-  await client.query(`DROP TABLE IF EXISTS ${STAGE_TABLE}`);
+  // BUG-368: the staging is a PERSISTENT table now (migration
+  // 0048), and the pass resumes from a loader_checkpoint row
+  // instead of restarting. The identity seq is the staged
+  // ordinal (1-based: seqBase 1 in the resume handle), so the
+  // dedupe's "greatest seq survives" rule and the resume
+  // prefix proof both read it the same way.
   await client.query(
-    `CREATE TEMP TABLE ${STAGE_TABLE} (
+    `CREATE TABLE IF NOT EXISTS ${STAGE_TABLE} (
        seq bigint GENERATED ALWAYS AS IDENTITY,
        transaction_id text,
        postcode text,
@@ -748,6 +761,47 @@ export async function runNational(
        source_date date
      )`,
   );
+  // The resume handle, when the caller keyed this pass with an
+  // edition: without one there is nothing to match a checkpoint
+  // against, so the pass runs unresumed, exactly as before.
+  let resume = null;
+  /** @type {{ resumed: boolean, reason?: string, checkpoint?: any, prefix?: boolean }} */
+  let resumePrep = { resumed: false };
+  if (resumeEdition) {
+    resume = createLoaderResume(client, {
+      loader: "load-sold-prices",
+      stageTable: STAGE_TABLE,
+      seqBase: 1,
+      progress,
+      restart,
+    });
+    resumePrep = await resume.prepare({
+      edition: resumeEdition,
+      expected: null,
+      // Past the intake the staged set is no longer a prefix
+      // (the dedupe deletes rows, the merge replaces them), so
+      // the prefix proof cannot apply: the step reconciliations
+      // below are the guard, and the phase checkpoints are
+      // written only once their step has reconciled.
+      stagedCheck: (checkpoint) => {
+        const phase = checkpoint.state?.phase ?? "intake";
+        if (phase === "intake") return null;
+        return { resumed: true, checkpoint, prefix: false };
+      },
+    });
+  }
+  // The checkpoint's phase: intake (died reading), deduped,
+  // merged. A run that died after the intake re-runs only the
+  // steps after its phase — the intake stream is never re-read
+  // once its tallies stand checkpointed.
+  const resumeState = resumePrep.resumed ? (resumePrep.checkpoint.state ?? {}) : {};
+  const resumePhase = resumePrep.resumed ? (resumeState.phase ?? "intake") : "intake";
+  const skipLines = resumePrep.resumed ? resumePrep.checkpoint.next_start_index : 0;
+  if (resumePrep.resumed) {
+    stats.malformed = resumeState.malformed ?? 0;
+    stats.emptyPostcode = resumeState.emptyPostcode ?? 0;
+    stats.uncovered = resumeState.uncovered ?? {};
+  }
 
   // 1 — the full file, every line parsed, filed in batches
   // (uncovered-area rows skipped and counted at intake, BUG-184 —
@@ -755,55 +809,105 @@ export async function runNational(
   // tallies BUG-188 demands: the lines read, the bytes they
   // account for, and the records handed to the staging inserts.
   let batch = [];
-  let linesRead = 0;
-  let lineBytes = 0;
-  let recordsStaged = 0;
+  let linesRead = resumePhase === "intake" ? 0 : (resumeState.linesRead ?? 0);
+  let lineBytes = resumePhase === "intake" ? 0 : (resumeState.lineBytes ?? 0);
+  let recordsStaged = resumePrep.resumed ? resumePrep.checkpoint.filed_count : 0;
   // BUG-248: the pass's later steps read these — they are
   // assigned inside the intake-and-staging wrap below, and the
   // wrap's catch reports them when a step refuses.
   let updateRecords;
   let sourceDate = edition;
   let total = 0;
+  // The checkpoint state for the phase this run reaches: the
+  // intake tallies the BUG-188 guard reconciles against, so a
+  // run that died after the intake can prove its staged set
+  // without re-reading the file.
+  const checkpointState = (phase) => ({
+    phase,
+    linesRead,
+    lineBytes,
+    malformed: stats.malformed,
+    emptyPostcode: stats.emptyPostcode,
+    uncovered: stats.uncovered,
+    duplicates: stats.duplicates,
+  });
   try {
+    // The flush commits its rows and its checkpoint in ONE
+    // transaction: the stage seq is an identity column, so a
+    // chunk staged without its checkpoint could never be
+    // re-staged with the same seqs — a kill between the two
+    // would leave rows the next run cannot account for. The
+    // checkpoint's log line lands after the commit, never
+    // inside it: a line must only ever name durable work.
     const flush = async () => {
-      await insertRecords(client, STAGE_TABLE, batch, null, null);
-      batch = [];
+      if (batch.length === 0) return;
+      await client.query("BEGIN");
+      try {
+        await insertRecords(client, STAGE_TABLE, batch, null, null);
+        batch = [];
+        let row = null;
+        if (resume) {
+          row = resume.checkpointRow({
+            edition: resumeEdition,
+            expected: null,
+            nextStartIndex: linesRead,
+            read: linesRead,
+            filed: recordsStaged,
+            state: checkpointState("intake"),
+          });
+          await writeCheckpoint(client, row);
+        }
+        await client.query("COMMIT");
+        if (resume && row) resume.noteCheckpoint(row, { unit: "lines" });
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw err;
+      }
     };
-    for await (const line of fullLines) {
-      if (!line) continue;
-      linesRead += 1;
-      lineBytes += Buffer.byteLength(line);
-      // BUG-204: a line every 2M lines read — and, where the
-      // source declared its size (the --file stat, or the
-      // live Content-Length), the share of those bytes
-      // consumed so far, which is the pass's real percentage.
-      if (linesRead % 2000000 === 0) {
-        const declared =
-          expectedFullBytes !== null && expectedFullBytes !== undefined
-            ? `${Math.min(100, Math.round(((lineBytes + linesRead) / expectedFullBytes) * 100))}% of declared ${formatCount(expectedFullBytes)} bytes`
-            : "";
-        progress?.count({ label: "intake", done: linesRead, unit: "lines", extra: declared });
-        // BUG-248: the intake is the longest phase — a heartbeat
-        // every 10,000,000 lines or 15 minutes. The 1,000-row
-        // staging flushes are too fine-grained for a slow-batch
-        // watch (3x on ~50 ms is noise), so there is none here.
-        progress?.heartbeat({ stage: "intake", done: linesRead, every: 10_000_000 });
+    // A run that died after the intake never re-reads the file:
+    // its tallies stand checkpointed, and the steps below run
+    // over the staged set. A run that died mid-intake re-reads
+    // from the checkpoint's line and skips the staged prefix —
+    // the skipped lines still count their bytes, so the BUG-188
+    // size guard reconciles exactly as on a fresh run.
+    if (resumePhase === "intake") {
+      for await (const line of fullLines) {
+        if (!line) continue;
+        linesRead += 1;
+        lineBytes += Buffer.byteLength(line);
+        if (linesRead <= skipLines) continue;
+        // BUG-204: a line every 2M lines read — and, where the
+        // source declared its size (the --file stat, or the
+        // live Content-Length), the share of those bytes
+        // consumed so far, which is the pass's real percentage.
+        if (linesRead % 2000000 === 0) {
+          const declared =
+            expectedFullBytes !== null && expectedFullBytes !== undefined
+              ? `${Math.min(100, Math.round(((lineBytes + linesRead) / expectedFullBytes) * 100))}% of declared ${formatCount(expectedFullBytes)} bytes`
+              : "";
+          progress?.count({ label: "intake", done: linesRead, unit: "lines", extra: declared });
+          // BUG-248: the intake is the longest phase — a heartbeat
+          // every 10,000,000 lines or 15 minutes. The 1,000-row
+          // staging flushes are too fine-grained for a slow-batch
+          // watch (3x on ~50 ms is noise), so there is none here.
+          progress?.heartbeat({ stage: "intake", done: linesRead, every: 10_000_000 });
+        }
+        const record = toRecord(parsePpdLine(line));
+        if (!record) {
+          stats.malformed += 1;
+          continue;
+        }
+        if (record.postcode.trim() === "") {
+          stats.emptyPostcode += 1;
+          continue;
+        }
+        if (skipUncoveredRecord(record, stats)) continue;
+        batch.push(record);
+        recordsStaged += 1;
+        if (batch.length >= INSERT_BATCH_ROWS) await flush();
       }
-      const record = toRecord(parsePpdLine(line));
-      if (!record) {
-        stats.malformed += 1;
-        continue;
-      }
-      if (record.postcode.trim() === "") {
-        stats.emptyPostcode += 1;
-        continue;
-      }
-      if (skipUncoveredRecord(record, stats)) continue;
-      batch.push(record);
-      recordsStaged += 1;
-      if (batch.length >= INSERT_BATCH_ROWS) await flush();
+      await flush();
     }
-    await flush();
     progress?.stage(
       `intake complete — ${formatCount(linesRead)} lines read, ${formatCount(recordsStaged)} records staged`,
     );
@@ -843,12 +947,50 @@ export async function runNational(
     // 2 — duplicate transaction ids in the full file collapse to
     // the last row filed (the legacy loader's Map semantics), in
     // SQL: seq is insertion order, so the greatest seq survives.
-    const deduped = await client.query(
-      `DELETE FROM ${STAGE_TABLE} a USING ${STAGE_TABLE} b
+    // A run that died after this step does not re-run it: the
+    // staged set already holds the collapsed register, and the
+    // duplicate count stands checkpointed.
+    let afterDedupe;
+    if (resumePhase === "deduped" || resumePhase === "merged") {
+      stats.duplicates = resumeState.duplicates ?? 0;
+      afterDedupe = await stagedCount();
+    } else {
+      // The dedupe and its checkpoint commit together: a kill
+      // between the DELETE and the checkpoint would leave a
+      // staged set the intake checkpoint's prefix proof cannot
+      // recognise (the DELETE punches holes in the seqs), and
+      // the next run would discard the whole intake.
+      await client.query("BEGIN");
+      try {
+        const deduped = await client.query(
+          `DELETE FROM ${STAGE_TABLE} a USING ${STAGE_TABLE} b
       WHERE a.transaction_id = b.transaction_id AND a.seq < b.seq`,
-    );
-    stats.duplicates = deduped.rowCount ?? 0;
-    const afterDedupe = await stagedCount();
+        );
+        stats.duplicates = deduped.rowCount ?? 0;
+        afterDedupe = await stagedCount();
+        if (afterDedupe !== recordsStaged - stats.duplicates)
+          throw new Error(
+            `the national pass holds ${afterDedupe} staged rows after collapsing ${stats.duplicates} duplicates from ${recordsStaged} parsed records — refusing to file a register it cannot account for (BUG-188)`,
+          );
+        let row = null;
+        if (resume) {
+          row = resume.checkpointRow({
+            edition: resumeEdition,
+            expected: null,
+            nextStartIndex: linesRead,
+            read: linesRead,
+            filed: afterDedupe,
+            state: { ...checkpointState("deduped"), afterDedupe },
+          });
+          await writeCheckpoint(client, row);
+        }
+        await client.query("COMMIT");
+        if (resume && row) resume.noteCheckpoint(row, { unit: "lines" });
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw err;
+      }
+    }
     if (afterDedupe !== recordsStaged - stats.duplicates)
       throw new Error(
         `the national pass holds ${afterDedupe} staged rows after collapsing ${stats.duplicates} duplicates from ${recordsStaged} parsed records — refusing to file a register it cannot account for (BUG-188)`,
@@ -863,14 +1005,22 @@ export async function runNational(
     updateRecords = parseAllRecords(updateLines, stats);
     const updateGuids = [...new Set(updateRecords.map((r) => r.transactionId))];
     let updateMatched = 0;
-    for (let at = 0; at < updateGuids.length; at += GUID_CHUNK) {
-      const res = await client.query(
-        `SELECT count(*)::int AS n FROM ${STAGE_TABLE} WHERE transaction_id = ANY($1)`,
-        [updateGuids.slice(at, at + GUID_CHUNK)],
-      );
-      updateMatched += res.rows[0].n;
+    let merged;
+    if (resumePhase === "merged") {
+      // The merge already ran: its counts stand checkpointed,
+      // and the staged set already holds the merged register.
+      updateMatched = resumeState.updateMatched ?? 0;
+      merged = { upserted: resumeState.upserted ?? 0 };
+    } else {
+      for (let at = 0; at < updateGuids.length; at += GUID_CHUNK) {
+        const res = await client.query(
+          `SELECT count(*)::int AS n FROM ${STAGE_TABLE} WHERE transaction_id = ANY($1)`,
+          [updateGuids.slice(at, at + GUID_CHUNK)],
+        );
+        updateMatched += res.rows[0].n;
+      }
+      merged = await mergeUpdateRecords(client, STAGE_TABLE, updateRecords, null, null);
     }
-    const merged = await mergeUpdateRecords(client, STAGE_TABLE, updateRecords, null, null);
     progress?.stage(
       `update merged — ${formatCount(merged.upserted)} upserted, ${formatCount(updateRecords.length - merged.upserted)} deleted`,
     );
@@ -879,6 +1029,27 @@ export async function runNational(
       throw new Error(
         `the national pass holds ${afterMerge} staged rows after the update merge (expected ${afterDedupe - updateMatched + merged.upserted}: ${afterDedupe} staged − ${updateMatched} replaced or deleted + ${merged.upserted} upserted) — refusing to file a register it cannot account for (BUG-188)`,
       );
+    // The merged checkpoint is written only once the merge has
+    // reconciled: a run that died mid-merge resumes at the
+    // deduped checkpoint and re-runs the merge (delete-then-set
+    // per id, so the re-run lands the same register), while a
+    // run that died after it resumes past the merge entirely.
+    if (resume && resumePhase !== "merged") {
+      await resume.checkpoint({
+        edition: resumeEdition,
+        expected: null,
+        nextStartIndex: linesRead,
+        read: linesRead,
+        filed: afterMerge,
+        state: {
+          ...checkpointState("merged"),
+          updateMatched,
+          upserted: merged.upserted,
+          afterMerge,
+        },
+        unit: "lines",
+      });
+    }
 
     // 4 — the edition settles once, over the whole staged set:
     // the file's publication date when the source gave one, else
@@ -934,8 +1105,9 @@ export async function runNational(
       stage: "intake and staging",
       filed: recordsStaged,
       error: err,
-      resume:
-        "re-run the national pass from the start (staging is rebuilt, nothing is filed until the swap)",
+      resume: resume
+        ? resume.resumeNote()
+        : "re-run the national pass from the start (staging is rebuilt, nothing is filed until the swap)",
     });
     throw err;
   }
@@ -945,7 +1117,8 @@ export async function runNational(
     `load-sold-prices · edition ${sourceDate} · national pass · ${formatCount(total)} sales filed · ${formatCount(updateRecords.length)} update rows merged · ${formatCount(stats.malformed)} malformed skipped · ${formatCount(stats.duplicates)} duplicates collapsed · ${formatCount(stats.emptyPostcode)} empty-postcode rows skipped · ${uncoveredSkipSegment(stats)} · ${formatCount(stamped)} no-sale postcodes stamped · ${formatCount(linesRead)} full-file lines read · golden homes OK · ${seconds()}s`;
 
   if (verifyOnly) {
-    await client.query(`DROP TABLE IF EXISTS ${STAGE_TABLE}`);
+    if (resume) await resume.clear();
+    else await client.query(`DROP TABLE IF EXISTS ${STAGE_TABLE}`);
     return {
       edition: sourceDate,
       logLine: `${summary(0)} · verify only, nothing filed`,
@@ -1023,7 +1196,8 @@ export async function runNational(
     });
     throw err;
   }
-  await client.query(`DROP TABLE IF EXISTS ${STAGE_TABLE}`);
+  if (resume) await resume.clear();
+  else await client.query(`DROP TABLE IF EXISTS ${STAGE_TABLE}`);
   return {
     edition: sourceDate,
     logLine: summary(stamped),
@@ -1226,6 +1400,17 @@ async function modeMain(args) {
         updateLines = (await updateResponse.text()).split(/\r?\n/);
       }
       runStarted = true;
+      // BUG-368: the resume key is the file's publication date
+      // when the source gave one, else the declared file size —
+      // a republication changes one or the other, so a checkpoint
+      // from an older file can never resume into this one. With
+      // neither, the pass runs unresumed, exactly as before.
+      const resumeEdition =
+        context.sourceDate ?? (expectedFullBytes ? `size-${expectedFullBytes}` : null);
+      if (!resumeEdition)
+        progress.stage(
+          "resume off — no edition to key a checkpoint on (no publication date or file size)",
+        );
       const result = await runNational(client, {
         fullLines,
         updateLines,
@@ -1233,6 +1418,8 @@ async function modeMain(args) {
         verifyOnly: parsed.verifyOnly,
         expectedFullBytes,
         progress,
+        restart: parsed.restart,
+        resumeEdition,
       });
       context.sourceDate = result.edition;
       if (parsed.verifyOnly) {

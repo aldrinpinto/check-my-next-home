@@ -146,7 +146,9 @@ describe("filing — the answers pattern (guard-asserted shape)", () => {
     const updated = await fileBroadband(client as never, rows as never);
     expect(updated).toBe(3);
     const beginAt = statements.findIndex((s) => s === "BEGIN");
-    const stageAt = statements.findIndex((s) => /CREATE TEMP TABLE broadband_stage/.test(s));
+    const stageAt = statements.findIndex((s) =>
+      /CREATE TABLE IF NOT EXISTS broadband_stage/.test(s),
+    );
     expect(beginAt).toBeGreaterThanOrEqual(0);
     expect(stageAt).toBeGreaterThan(beginAt);
     expect(
@@ -164,6 +166,9 @@ describe("filing — the answers pattern (guard-asserted shape)", () => {
     expect(statements.filter((s) => s === "BEGIN").length).toBeGreaterThanOrEqual(3);
     expect(statements.filter((s) => s === "COMMIT").length).toBeGreaterThanOrEqual(3);
     expect(statements.some((s) => /SELECT postcode FROM postcode_cache/.test(s))).toBe(true);
-    expect(statements.at(-1)).toMatch(/DROP TABLE IF EXISTS broadband_stage/);
+    // BUG-368: the stage is persistent now, so the run ends by
+    // emptying it (DELETE), not dropping it — the TEMP table's
+    // DROP is gone, and the next run starts from an empty stage.
+    expect(statements.at(-1)).toMatch(/DELETE FROM broadband_stage/);
   });
 });

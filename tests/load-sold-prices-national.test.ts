@@ -70,8 +70,13 @@ class FakeClient {
   items: Row[] = [];
   failOnSwapInsert = false;
   failStamp = false;
+  checkpoints = new Map<string, Record<string, unknown>>();
   #seq = 0;
-  #snapshot: Row[] | null = null;
+  #snapshot: {
+    live: Row[];
+    stage: Row[] | null;
+    checkpoints: Map<string, Record<string, unknown>>;
+  } | null = null;
 
   seedCache(postcodes: string[]) {
     for (const postcode of postcodes) this.cache.set(postcode, { answers: {} });
@@ -81,7 +86,13 @@ class FakeClient {
     const sql = text.replace(/\s+/g, " ").trim();
     this.statements.push({ sql, params });
     if (sql === "BEGIN") {
-      this.#snapshot = structuredClone(this.live);
+      this.#snapshot = {
+        live: structuredClone(this.live),
+        stage: this.stage === null ? null : structuredClone(this.stage),
+        checkpoints: new Map(
+          [...this.checkpoints.entries()].map(([k, v]) => [k, structuredClone(v)]),
+        ),
+      };
       return { rows: [] };
     }
     if (sql === "COMMIT") {
@@ -89,7 +100,11 @@ class FakeClient {
       return { rows: [] };
     }
     if (sql === "ROLLBACK") {
-      if (this.#snapshot) this.live = this.#snapshot;
+      if (this.#snapshot) {
+        this.live = this.#snapshot.live;
+        this.stage = this.#snapshot.stage;
+        this.checkpoints = this.#snapshot.checkpoints;
+      }
       this.#snapshot = null;
       return { rows: [] };
     }
@@ -97,9 +112,54 @@ class FakeClient {
       this.stage = null;
       return { rows: [] };
     }
-    if (sql.startsWith("CREATE TEMP TABLE price_paid_stage")) {
-      this.stage = [];
+    if (sql.startsWith("CREATE TABLE IF NOT EXISTS price_paid_stage")) {
+      if (this.stage === null) this.stage = [];
       return { rows: [] };
+    }
+    if (sql.startsWith("INSERT INTO loader_checkpoint")) {
+      this.checkpoints.set(params[0] as string, {
+        loader: params[0],
+        edition: params[1],
+        expected: params[2],
+        next_start_index: params[3],
+        read_count: params[4],
+        filed_count: params[5],
+        state: JSON.parse(params[6] as string),
+      });
+      return { rows: [] };
+    }
+    if (
+      sql.startsWith("SELECT loader, edition, expected, next_start_index") &&
+      sql.includes("FROM loader_checkpoint")
+    ) {
+      const row = this.checkpoints.get(params[0] as string);
+      return { rows: row ? [{ ...row }] : [], rowCount: row ? 1 : 0 };
+    }
+    if (sql.startsWith("DELETE FROM loader_checkpoint")) {
+      const had = this.checkpoints.delete(params[0] as string);
+      return { rows: [], rowCount: had ? 1 : 0 };
+    }
+    if (sql.startsWith("SELECT count(*)::int AS n, coalesce(sum(seq)")) {
+      const rows = this.stage as Row[];
+      return {
+        rows: [
+          {
+            n: rows.length,
+            s: rows.reduce((a, r) => a + (r.seq ?? 0), 0),
+            m: rows.reduce((a, r) => Math.max(a, r.seq ?? 0), 0),
+          },
+        ] as Row[],
+      };
+    }
+    if (sql.startsWith("DELETE FROM price_paid_stage WHERE seq >=")) {
+      const before = (this.stage as Row[]).length;
+      this.stage = (this.stage as Row[]).filter((r) => (r.seq ?? 0) < (params[0] as number));
+      return { rows: [], rowCount: before - (this.stage as Row[]).length };
+    }
+    if (sql === "DELETE FROM price_paid_stage") {
+      const n = (this.stage as Row[]).length;
+      this.stage = [];
+      return { rows: [], rowCount: n };
     }
     if (sql.startsWith("INSERT INTO price_paid_stage")) {
       const width = COLUMNS.length;
@@ -165,11 +225,11 @@ class FakeClient {
         throw new Error("duplicate key value violates unique constraint");
       // The swap writes the pass's source name and edition from
       // its parameters — the staging never stored either.
-      this.live = (this.stage as Row[]).map(({ seq: _seq, ...row }) => ({
-        ...row,
-        source_name: params[0],
-        source_date: params[1],
-      }));
+      this.live = (this.stage as Row[]).map((row) => {
+        const { seq, ...rest } = row;
+        void seq; // the staging seq never files into the live register
+        return { ...rest, source_name: params[0], source_date: params[1] };
+      });
       return { rows: [], rowCount: this.live.length };
     }
     if (sql.startsWith("INSERT INTO price_paid")) {
@@ -1142,5 +1202,150 @@ describe("writeRunStamp — the outcome is recorded either way (gap 4)", () => {
       errorMessage: null,
     });
     expect(ok).toBe(false);
+  });
+});
+
+describe("runNational resume (BUG-368)", () => {
+  // The fixture repeated 150 times: 6,000 lines, six
+  // 1,000-row staging flushes — big enough for a kill to land
+  // between flushes, small enough to run in milliseconds. The
+  // repeated transaction ids collapse in the dedupe exactly as
+  // one copy would, so the filed register is the fixture's own.
+  const repeatedLines = Array.from({ length: 150 }, () => fullLines).flat();
+  const liveKey = (rows: Row[]) =>
+    rows.map((r) => `${r.transaction_id}|${r.postcode}|${r.price}|${r.sale_date}|${r.paon}`).sort();
+
+  async function* killLines(lines: string[], killAfter: number) {
+    let counted = 0;
+    for (const line of lines) {
+      if (line) {
+        counted += 1;
+        if (counted > killAfter) throw new Error("simulated kill mid-intake");
+      }
+      yield line;
+    }
+  }
+
+  it("a kill mid-intake resumes from the checkpoint and files the same register", async () => {
+    const client = new FakeClient();
+    client.seedCache(["CM3 2JT", "CM3 2AA", "E16 1GN", "EH1 1AA", "BT1 1AA"]);
+    const lines: string[] = [];
+    const progress = createProgressLogger({
+      name: "load-sold-prices",
+      log: (line: string) => lines.push(line),
+    });
+
+    // Run one: dies after 2,500 lines — two 1,000-row flushes
+    // committed with their checkpoints, the third flush's 500
+    // rows still in memory.
+    await expect(
+      runNational(client as never, {
+        fullLines: killLines(repeatedLines, 2_500),
+        updateLines,
+        edition: EDITION,
+        progress,
+        resumeEdition: EDITION,
+      }),
+    ).rejects.toThrow(/simulated kill mid-intake/);
+    expect(client.checkpoints.get("load-sold-prices")?.filed_count).toBe(2_000);
+    expect(client.checkpoints.get("load-sold-prices")?.next_start_index).toBe(2_000);
+    expect(client.stage).toHaveLength(2_000);
+    expect(
+      lines.some((l) => /checkpoint 2,000 lines · staged 2,000 · resume from 2,000/.test(l)),
+    ).toBe(true);
+
+    // Run two: the same edition resumes, skips the 2,000 staged
+    // lines, and files the register.
+    const resumed = await runNational(client as never, {
+      fullLines: repeatedLines,
+      updateLines,
+      edition: EDITION,
+      progress,
+      resumeEdition: EDITION,
+    });
+    expect(resumed.linesRead).toBe(6_000);
+    expect(
+      lines.some((l) =>
+        /resuming from checkpoint · 2,000 rows staged · edition 2026-10-28/.test(l),
+      ),
+    ).toBe(true);
+
+    // The control: the same input in one uninterrupted run.
+    const control = new FakeClient();
+    control.seedCache(["CM3 2JT", "CM3 2AA", "E16 1GN", "EH1 1AA", "BT1 1AA"]);
+    const controlResult = await runNational(control as never, {
+      fullLines: repeatedLines,
+      updateLines,
+      edition: EDITION,
+    });
+    expect(resumed.total).toBe(controlResult.total);
+    expect(liveKey(client.live)).toEqual(liveKey(control.live));
+    // The successful swap clears staging + checkpoint: nothing
+    // is left behind for the next pass.
+    expect(client.checkpoints.get("load-sold-prices")).toBeUndefined();
+    expect(client.stage).toHaveLength(0);
+    expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
+  });
+
+  it("--restart discards a valid checkpoint and files from the start", async () => {
+    const client = new FakeClient();
+    client.seedCache(["CM3 2JT", "CM3 2AA", "E16 1GN", "EH1 1AA", "BT1 1AA"]);
+    const lines: string[] = [];
+    const progress = createProgressLogger({
+      name: "load-sold-prices",
+      log: (line: string) => lines.push(line),
+    });
+    await expect(
+      runNational(client as never, {
+        fullLines: killLines(repeatedLines, 2_500),
+        updateLines,
+        edition: EDITION,
+        progress,
+        resumeEdition: EDITION,
+      }),
+    ).rejects.toThrow(/simulated kill mid-intake/);
+    expect(client.checkpoints.get("load-sold-prices")?.filed_count).toBe(2_000);
+
+    const result = await runNational(client as never, {
+      fullLines: repeatedLines,
+      updateLines,
+      edition: EDITION,
+      progress,
+      resumeEdition: EDITION,
+      restart: true,
+    });
+    expect(lines.some((l) => /restart requested — discarding checkpoint and staging/.test(l))).toBe(
+      true,
+    );
+    expect(lines.some((l) => /resuming from checkpoint/.test(l))).toBe(false);
+    expect(result.total).toBe(39);
+    expect(client.checkpoints.get("load-sold-prices")).toBeUndefined();
+  });
+
+  it("an edition change discards the checkpoint and files from the start", async () => {
+    const client = new FakeClient();
+    client.seedCache(["CM3 2JT", "CM3 2AA", "E16 1GN", "EH1 1AA", "BT1 1AA"]);
+    await expect(
+      runNational(client as never, {
+        fullLines: killLines(repeatedLines, 2_500),
+        updateLines,
+        edition: EDITION,
+        resumeEdition: EDITION,
+      }),
+    ).rejects.toThrow(/simulated kill mid-intake/);
+    const result = await runNational(client as never, {
+      fullLines: repeatedLines,
+      updateLines,
+      edition: "2026-11-25",
+      resumeEdition: "2026-11-25",
+    });
+    expect(result.total).toBe(39);
+    expect(result.linesRead).toBe(6_000);
+    expect(client.checkpoints.get("load-sold-prices")).toBeUndefined();
+  });
+
+  it("parses --restart", () => {
+    expect(parseModeArgs(["--national", "--restart"]).restart).toBe(true);
+    expect(parseModeArgs(["--national"]).restart).toBe(false);
   });
 });
