@@ -36,6 +36,18 @@
 // plus the GiST index). Lines failing ST_IsValid are counted
 // in the summary line, never dropped, never repaired.
 //
+// BUG-366 (26 Nov 2026): the read is resumable. Staging is a
+// persistent table (migration 0047) and a checkpoint records
+// the last fully staged 1,000 rows as the read proceeds (one
+// progress line per checkpoint), so a run killed mid-read
+// resumes from the checkpoint instead of starting from zero.
+// The file is re-streamed from the top on resume — the golden
+// statistics accumulate over the whole file either way — but
+// rows below the checkpoint are not re-staged. --restart
+// discards the checkpoint and staging and starts from zero.
+//
+//   npm run load:flood-defences -- --restart
+//
 // THE VOCABULARY CONTRACT (D54, fail-closed): the maintainer
 // and operator columns are closed publisher categories —
 // organisations and classes, never a person's name. The
@@ -76,6 +88,7 @@ import {
   formatCount,
   formatDuration,
 } from "./progress.mjs";
+import { createFloodResume } from "./flood-resume.mjs";
 
 export const ITEM = "load-flood-defences";
 
@@ -248,6 +261,19 @@ export function* iterateDefencesFile(gpkgPath) {
 
 export function readDefencesFile(gpkgPath) {
   return [...iterateDefencesFile(gpkgPath)];
+}
+
+// The file's row count, read before the stream (BUG-366): the
+// resume checkpoint is validated against it, exactly as the
+// OGC loaders validate against the service count — a
+// republication between runs invalidates the checkpoint.
+export function countDefencesFile(gpkgPath) {
+  const db = new DatabaseSync(gpkgPath, { readOnly: true });
+  try {
+    return db.prepare(`SELECT count(*) AS n FROM "${LAYER}"`).get().n;
+  } finally {
+    db.close();
+  }
 }
 
 // The streaming read with progress (BUG-265): the read is the
@@ -519,41 +545,78 @@ export function checkGoldens(rows) {
 // Filing: the staged single-edition swap.
 // ------------------------------------------------------------------
 
-// The staged swap, fed as a stream (BUG-187): the filer
-// opens the transaction and the staging table, addRow
+// The staged swap, fed as a stream (BUG-187), filed from
+// persistent staging (BUG-366): the filer opens the resume
+// handle; there is NO long transaction any more — each
+// staging flush commits as it lands, and the checkpoint
+// (last fully staged 1,000 rows + running totals) commits
+// with it, so a killed run's staged rows survive. addRow
 // buffers filed rows into bounded multi-row inserts (100 at
-// a time — the one-shot filer inserted row by row), and
-// finish runs the staged count, the swap and the invalid
-// count exactly as before. fileDefences keeps the one-shot
+// a time — the one-shot filer inserted row by row), and every
+// staged row carries seq, its ordinal in the file stream, so
+// re-staging a row is a no-op (ON CONFLICT DO NOTHING).
+// prepare() decides resume vs fresh start from the file's
+// row count (expected) and the checkpoint; finish runs the
+// staged count, the swap and the invalid count in its own
+// transaction, exactly as before, then clears the staging
+// rows and the checkpoint. fileDefences keeps the one-shot
 // shape over the same filer, so the two paths file identical
 // stage content by construction.
-export async function createDefencesFiler(client, edition) {
-  try {
-    await client.query("BEGIN");
-    await client.query(`
-      CREATE TEMP TABLE flood_defences_stage (
-        asset_id text, asset_name text, asset_sub_type text,
-        protection_type text, asset_maintainer text, asset_operator text,
-        current_condition text, design_sop integer, design_sop_dqf text,
-        current_sop integer, water_course_name text,
-        last_inspection_date date, wkt text
-      ) ON COMMIT DROP
-    `);
-  } catch (error) {
-    await client.query("ROLLBACK").catch(() => {});
-    throw error;
-  }
+const DEFENCES_LAYER_TYPE = "flood_defences";
+// The checkpoint cadence (BUG-366): one checkpoint line per
+// 1,000 staged rows — the fixture's 834 rows earn none, so
+// the BUG-265 progress test's single closing read line is
+// unchanged.
+const CHECKPOINT_EVERY_ROWS = 1000;
+
+export async function createDefencesFiler(
+  client,
+  edition,
+  { progress = null, restart = false } = {},
+) {
+  const resume = createFloodResume(client, {
+    loader: ITEM,
+    layerType: DEFENCES_LAYER_TYPE,
+    stageTable: "flood_defences_stage",
+    progress,
+    restart,
+  });
   const pending = [];
+  // Rows staged in total across runs — seeded from the
+  // checkpoint at prepare time, so re-staged rows (the
+  // interrupted block, re-read from its start) count once:
+  // each is already staged, and the re-stream processes
+  // exactly the rows between the checkpoint and the kill.
+  let staged = 0;
+  let expected = null;
+  let nextCheckpointAt = CHECKPOINT_EVERY_ROWS;
+  async function maybeCheckpoint() {
+    if (expected === null || staged < nextCheckpointAt) return;
+    await resume.checkpoint({
+      edition,
+      expected,
+      nextStartIndex: staged,
+      totals: { read: staged, filed: staged, geoless: 0, perLabel: {} },
+      unit: "rows",
+    });
+    nextCheckpointAt += CHECKPOINT_EVERY_ROWS;
+  }
   async function flush() {
     if (pending.length === 0) return;
+    // Seqs are assigned at flush time, so the counter only
+    // advances for rows actually inserted — and on resume it
+    // is seeded from the checkpoint, so a re-staged row
+    // reuses exactly the seq it already carries.
+    const seqBase = resume.takeSeq(pending.length);
     const values = [];
     const params = [];
     pending.forEach((row, i) => {
-      const base = i * 13;
+      const base = i * 14;
       values.push(
-        `($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8},$${base + 9},$${base + 10},$${base + 11},$${base + 12},$${base + 13})`,
+        `($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8},$${base + 9},$${base + 10},$${base + 11},$${base + 12},$${base + 13},$${base + 14})`,
       );
       params.push(
+        DEFENCES_LAYER_TYPE,
         row.assetId,
         row.assetName,
         row.assetSubType,
@@ -567,35 +630,62 @@ export async function createDefencesFiler(client, edition) {
         row.waterCourseName,
         row.lastInspectionDate,
         row.wkt,
+        seqBase + i,
       );
     });
     await client.query(
       `
       INSERT INTO flood_defences_stage (
-        asset_id, asset_name, asset_sub_type, protection_type,
+        layer_type, asset_id, asset_name, asset_sub_type, protection_type,
         asset_maintainer, asset_operator, current_condition,
         design_sop, design_sop_dqf, current_sop, water_course_name,
-        last_inspection_date, wkt
-      ) VALUES ${values.join(",")}`,
+        last_inspection_date, wkt, seq
+      ) VALUES ${values.join(",")} ON CONFLICT (layer_type, seq) DO NOTHING`,
       params,
     );
+    const flushed = pending.length;
     pending.length = 0;
+    staged += flushed;
+    await maybeCheckpoint();
   }
   return {
+    // Decide resume vs fresh start from the file's row count
+    // and the checkpoint, and seed the staged counter and
+    // the checkpoint cadence from the checkpoint when resuming.
+    async prepare({ expected: expectedCount }) {
+      expected = expectedCount;
+      const prepared = await resume.prepare({ edition, expected: expectedCount });
+      if (prepared.resumed) {
+        staged = prepared.checkpoint.filed_count;
+        nextCheckpointAt = Math.floor(staged / CHECKPOINT_EVERY_ROWS + 1) * CHECKPOINT_EVERY_ROWS;
+      } else {
+        staged = 0;
+        nextCheckpointAt = CHECKPOINT_EVERY_ROWS;
+      }
+      return prepared;
+    },
+    resumeNote() {
+      return resume.resumeNote();
+    },
     async addRow(row) {
       pending.push(row);
       if (pending.length >= 100) await flush();
     },
     async finish(expectedCount) {
-      await flush();
-      const staged = await client.query("SELECT count(*)::int AS n FROM flood_defences_stage");
-      if (staged.rows[0].n !== expectedCount)
-        throw new Error(
-          `staged ${staged.rows[0].n} of ${expectedCount} defences — refusing to swap`,
+      try {
+        await flush();
+        await client.query("BEGIN");
+        const stagedRows = await client.query(
+          "SELECT count(*)::int AS n FROM flood_defences_stage WHERE layer_type = $1",
+          [DEFENCES_LAYER_TYPE],
         );
-      await client.query("DELETE FROM flood_defences");
-      await client.query(
-        `
+        if (stagedRows.rows[0].n !== expectedCount)
+          throw new Error(
+            `staged ${stagedRows.rows[0].n} of ${expectedCount} defences — refusing to swap`,
+          );
+        await client.query("DELETE FROM flood_defences");
+        await client.query(
+          `
         INSERT INTO flood_defences (
           asset_id, asset_name, asset_sub_type, protection_type,
           asset_maintainer, asset_operator, current_condition,
@@ -607,29 +697,50 @@ export async function createDefencesFiler(client, edition) {
                design_sop, design_sop_dqf, current_sop, water_course_name,
                last_inspection_date,
                ST_GeomFromText(wkt, 4326)::geometry(MultiLineString, 4326),
-               $1, $2
-          FROM flood_defences_stage
+               $2, $3
+          FROM flood_defences_stage WHERE layer_type = $1
       `,
-        [SOURCE_NAME, edition],
-      );
-      // Lines file as published (no ST_MakeValid — see the
-      // header); invalid lines are counted, never dropped.
-      const invalid = await client.query(
-        "SELECT count(*)::int AS n FROM flood_defences WHERE geom IS NOT NULL AND NOT ST_IsValid(geom)",
-      );
-      await client.query("COMMIT");
-      return invalid.rows[0].n;
+          [DEFENCES_LAYER_TYPE, SOURCE_NAME, edition],
+        );
+        // Lines file as published (no ST_MakeValid — see the
+        // header); invalid lines are counted, never dropped.
+        const invalid = await client.query(
+          "SELECT count(*)::int AS n FROM flood_defences WHERE geom IS NOT NULL AND NOT ST_IsValid(geom)",
+        );
+        await client.query("COMMIT");
+        // The swap landed: clear the staging rows and the
+        // checkpoint, so nothing of this run is left behind.
+        await resume.clear();
+        return invalid.rows[0].n;
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw error;
+      }
     },
     async abort() {
-      await client.query("ROLLBACK").catch(() => {});
+      // No long transaction any more, so there is nothing to
+      // roll back: the staging rows and the checkpoint stay
+      // in place, and the next run resumes from them
+      // (BUG-366). The client belongs to main(), so it is
+      // not ended here.
     },
   };
 }
 
-export async function fileDefences(client, rows, edition) {
-  const filer = await createDefencesFiler(client, edition);
+export async function fileDefences(
+  client,
+  rows,
+  edition,
+  { progress = null, restart = false } = {},
+) {
+  const filer = await createDefencesFiler(client, edition, { progress, restart });
   try {
-    for (const row of rows) await filer.addRow(row);
+    const prepared = await filer.prepare({ expected: rows.length });
+    const resumeFrom = prepared.resumed ? prepared.checkpoint.next_start_index : 0;
+    for (let i = 0; i < rows.length; i++) {
+      if (i < resumeFrom) continue;
+      await filer.addRow(rows[i]);
+    }
     return await filer.finish(rows.length);
   } catch (error) {
     await filer.abort();
@@ -713,6 +824,7 @@ function readFixture(dir) {
 async function main() {
   const args = process.argv.slice(2);
   const verifyOnly = args.includes("--verify-only");
+  const restart = args.includes("--restart");
   const fileIndex = args.indexOf("--file");
   const fixtureDir = fileIndex >= 0 ? args[fileIndex + 1] : null;
   // BUG-265: one logger for the run — the read tally and the
@@ -723,11 +835,11 @@ async function main() {
 
   // One streaming pass (BUG-187): each row is read off the
   // file cursor, offered to the golden statistics and
-  // transformed; a filing run stages it straight into the
-  // transaction, so the whole register is never held in
-  // memory. A filing run therefore opens the database
-  // before the pass — without DATABASE_URL it fails before
-  // reading instead of after it.
+  // transformed; a filing run stages it straight into
+  // persistent staging (BUG-366), so the whole register is
+  // never held in memory. A filing run therefore opens the
+  // database before the pass — without DATABASE_URL it fails
+  // before reading instead of after it.
   let pool = null;
   let client = null;
   let filer = null;
@@ -737,7 +849,7 @@ async function main() {
     pool = new pg.Pool({ connectionString });
     client = await pool.connect();
     try {
-      filer = await createDefencesFiler(client, edition);
+      filer = await createDefencesFiler(client, edition, { progress, restart });
     } catch (error) {
       client.release();
       await pool.end();
@@ -750,13 +862,30 @@ async function main() {
     let goldenSummary;
     try {
       const stats = createHomeStats();
+      // BUG-366: the resume decision, from the file's row
+      // count, before the stream starts. The stream then
+      // re-reads from the top — the golden statistics need
+      // every row — but only rows at or after the checkpoint
+      // are staged; the ones below it already stand.
+      let resumeFrom = 0;
+      if (filer) {
+        const prepared = await filer.prepare({
+          edition,
+          expected: countDefencesFile(gpkgPath),
+        });
+        if (prepared.resumed) resumeFrom = prepared.checkpoint.next_start_index;
+      }
+      let rowIndex = 0;
       progress.stage("reading the AIMS GeoPackage");
       ({ read } = await streamDefencesFile(gpkgPath, {
         progress,
         onRow: async (raw) => {
           stats.offer(raw);
-          const filedRow = processRow(raw);
-          if (filer) await filer.addRow(filedRow);
+          const index = rowIndex++;
+          if (filer && index >= resumeFrom) {
+            const filedRow = processRow(raw);
+            await filer.addRow(filedRow);
+          }
         },
       }));
       if (!fixtureDir && (read < BAND_LOW || read > BAND_HIGH))
@@ -779,7 +908,7 @@ async function main() {
         stage: "read",
         filed: 0,
         error,
-        resume: "re-run the loader from the start (nothing is filed until the swap)",
+        resume: filer ? filer.resumeNote() : "the start (nothing staged yet)",
       });
       if (filer) await filer.abort();
       throw error;
@@ -803,8 +932,7 @@ async function main() {
         filed: 0,
         total: read,
         error,
-        resume:
-          "re-run the loader from the start (the swap rolled back, the live layer is untouched)",
+        resume: `${filer.resumeNote()} — the live layer is untouched`,
       });
       if (filer) await filer.abort();
       throw error;

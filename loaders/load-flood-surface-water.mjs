@@ -6,6 +6,14 @@
 //   npm run load:flood-surface-water
 //   npm run load:flood-surface-water -- --verify-only
 //   npm run load:flood-surface-water -- --file tests/fixtures/flood-surface-water
+//   npm run load:flood-surface-water -- --restart
+//
+// BUG-366 (26 Nov 2026): the read is resumable. Staging is a
+// persistent table and a checkpoint records the last fully
+// staged page as the read proceeds (one progress line per
+// checkpoint), so a run killed mid-read resumes from the
+// checkpoint instead of starting from zero. --restart discards
+// the checkpoint and staging and starts from zero.
 //
 // This is ONE of three flood loaders, and the three products
 // are never merged (gap L1): the planning zones ignore
@@ -87,7 +95,8 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { createGoldenSift, createTotals } from "./flood-stream.mjs";
+import { bboxOfPolygons, createGoldenSift, createTotals } from "./flood-stream.mjs";
+import { createFloodResume } from "./flood-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -431,13 +440,24 @@ export async function readLive({
   delaysMs = RETRY_DELAYS_MS,
   onItems = null,
   progress = null,
+  resume = null,
 } = {}) {
   const first = await fetchJson(`${ITEMS_URL}?limit=1&f=json`, "the surface water count");
   const expected = first.numberMatched;
   if (!Number.isInteger(expected) || expected <= 0)
     throw new Error("contract failure: the surface water items response carries no numberMatched");
   const edition = await fetchEdition();
-  const totals = createTotals(VOCAB);
+  // BUG-366: resume — a checkpoint for this loader, edition and
+  // count lets the read pick up where a killed run stopped
+  // instead of starting from zero. The totals seed from the
+  // checkpoint, so every feature counts once across the two runs.
+  let startIndex = 0;
+  let resumed = null;
+  if (resume) {
+    resumed = await resume.prepare({ edition, expected });
+    if (resumed.resumed) startIndex = resumed.checkpoint.next_start_index;
+  }
+  const totals = createTotals(VOCAB, resumed?.resumed ? resumed.checkpoint : null);
   // BUG-204: the paged read is the run's long phase — the
   // service's own count is the total, so the log carries a
   // real percentage, a line every twentieth of the read.
@@ -448,8 +468,22 @@ export async function readLive({
     unit: "features",
   });
   const sift = onItems ? createGoldenSift(HOMES) : null;
+  if (resumed?.resumed && sift) {
+    // The staged portion's golden candidates, rebuilt from the
+    // staging table — the sift in this process only ever sees
+    // the portion read after the resume point, and the golden
+    // checks at the end run over the whole read either way.
+    for (const row of await resume.stagedGoldenRows(HOMES)) {
+      const polygons = geojsonPolygons(JSON.parse(row.geojson));
+      sift.items.push({
+        label: row.risk_label,
+        detail: row.detail,
+        polygons,
+        bbox: bboxOfPolygons(polygons),
+      });
+    }
+  }
   const items = [];
-  let startIndex = 0;
   // BUG-248: the paged read is the run's long phase — a
   // heartbeat every half of the read or 15 minutes, and a
   // warning for a page that takes more than 3x the recent
@@ -485,6 +519,10 @@ export async function readLive({
       items.push(...processed.items);
     }
     startIndex += batch.length;
+    // BUG-366: the page is staged now — checkpoint it, so a kill
+    // after this line loses at most the page in flight. The line
+    // the checkpoint writes is the visible save.
+    if (resume) await resume.checkpoint({ edition, expected, nextStartIndex: startIndex, totals });
   }
   readTally?.finish(totals.read);
   return {
@@ -518,17 +556,57 @@ async function fixturePartNames(fixtureDir, fileName) {
 // sink, then released — the parts' feature arrays are never
 // concatenated in memory. The totals and the golden sift
 // are the same as the live read's.
-export async function readFixture(fixtureDir, { onItems = null, progress = null } = {}) {
+/**
+ * @param {string} fixtureDir
+ * @param {{ onItems?: ((items: any[], edition: string) => Promise<void>) | null, progress?: import("./progress.mjs").ProgressLogger | null, resume?: any }} [options]
+ */
+export async function readFixture(
+  fixtureDir,
+  { onItems = null, progress = null, resume = null } = {},
+) {
   const stamp = JSON.parse(await readFile(join(fixtureDir, "fixture.json"), "utf8"));
   if (!stamp.edition)
     throw new Error("contract failure: the surface water fixture carries no edition stamp");
   const names = await fixturePartNames(fixtureDir, "flood-surface-water.geojson");
-  const totals = createTotals(VOCAB);
+  // BUG-366: the fixture's total feature count, counted upfront
+  // (one parse per part — fixtures are small) so a checkpoint
+  // can be validated against it exactly as a live count is.
+  let fixtureTotal = 0;
+  for (const name of names) {
+    const body = JSON.parse(await readFile(join(fixtureDir, name), "utf8"));
+    fixtureTotal += (body.features ?? []).length;
+  }
+  let resumed = null;
+  if (resume) {
+    resumed = await resume.prepare({ edition: stamp.edition, expected: fixtureTotal });
+  }
+  const totals = createTotals(VOCAB, resumed?.resumed ? resumed.checkpoint : null);
   const sift = onItems ? createGoldenSift(HOMES) : null;
+  if (resumed?.resumed && sift) {
+    for (const row of await resume.stagedGoldenRows(HOMES)) {
+      const polygons = geojsonPolygons(JSON.parse(row.geojson));
+      sift.items.push({
+        label: row.risk_label,
+        detail: row.detail,
+        polygons,
+        bbox: bboxOfPolygons(polygons),
+      });
+    }
+  }
   const items = [];
+  // Features already staged by the run this resumes, counted
+  // off part by part: whole parts at or before the checkpoint
+  // are skipped (their rows stand), the interrupted part is
+  // re-read from its start and re-staged idempotently.
+  let skipped = 0;
+  const resumeFrom = resumed?.resumed ? resumed.checkpoint.read_count : 0;
   for (const [part, name] of names.entries()) {
     const body = JSON.parse(await readFile(join(fixtureDir, name), "utf8"));
     const features = body.features ?? [];
+    if (skipped + features.length <= resumeFrom) {
+      skipped += features.length;
+      continue;
+    }
     const processed = processFeatures(features);
     totals.addBatch(processed, features.length);
     if (onItems) {
@@ -546,6 +624,14 @@ export async function readFixture(fixtureDir, { onItems = null, progress = null 
       unit: "parts",
       extra: `${formatCount(totals.read)} features read`,
     });
+    // BUG-366: the part is staged now — checkpoint it.
+    if (resume)
+      await resume.checkpoint({
+        edition: stamp.edition,
+        expected: fixtureTotal,
+        nextStartIndex: totals.read,
+        totals,
+      });
   }
   if (totals.read === 0) throw new Error("contract failure: the surface water fixture is empty");
   return {
@@ -633,46 +719,68 @@ export function checkGolden(processed) {
 
 // --- filing ------------------------------------------------------------
 
-// Stage, count, repair, swap — one transaction, fed as a
-// stream (BUG-187). beginFiling opens the transaction and
-// the staging table; stageItems converts each batch to WKT
-// and inserts it in the house chunks (25 rows / 4 MB), so
-// neither the item set nor its WKT copy is ever held whole;
-// finishFiling runs the counts and the swap exactly as the
-// one-shot filer did. The staged shapes are counted (source
-// count == staged == filed), the topologically invalid ones
-// are counted BEFORE repair so the log line can carry the
-// number (L4), and the swap files ST_MakeValid output only:
-// a filed shape that is still invalid, or was emptied by
-// repair, fails the run and rolls everything back — as does
-// any failure mid-stream, via abortFiling.
-async function beginFiling() {
-  const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
-  await client.connect();
-  try {
-    await client.query("BEGIN");
-    await client.query(
-      `CREATE TEMP TABLE flood_stage (
-         layer_type text, risk_label text, geom geometry(MultiPolygon, 4326),
-         layer_date date, detail text, source_name text, source_date date,
-         loaded_at timestamptz NOT NULL DEFAULT now()
-       ) ON COMMIT DROP`,
-    );
-  } catch (error) {
-    await client.query("ROLLBACK").catch(() => {});
-    await client.end().catch(() => {});
-    throw error;
-  }
+// Stage, count, repair, swap — fed as a stream (BUG-187),
+// filed from persistent staging (BUG-366). beginFiling opens
+// the client and the resume handle; there is NO long
+// transaction any more — each staging flush commits as it
+// lands, and the checkpoint (last fully staged page + running
+// totals) commits with it, so a killed run's staged rows
+// survive. stageItems converts each batch to WKT and inserts
+// it in the house chunks (25 rows / 4 MB), so neither the
+// item set nor its WKT copy is ever held whole; every staged
+// row carries seq, its ordinal in the read, so re-staging a
+// page is a no-op (ON CONFLICT DO NOTHING). finishFiling runs
+// the counts and the swap in its own transaction, exactly as
+// the one-shot filer did, then clears the staging rows and
+// the checkpoint: the staged shapes are counted (source count
+// == staged == filed), the topologically invalid ones are
+// counted BEFORE repair so the log line can carry the number
+// (L4), and the swap files ST_MakeValid output only: a filed
+// shape that is still invalid, or was emptied by repair, fails
+// the run and rolls the SWAP back — the staging and checkpoint
+// stand, so the next run resumes at the swap — as does any
+// failure mid-stream, via abortFiling, which ends the session
+// and leaves staging + checkpoint for resume.
+/**
+ * Open the filing run's database client and resume handle
+ * (BUG-366). The client is injectable so the resume tests
+ * can file against a fake database; production passes none
+ * and a real client is opened as before.
+ *
+ * @param {import("./progress.mjs").ProgressLogger | null} [progress]
+ * @param {{ restart?: boolean, client?: any }} [options]
+ */
+export async function beginFiling(
+  progress = null,
+  { restart = false, client: injectedClient = null } = {},
+) {
+  // The client is injectable so the resume tests can file
+  // against a fake database; production passes none and a
+  // real client is opened as before (BUG-366).
+  const client = injectedClient ?? new pg.Client({ connectionString: process.env.DATABASE_URL });
+  if (!injectedClient) await client.connect();
+  const resume = createFloodResume(client, {
+    loader: "load-flood-surface-water",
+    layerType: LAYER_TYPE,
+    stageTable: "flood_stage",
+    progress,
+    restart,
+  });
   const pending = [];
   let pendingBytes = 0;
   async function flushPending() {
     if (pending.length === 0) return;
+    // Seqs are assigned at flush time, so the counter only
+    // advances for rows actually inserted — and on resume it
+    // is seeded from the checkpoint, so a re-staged page
+    // reuses exactly the seqs its rows already carry.
+    const seqBase = resume.takeSeq(pending.length);
     const values = [];
     const params = [];
     pending.forEach((row, i) => {
-      const base = i * 7;
+      const base = i * 8;
       values.push(
-        `($${base + 1},$${base + 2},ST_GeomFromText($${base + 3}, 4326),$${base + 4},$${base + 5},$${base + 6},$${base + 7})`,
+        `($${base + 1},$${base + 2},ST_GeomFromText($${base + 3}, 4326),$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8})`,
       );
       params.push(
         LAYER_TYPE,
@@ -682,17 +790,30 @@ async function beginFiling() {
         row.detail,
         SOURCE_NAME,
         row.edition,
+        seqBase + i,
       );
     });
     await client.query(
-      `INSERT INTO flood_stage (layer_type, risk_label, geom, layer_date, detail, source_name, source_date)
-       VALUES ${values.join(",")}`,
+      `INSERT INTO flood_stage (layer_type, risk_label, geom, layer_date, detail, source_name, source_date, seq)
+       VALUES ${values.join(",")} ON CONFLICT (layer_type, seq) DO NOTHING`,
       params,
     );
     pending.length = 0;
     pendingBytes = 0;
   }
   return {
+    async prepare({ edition, expected }) {
+      return resume.prepare({ edition, expected });
+    },
+    async checkpoint({ edition, expected, nextStartIndex, totals }) {
+      return resume.checkpoint({ edition, expected, nextStartIndex, totals });
+    },
+    async stagedGoldenRows(homes) {
+      return resume.stagedGoldenRows(homes);
+    },
+    resumeNote() {
+      return resume.resumeNote();
+    },
     async stageItems(items, edition) {
       for (const item of items) {
         const wkt = polygonsToWkt(item.polygons);
@@ -704,17 +825,23 @@ async function beginFiling() {
     async finishFiling(expectedCount) {
       try {
         await flushPending();
-        const staged = await client.query("SELECT count(*)::int AS n FROM flood_stage");
+        await client.query("BEGIN");
+        const staged = await client.query(
+          "SELECT count(*)::int AS n FROM flood_stage WHERE layer_type = $1",
+          [LAYER_TYPE],
+        );
         if (staged.rows[0].n !== expectedCount)
           throw new Error("the staged shape count does not match — rolling back");
         const invalidStaged = await client.query(
-          "SELECT count(*)::int AS n FROM flood_stage WHERE NOT ST_IsValid(geom)",
+          "SELECT count(*)::int AS n FROM flood_stage WHERE layer_type = $1 AND NOT ST_IsValid(geom)",
+          [LAYER_TYPE],
         );
         const invalidCount = invalidStaged.rows[0].n;
         await client.query("DELETE FROM flood_layers WHERE layer_type = $1", [LAYER_TYPE]);
         await client.query(
           `INSERT INTO flood_layers (layer_type, risk_label, geom, layer_date, detail, source_name, source_date, loaded_at)
-           SELECT layer_type, risk_label, ST_Multi(ST_CollectionExtract(ST_MakeValid(geom), 3)), layer_date, detail, source_name, source_date, loaded_at FROM flood_stage`,
+           SELECT layer_type, risk_label, ST_Multi(ST_CollectionExtract(ST_MakeValid(geom), 3)), layer_date, detail, source_name, source_date, loaded_at FROM flood_stage WHERE layer_type = $1`,
+          [LAYER_TYPE],
         );
         const filedCount = await client.query(
           "SELECT count(*)::int AS n FROM flood_layers WHERE layer_type = $1",
@@ -737,6 +864,9 @@ async function beginFiling() {
         if (invalidFiled.rows[0].n !== 0)
           throw new Error(`${invalidFiled.rows[0].n} filed shapes are invalid — rolling back`);
         await client.query("COMMIT");
+        // The swap landed: clear the staging rows and the
+        // checkpoint, so nothing of this run is left behind.
+        await resume.clear();
         return invalidCount;
       } catch (error) {
         await client.query("ROLLBACK").catch(() => {});
@@ -746,7 +876,10 @@ async function beginFiling() {
       }
     },
     async abortFiling() {
-      await client.query("ROLLBACK").catch(() => {});
+      // No long transaction any more, so there is nothing to
+      // roll back: ending the session leaves the staging rows
+      // and the checkpoint in place, and the next run resumes
+      // from them (BUG-366).
       await client.end().catch(() => {});
     },
   };
@@ -756,6 +889,7 @@ async function main() {
   const startedAt = Date.now();
   const args = process.argv.slice(2);
   const verifyOnly = args.includes("--verify-only");
+  const restart = args.includes("--restart");
   const fileAt = args.indexOf("--file");
   const fixtureMode = fileAt !== -1;
   const fixtureDir = fixtureMode ? args[fileAt + 1] : null;
@@ -763,16 +897,16 @@ async function main() {
   // and the filing marker below.
   const progress = createProgressLogger({ name: "load-flood-surface-water" });
 
-  // A filing run streams the read into the staging
-  // transaction as it lands (BUG-187), so the database check
-  // moves ahead of the read: without DATABASE_URL a filing
-  // run now fails before fetching instead of after it.
-  // Verify-only never opens the database.
+  // A filing run streams the read into persistent staging as
+  // it lands (BUG-187, BUG-366), so the database check moves
+  // ahead of the read: without DATABASE_URL a filing run now
+  // fails before fetching instead of after it. Verify-only
+  // never opens the database.
   let filer = null;
   if (!verifyOnly) {
     if (!process.env.DATABASE_URL)
       throw new Error("DATABASE_URL is not set — filing requires a database");
-    filer = await beginFiling();
+    filer = await beginFiling(progress, { restart });
   }
 
   let processed;
@@ -781,8 +915,8 @@ async function main() {
       if (filer) await filer.stageItems(items, edition);
     };
     processed = fixtureMode
-      ? await readFixture(fixtureDir, { onItems, progress })
-      : await readLive({ onItems, progress });
+      ? await readFixture(fixtureDir, { onItems, progress, resume: filer })
+      : await readLive({ onItems, progress, resume: filer });
 
     if (!fixtureMode) {
       const lo = Math.floor(SNAPSHOT * 0.9);
@@ -806,7 +940,7 @@ async function main() {
       stage: "read",
       filed: 0,
       error,
-      resume: "re-run the loader from the start (nothing is filed until the swap)",
+      resume: filer ? filer.resumeNote() : "the start (nothing staged yet)",
     });
     if (filer) await filer.abortFiling();
     throw error;
@@ -843,8 +977,7 @@ async function main() {
       filed: 0,
       total: processed.filed,
       error: err,
-      resume:
-        "re-run the loader from the start (the swap rolled back, the live layer is untouched)",
+      resume: `${activeFiler.resumeNote()} — the live layer is untouched`,
     });
     throw err;
   }

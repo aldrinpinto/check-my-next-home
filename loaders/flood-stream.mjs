@@ -111,12 +111,19 @@ export function createGoldenSift(homes, windowMiles = GOLDEN_WINDOW_MILES) {
 // one processFeatures result and the raw feature count it
 // came from — the same numbers the accumulating reads used
 // to total at the end, kept as scalars instead.
-export function createTotals(vocab) {
+//
+// BUG-366: a resumed read seeds the totals from its
+// checkpoint (initial: the checkpoint's read/filed/geoless
+// counts and per-label census, in the checkpoint's snake_case
+// shape), so the resumed run's totals count every feature
+// once — the staged prefix from the checkpoint, the rest
+// from the pages this run reads.
+export function createTotals(vocab, initial = null) {
   const totals = {
-    read: 0,
-    filed: 0,
-    geoless: 0,
-    perLabel: Object.fromEntries(vocab.map((label) => [label, 0])),
+    read: initial?.read_count ?? 0,
+    filed: initial?.filed_count ?? 0,
+    geoless: initial?.geoless_count ?? 0,
+    perLabel: Object.fromEntries(vocab.map((label) => [label, initial?.per_label?.[label] ?? 0])),
     addBatch(processed, rawCount) {
       totals.read += rawCount;
       totals.filed += processed.items.length;
