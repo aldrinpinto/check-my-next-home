@@ -76,3 +76,18 @@ describe("BUG-363 — the header nav is a hamburger below 30rem", () => {
     expect(html).toContain('<span class="shortlist-count">3</span>');
   });
 });
+
+describe("BUG-377 — the TEST label stays visible above the header", () => {
+  it("the label carries a z-index above the header and below the phone dropdown", () => {
+    // The label is the first child of <body>, before the header
+    // (app/layout.tsx); BUG-363's `position: relative` on
+    // .site-header put the header's white background over it at
+    // z-index auto and hid it on every page. The pin keeps the
+    // label above the header (auto) and below the phone menu's
+    // dropdown (z-index 30), which drops below the header and
+    // never overlaps the label's corner.
+    const label = css.match(/\.test-label\s*\{[^}]*\}/);
+    expect(label?.[0]).toContain("z-index: 10;");
+    expect(css).toMatch(/\.site-nav__list--open\s*\{[^}]*z-index:\s*30;[^}]*\}/);
+  });
+});

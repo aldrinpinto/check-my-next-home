@@ -371,6 +371,15 @@ p {
   color: #000;
   font-size: 0.75rem;
   pointer-events: none;
+  /* BUG-377 (26 Nov 2026): the label is the first child of <body>,
+     before the header — with the header positioned (BUG-363's
+     `position: relative` anchor for the phone menu's dropdown) and
+     both at z-index auto, DOM order put the header's white
+     background over the label and hid it on every page. A z-index
+     above the header restores it; it stays below the phone
+     dropdown (z-index 30), which drops below the header and never
+     overlaps the label's corner. */
+  z-index: 10;
 }
 
 /* --- Header shell -------------------------------------------------
