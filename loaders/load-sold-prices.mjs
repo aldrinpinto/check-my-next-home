@@ -1724,14 +1724,21 @@ export async function runLegacy(
 
     // 4 — the edition settles once, over the whole staged set:
     // the file's publication date when the source gave one, else
-    // the newest sale date filed.
+    // the newest sale date filed. A pass that staged nothing —
+    // the requested postcodes simply have no sales in the file —
+    // is a legitimate empty result, not a broken register: the
+    // intake guards above already proved the file read whole
+    // and reconciled, so the edition falls back to the earliest
+    // date, exactly as the old in-memory legacy path did
+    // (BUG-383: the CM0 7AA seed witness files nothing by
+    // design). The national pass keeps its throw — an empty
+    // national register is defective.
     if (!sourceDate) {
       const res = await client.query(
         `SELECT max(sale_date)::text AS newest FROM ${LEGACY_STAGE_TABLE}`,
       );
-      sourceDate = res.rows[0]?.newest ?? null;
+      sourceDate = res.rows[0]?.newest ?? "1970-01-01";
     }
-    if (!sourceDate) throw new Error("the full file filed no sales — nothing to swap in");
 
     // 5 — proofs against staging, before anything live moves: the
     // golden homes, and the zero-uncovered-row self-check.

@@ -527,3 +527,52 @@ describe("monthly update (BUG-368 — no-checkpoint resume)", () => {
     expect(fake.live).toEqual(before);
   });
 });
+
+describe("no-sale postcode (BUG-383)", () => {
+  it("a postcode with no sales in the file files nothing and succeeds", async () => {
+    // The seed's neither-source witness (scripts/seed-golden.mjs):
+    // the golden pass files CM3 2JT / E16 1GN and clears the
+    // stage, then the CM0 7AA pass runs over the same dir —
+    // the fixture holds no CM0 rows, so the stage is empty.
+    // Before the fix the pass refused with "the full file filed
+    // no sales — nothing to swap in" and the Playwright job's
+    // seed never started the webServer (CI #373). A fully-read,
+    // fully-reconciled intake that staged nothing is a
+    // legitimate empty result, not a broken register.
+    const fake = new FakeClient();
+    const run = async (targets: Set<string>, lines: string[]) =>
+      runLegacy(fake as never, {
+        fullLines,
+        updateLines,
+        targets,
+        edition: null,
+        resumeEdition: `size-${EXPECTED_BYTES}`,
+        expectedFullBytes: EXPECTED_BYTES,
+        progress: createProgressLogger({
+          name: "load-sold-prices",
+          log: (line: string) => lines.push(line),
+        }),
+      });
+    const goldenLines: string[] = [];
+    const golden = await run(TARGETS, goldenLines);
+    expect(golden.total).toBe(39);
+    expect(fake.live.length).toBe(39);
+    expect(fake.stage?.length).toBe(0);
+    expect(fake.checkpoints.get("load-sold-prices-legacy")).toBeUndefined();
+
+    const cm0Lines: string[] = [];
+    const result = await run(new Set(["CM0 7AA"]), cm0Lines);
+    expect(result.total).toBe(0);
+    // The old in-memory legacy path's fallback edition for an
+    // empty set: the newest sale date cannot be read from an
+    // empty stage, so the edition is the earliest date.
+    expect(result.edition).toBe("1970-01-01");
+    // Nothing filed for CM0 7AA, and the golden rows stand.
+    expect(fake.live.length).toBe(39);
+    expect(fake.live.filter((r) => r.postcode === "CM0 7AA").length).toBe(0);
+    // The filing cleared staging and the checkpoint together.
+    expect(fake.stage?.length).toBe(0);
+    expect(fake.checkpoints.get("load-sold-prices-legacy")).toBeUndefined();
+    expect(result.logLine).toContain("CM0 7AA 0 sales");
+  });
+});
