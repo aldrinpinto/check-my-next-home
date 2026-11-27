@@ -882,14 +882,16 @@ export function checkGolden(processed) {
 // the counts and the swap in its own transaction, exactly as
 // the one-shot filer did, then clears the staging rows and
 // the checkpoint: the staged shapes are counted (source count
-// == staged == filed), the topologically invalid ones are
-// counted BEFORE repair so the log line can carry the number
-// (L4), and the swap files ST_MakeValid output only: a filed
-// shape that is still invalid, or was emptied by repair, fails
-// the run and rolls the SWAP back — the staging and checkpoint
-// stand, so the next run resumes at the swap — as does any
-// failure mid-stream, via abortFiling, which ends the session
-// and leaves staging + checkpoint for resume.
+// == staged == filed + emptied, BUG-391), the topologically
+// invalid ones are counted BEFORE repair so the log line can
+// carry the number (L4), and the swap files ST_MakeValid
+// output only: a filed shape that is still invalid fails the
+// run and rolls the SWAP back, while a shape repair empties
+// is excluded from the live layer and NAMED in the run
+// summary (count plus every seq, BUG-391) — the staging and
+// checkpoint stand, so the next run resumes at the swap — as
+// does any failure mid-stream, via abortFiling, which ends
+// the session and leaves staging + checkpoint for resume.
 /**
  * Open the filing run's database client and resume handle
  * (BUG-366). The client is injectable so the resume tests
@@ -1004,6 +1006,29 @@ export async function beginFiling(
         );
         const invalidCount = invalidStaged.rows[0].n;
         progress?.stage(`filing · invalid staged shapes · ${formatCount(invalidCount)}`);
+        // BUG-391: name the shapes validity repair will
+        // empty, BEFORE the swap — flood_layers carries no
+        // seq and detail is not unique (`river · modelled`
+        // covers thousands of shapes), so no JOIN after the
+        // swap could recover which staged rows emptied. The
+        // expression is identical to the INSERT below, so
+        // the set it names is exactly the set the INSERT
+        // empties (ST_MakeValid is deterministic on the
+        // same rows). The diagnosis proved all 230 are
+        // degenerate zero-area fragments in the EA source —
+        // nothing a map could show — so they are excluded
+        // from the live layer and NAMED in the run summary
+        // instead of failing the run (founder ruling, 27
+        // Nov 2026: "File the rest and name the 230
+        // loudly"). This is NOT the BUG-387 tolerance: the
+        // empties are named, not tolerated. The invalidFiled
+        // guard below still fails the run on a filed shape
+        // that is invalid.
+        const emptiedRows = await client.query(
+          "SELECT seq FROM flood_stage WHERE layer_type = $1 AND ST_IsEmpty(ST_Multi(ST_CollectionExtract(ST_MakeValid(geom), 3))) ORDER BY seq",
+          [LAYER_TYPE],
+        );
+        const emptiedSeqs = emptiedRows.rows.map((row) => row.seq);
         await client.query("DELETE FROM flood_layers WHERE layer_type = $1", [LAYER_TYPE]);
         progress?.stage("filing · live rows deleted");
         progress?.stage(
@@ -1022,28 +1047,31 @@ export async function beginFiling(
             ),
         );
         progress?.stage(`filing · copy done · ${formatCount(expectedCount)} shapes`);
+        // The emptied shapes were inserted as empty
+        // geometries: remove them from the live layer, and
+        // prove the removed set is exactly the named set.
+        const deletedEmptied = await client.query(
+          "DELETE FROM flood_layers WHERE layer_type = $1 AND ST_IsEmpty(geom)",
+          [LAYER_TYPE],
+        );
+        if (deletedEmptied.rowCount !== emptiedSeqs.length)
+          throw new Error(
+            `the emptied-shape set does not match — deleted ${deletedEmptied.rowCount} but ${emptiedSeqs.length} were named — rolling back`,
+          );
         const filedCount = await client.query(
           "SELECT count(*)::int AS n FROM flood_layers WHERE layer_type = $1",
           [LAYER_TYPE],
         );
-        if (filedCount.rows[0].n !== expectedCount)
-          throw new Error("the filed shape count does not match — rolling back");
-        progress?.stage(`filing · filed count verified · ${formatCount(expectedCount)} shapes`);
-        progress?.stage("filing · scanning filed shapes for emptied geometry");
-        const emptied = await withFilingPulse(
-          progress,
-          { stage: "filing · scanning filed shapes for emptied geometry" },
-          () =>
-            client.query(
-              "SELECT count(*)::int AS n FROM flood_layers WHERE layer_type = $1 AND ST_IsEmpty(geom)",
-              [LAYER_TYPE],
-            ),
-        );
-        if (emptied.rows[0].n !== 0)
+        // Reconciliation accounts for the named empties:
+        // filed + emptied == read.
+        if (filedCount.rows[0].n !== expectedCount - emptiedSeqs.length)
           throw new Error(
-            `${emptied.rows[0].n} shapes were emptied by validity repair — rolling back (L4: never drop silently)`,
+            `the filed shape count does not match — filed ${filedCount.rows[0].n} + ${emptiedSeqs.length} emptied != ${expectedCount} expected — rolling back`,
           );
-        progress?.stage(`filing · emptied by repair · ${formatCount(emptied.rows[0].n)} shapes`);
+        progress?.stage(
+          `filing · filed count verified · ${formatCount(filedCount.rows[0].n)} shapes`,
+        );
+        progress?.stage(`filing · emptied by repair · ${formatCount(emptiedSeqs.length)} shapes`);
         progress?.stage("filing · scanning filed shapes for invalid geometry");
         const invalidFiled = await withFilingPulse(
           progress,
@@ -1057,12 +1085,24 @@ export async function beginFiling(
         if (invalidFiled.rows[0].n !== 0)
           throw new Error(`${invalidFiled.rows[0].n} filed shapes are invalid — rolling back`);
         progress?.stage(`filing · invalid filed shapes · ${formatCount(invalidFiled.rows[0].n)}`);
+        // LOUD, once: the emptied count lands in the
+        // progress log as well as the run summary below —
+        // an excluded shape is never silent.
+        if (emptiedSeqs.length > 0) {
+          progress?.warning({
+            what: "shapes emptied by validity repair (BUG-391)",
+            value: `${formatCount(emptiedSeqs.length)} shapes (degenerate zero-area source shapes) — seqs in run summary`,
+            threshold: "0 filed silently",
+          });
+        }
         await client.query("COMMIT");
-        progress?.stage(`filing · swap committed · ${formatCount(expectedCount)} shapes live`);
+        progress?.stage(
+          `filing · swap committed · ${formatCount(filedCount.rows[0].n)} shapes live`,
+        );
         // The swap landed: clear the staging rows and the
         // checkpoint, so nothing of this run is left behind.
         await resume.clear();
-        return invalidCount;
+        return { invalidCount, emptiedSeqs };
       } catch (error) {
         await client.query("ROLLBACK").catch(() => {});
         throw error;
@@ -1183,9 +1223,9 @@ async function main() {
   progress.stage(
     `filing ${formatCount(processed.filed)} features — counts, validity repair and swap`,
   );
-  let invalidCount;
+  let filingResult;
   try {
-    invalidCount = await activeFiler.finishFiling(processed.filed);
+    filingResult = await activeFiler.finishFiling(processed.filed);
   } catch (err) {
     // BUG-248: the filing swap is atomic — on a rollback
     // the live layer is untouched.
@@ -1198,8 +1238,17 @@ async function main() {
     });
     throw err;
   }
+  const { invalidCount, emptiedSeqs } = filingResult;
+  // BUG-391: the emptied shapes are named LOUDLY in the
+  // run summary — count plus every seq — so an excluded
+  // shape is never silent. They are degenerate zero-area
+  // fragments in the EA source, not real flood polygons.
+  const emptiedNote =
+    emptiedSeqs.length > 0
+      ? ` · ${formatCount(emptiedSeqs.length)} shapes emptied by validity repair (degenerate zero-area source shapes, not filed; seqs: ${emptiedSeqs.join(", ")})`
+      : "";
   console.log(
-    `${summary()} · ${formatCount(invalidCount)} invalid geometries made valid · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`,
+    `${summary()} · ${formatCount(invalidCount)} invalid geometries made valid${emptiedNote} · golden homes OK · ${Math.round((Date.now() - startedAt) / 1000)}s`,
   );
 }
 

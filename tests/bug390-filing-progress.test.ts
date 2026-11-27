@@ -106,6 +106,14 @@ function scriptedClient({ countFor, rowsFor }: { countFor?: CountFor; rowsFor?: 
       }
       const rows = rowsFor?.(sql, params);
       if (rows !== undefined) return { rows, rowCount: rows.length };
+      // BUG-391 (rebase onto BUG-390): the zones delete
+      // of the emptied shapes removes exactly the named
+      // set — in this fake world the ST_IsEmpty count is
+      // 0, so the delete removes 0. The generic rowCount
+      // 1 below would fail the set-match check (deleted 1
+      // but 0 named).
+      if (sql.includes("ST_IsEmpty(geom)") && /^\s*DELETE/i.test(sql))
+        return { rows: [], rowCount: 0 };
       if (/^\s*(UPDATE|DELETE|INSERT)/i.test(sql)) return { rows: [], rowCount: 1 };
       return { rows: [], rowCount: 0 };
     },
@@ -159,31 +167,56 @@ function floodCountFor(sql: string): number | undefined {
   return undefined;
 }
 
+// BUG-391 (rebase onto BUG-390): flood zones no longer
+// scans the filed layer for emptied geometry after the
+// swap — the emptied shapes are named before the swap
+// and deleted from the live layer, so there is nothing
+// left to scan; the "emptied by repair" line now names
+// the pre-swap count. The other flood loaders keep the
+// fail-closed post-filing scan.
+const zonesStages = (liveTable: string) =>
+  floodStages(liveTable).filter((s) => s !== "filing · scanning filed shapes for emptied geometry");
+const floodPulses = (liveTable: string) => [
+  "filing · scanning staged shapes for invalid geometry",
+  `filing · copying 3 shapes into ${liveTable} (validity repair)`,
+  "filing · scanning filed shapes for emptied geometry",
+  "filing · scanning filed shapes for invalid geometry",
+];
+const zonesPulses = (liveTable: string) =>
+  floodPulses(liveTable).filter((s) => s !== "filing · scanning filed shapes for emptied geometry");
+
 describe("flood loaders — finishFiling logs every sub-step (BUG-390)", () => {
   const loaders = [
-    ["flood zones", beginZones, "flood_layers"],
-    ["rivers & sea", beginRiversSea, "flood_layers"],
-    ["rivers & sea climate", beginRiversSeaClimate, "flood_climate_layers"],
-    ["surface water", beginSurfaceWater, "flood_layers"],
-    ["surface water climate", beginSurfaceWaterClimate, "flood_climate_layers"],
+    ["flood zones", beginZones, "flood_layers", zonesStages, zonesPulses],
+    ["rivers & sea", beginRiversSea, "flood_layers", floodStages, floodPulses],
+    [
+      "rivers & sea climate",
+      beginRiversSeaClimate,
+      "flood_climate_layers",
+      floodStages,
+      floodPulses,
+    ],
+    ["surface water", beginSurfaceWater, "flood_layers", floodStages, floodPulses],
+    [
+      "surface water climate",
+      beginSurfaceWaterClimate,
+      "flood_climate_layers",
+      floodStages,
+      floodPulses,
+    ],
   ] as const;
 
   it.each(loaders)(
     "%s: staged count, invalid scan, delete, copy, checks, commit",
-    async (_name, begin, liveTable) => {
+    async (_name, begin, liveTable, stagesFor, pulsesFor) => {
       const rec = record();
       const client = scriptedClient({ countFor: floodCountFor });
       const filer = await begin(rec.progress, { client: client as never });
       await filer.finishFiling(3);
-      expectSubsequence(rec.stages, floodStages(liveTable));
+      expectSubsequence(rec.stages, stagesFor(liveTable));
       expect(rec.failures).toHaveLength(0);
-      expect(rec.pulses).toHaveLength(4);
-      expect(rec.pulses.map((p) => p.stage)).toEqual([
-        "filing · scanning staged shapes for invalid geometry",
-        `filing · copying 3 shapes into ${liveTable} (validity repair)`,
-        "filing · scanning filed shapes for emptied geometry",
-        "filing · scanning filed shapes for invalid geometry",
-      ]);
+      expect(rec.pulses).toHaveLength(pulsesFor(liveTable).length);
+      expect(rec.pulses.map((p) => p.stage)).toEqual(pulsesFor(liveTable));
       expectPulsesStopped(rec);
     },
   );

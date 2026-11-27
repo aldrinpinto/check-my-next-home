@@ -101,6 +101,41 @@ function wktToCoordinates(wkt: string): number[][][][] {
   }
 }
 
+// BUG-391: the fake's stand-in for PostGIS validity —
+// just enough to tell the three shapes apart. A ring is
+// degenerate when it holds fewer than 3 distinct points
+// (a triangle is the smallest real ring); a shape is
+// emptied by repair when EVERY ring is degenerate, and
+// invalid when any ring is degenerate or unclosed. An
+// unparseable WKT is neither — the fake never invents an
+// empty or an invalid.
+function distinctPointCount(ring: number[][]): number {
+  return new Set(ring.map(([x, y]) => `${x},${y}`)).size;
+}
+function isEmptiedWkt(wkt: string): boolean {
+  try {
+    const polygons = wktToCoordinates(wkt);
+    return polygons.every((polygon) => polygon.every((ring) => distinctPointCount(ring) < 3));
+  } catch {
+    return false;
+  }
+}
+function isInvalidWkt(wkt: string): boolean {
+  try {
+    const polygons = wktToCoordinates(wkt);
+    return polygons.some((polygon) =>
+      polygon.some(
+        (ring) =>
+          distinctPointCount(ring) < 3 ||
+          ring[0][0] !== ring[ring.length - 1][0] ||
+          ring[0][1] !== ring[ring.length - 1][1],
+      ),
+    );
+  } catch {
+    return false;
+  }
+}
+
 interface FakeStageRow {
   layerType: string;
   label: string;
@@ -240,12 +275,31 @@ function createFakeDb() {
           }));
         return { rows };
       }
+      // BUG-391: the emptied-seq query — the loader names
+      // the shapes repair will empty before the swap, with
+      // the same expression the INSERT uses. The fake
+      // answers it from the WKT: a row empties when every
+      // ring holds fewer than 3 distinct points.
+      if (sql.includes("SELECT seq FROM flood_stage WHERE layer_type = $1")) {
+        const rows = stage
+          .filter((r) => r.layerType === (params[0] as string) && isEmptiedWkt(r.wkt))
+          .map((r) => ({ seq: r.seq }))
+          .sort((a, b) => a.seq - b.seq);
+        return { rows };
+      }
       if (
         sql.includes(
           "SELECT count(*)::int AS n FROM flood_stage WHERE layer_type = $1 AND NOT ST_IsValid(geom)",
         )
       )
-        return { rows: [{ n: 0 }] };
+        return {
+          rows: [
+            {
+              n: stage.filter((r) => r.layerType === (params[0] as string) && isInvalidWkt(r.wkt))
+                .length,
+            },
+          ],
+        };
       if (sql.includes("coalesce(sum(seq), 0)::bigint AS s FROM flood_stage")) {
         const rows = stage.filter((r) => r.layerType === (params[0] as string));
         return {
@@ -275,6 +329,20 @@ function createFakeDb() {
           if (stage[i].layerType === (params[0] as string)) stage.splice(i, 1);
         return { rows: [] };
       }
+      // BUG-391: the post-INSERT removal of the emptied
+      // shapes — only the degenerate rows go, and the
+      // rowCount proves the removed set is the named set.
+      // This must match before the generic DELETE below:
+      // its text contains the generic fragment.
+      if (sql.includes("DELETE FROM flood_layers WHERE layer_type = $1 AND ST_IsEmpty(geom)")) {
+        let deleted = 0;
+        for (let i = layers.length - 1; i >= 0; i -= 1)
+          if (layers[i].layerType === (params[0] as string) && isEmptiedWkt(layers[i].wkt)) {
+            layers.splice(i, 1);
+            deleted += 1;
+          }
+        return { rows: [], rowCount: deleted };
+      }
       if (sql.includes("DELETE FROM flood_layers WHERE layer_type = $1")) {
         for (let i = layers.length - 1; i >= 0; i -= 1)
           if (layers[i].layerType === (params[0] as string)) layers.splice(i, 1);
@@ -286,7 +354,22 @@ function createFakeDb() {
         return { rows: [] };
       }
       if (sql.includes("FROM flood_layers WHERE layer_type = $1 AND ST_IsEmpty(geom)"))
-        return { rows: [{ n: 0 }] };
+        return {
+          rows: [
+            {
+              n: layers.filter((r) => r.layerType === (params[0] as string) && isEmptiedWkt(r.wkt))
+                .length,
+            },
+          ],
+        };
+      // The filed-invalid count stays 0, deliberately: the
+      // fake's INSERT copies WKT as-is and cannot emulate
+      // ST_MakeValid, while repaired output is valid by
+      // construction — a computed count here would condemn
+      // the 65 pre-repair-invalid fixture shapes the real
+      // loader repairs fine. The guard itself is proven by
+      // the BUG-391 proxy test below, which makes the query
+      // answer 1.
       if (sql.includes("FROM flood_layers WHERE layer_type = $1 AND NOT ST_IsValid(geom)"))
         return { rows: [{ n: 0 }] };
       if (sql.includes("SELECT count(*)::int AS n FROM flood_layers WHERE layer_type = $1"))
@@ -600,7 +683,14 @@ describe("fixture-mode resume end to end (BUG-366)", () => {
 
       // The swap files the complete set and cleans up: no
       // staging rows and no checkpoint are left behind.
-      expect(await filer2.finishFiling(EXPECTED)).toBe(0);
+      // BUG-391: finishFiling returns the invalid count
+      // with the named empties — the fixture's 65
+      // pre-repair-invalid shapes repair fine, and none
+      // empties.
+      expect(await filer2.finishFiling(EXPECTED)).toEqual({
+        invalidCount: 65,
+        emptiedSeqs: [],
+      });
       expect(db.layers).toHaveLength(EXPECTED);
       expect(new Set(db.insertedSeqs).size).toBe(EXPECTED);
       expect(Math.min(...db.insertedSeqs)).toBe(0);
@@ -827,4 +917,86 @@ describe("checkpoint after an unflushed tail — the filer flushes before the ch
       expect(outcome.checkpoint?.next_start_index).toBe(10);
     },
   );
+});
+
+describe("BUG-391 — file the rest, name the emptied shapes loudly", () => {
+  // A real triangle ring: 3 distinct points, closed.
+  const validWkt = (i: number) => `MULTIPOLYGON(((${i} 0, ${i + 1} 0, ${i + 1} 1, ${i} 0)))`;
+  // A degenerate ring: 2 distinct points — the "too few
+  // points" shape the diagnosis found (213 of the 230).
+  const degenerateWkt = (i: number) => `MULTIPOLYGON(((${i} 0, ${i + 1} 1)))`;
+
+  const stageRow = (db: ReturnType<typeof createFakeDb>, seq: number, wkt: string) => {
+    db.stage.push({
+      layerType: "flood_zone",
+      label: seq % 2 === 0 ? "FZ2" : "FZ3",
+      wkt,
+      edition: EDITION,
+      detail: "river · test",
+      source: "Environment Agency",
+      sourceDate: EDITION,
+      seq,
+    });
+  };
+
+  it("files the rest and names the emptied seqs in the result and the warning line", async () => {
+    const db = createFakeDb();
+    const { lines, progress } = collect();
+    for (let i = 0; i < 6; i += 1) stageRow(db, i, validWkt(i));
+    stageRow(db, 6, degenerateWkt(6));
+    stageRow(db, 7, degenerateWkt(7));
+    const filer = await beginFiling(progress, { client: db as never });
+    const result = await filer.finishFiling(8);
+    // The two degenerate rows are invalid (too few points)
+    // and emptied; the six real shapes file.
+    expect(result).toEqual({ invalidCount: 2, emptiedSeqs: [6, 7] });
+    expect(db.layers).toHaveLength(6);
+    expect(db.layers.map((r) => r.seq).sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5]);
+    // Reconciliation accounts for the named empties:
+    // filed + emptied == read.
+    expect(db.layers.length + result.emptiedSeqs.length).toBe(8);
+    expect(db.stage).toHaveLength(0);
+    expect(
+      lines.some((l) => /shapes emptied by validity repair \(BUG-391\) · 2 shapes/.test(l)),
+    ).toBe(true);
+    expect(lines.some((l) => /0 filed silently/.test(l))).toBe(true);
+  });
+
+  it("the invalidFiled guard still throws when a filed shape is invalid", async () => {
+    // The fake cannot emulate ST_MakeValid — its INSERT
+    // copies WKT as-is — so the guard is proven with a
+    // client that answers 1 for the filed-invalid query,
+    // as PostGIS would for a shape repair left invalid.
+    const db = createFakeDb();
+    const { progress } = collect();
+    for (let i = 0; i < 3; i += 1) stageRow(db, i, validWkt(i));
+    const lying = {
+      ...db,
+      query: async (sql: string, params: unknown[] = []) => {
+        if (sql.includes("FROM flood_layers WHERE layer_type = $1 AND NOT ST_IsValid(geom)"))
+          return { rows: [{ n: 1 }] };
+        return db.query(sql, params);
+      },
+    };
+    const filer = await beginFiling(progress, { client: lying as never });
+    await expect(filer.finishFiling(3)).rejects.toThrow(/filed shapes are invalid — rolling back/);
+  });
+
+  it("throws when the deleted emptied set does not match the named set", async () => {
+    const db = createFakeDb();
+    const { progress } = collect();
+    for (let i = 0; i < 3; i += 1) stageRow(db, i, validWkt(i));
+    // A client that lies about the DELETE: the removed set
+    // can never be trusted, so the swap must roll back.
+    const lying = {
+      ...db,
+      query: async (sql: string, params: unknown[] = []) => {
+        if (sql.includes("DELETE FROM flood_layers WHERE layer_type = $1 AND ST_IsEmpty(geom)"))
+          return { rows: [], rowCount: 999 };
+        return db.query(sql, params);
+      },
+    };
+    const filer = await beginFiling(progress, { client: lying as never });
+    await expect(filer.finishFiling(3)).rejects.toThrow(/does not match/);
+  });
 });
