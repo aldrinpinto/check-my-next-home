@@ -78,6 +78,7 @@ import {
   createProgressLogger,
   formatCount,
   formatDuration,
+  withFilingPulse,
 } from "./progress.mjs";
 import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 
@@ -560,15 +561,28 @@ export async function beginSolarFiling(
         const stagedRes = await client.query("SELECT count(*)::int AS n FROM solar_stage");
         if (stagedRes.rows[0].n !== expectedCount)
           throw new Error("the staged cell count does not match — rolling back");
+        // BUG-390: one progress line per sub-step — the
+        // filing previously printed one line and then went
+        // silent while the single INSERT...SELECT ran.
+        progress?.stage(`filing · staged count verified · ${formatCount(expectedCount)} cells`);
         await client.query("BEGIN");
         try {
           await client.query(`DELETE FROM solar_grid`);
-          await client.query(
-            `INSERT INTO solar_grid (cell_ref, latitude, longitude, yield_kwh_per_kwp, irradiation_kwh_m2, peak_power_kwp, system_loss_pct, slope_deg, azimuth_deg, mounting, pv_technology, radiation_db, year_min, year_max, source_name, source_date)
+          progress?.stage("filing · live rows deleted");
+          progress?.stage(`filing · copying ${formatCount(expectedCount)} cells into solar_grid`);
+          await withFilingPulse(
+            progress,
+            { stage: `filing · copying ${formatCount(expectedCount)} cells into solar_grid` },
+            () =>
+              client.query(
+                `INSERT INTO solar_grid (cell_ref, latitude, longitude, yield_kwh_per_kwp, irradiation_kwh_m2, peak_power_kwp, system_loss_pct, slope_deg, azimuth_deg, mounting, pv_technology, radiation_db, year_min, year_max, source_name, source_date)
              SELECT cell_ref, latitude, longitude, yield_kwh_per_kwp, irradiation_kwh_m2, peak_power_kwp, system_loss_pct, slope_deg, azimuth_deg, mounting, pv_technology, radiation_db, year_min, year_max, $1, $2 FROM solar_stage`,
-            [SOURCE_NAME, SOURCE_DATE],
+                [SOURCE_NAME, SOURCE_DATE],
+              ),
           );
+          progress?.stage(`filing · copy done · ${formatCount(expectedCount)} cells`);
           await client.query("COMMIT");
+          progress?.stage(`filing · swap committed · ${formatCount(expectedCount)} cells live`);
         } catch (error) {
           await client.query("ROLLBACK").catch(() => {});
           throw error;

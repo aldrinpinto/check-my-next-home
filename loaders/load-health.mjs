@@ -69,6 +69,7 @@ import {
   createProgressLogger,
   formatCount,
   formatDuration,
+  withFilingPulse,
 } from "./progress.mjs";
 
 const DSE_URL = (report) =>
@@ -942,38 +943,70 @@ export async function beginFiling(
         const stagedRes = await client.query("SELECT count(*)::int AS n FROM health_stage");
         if (stagedRes.rows[0].n !== points.length)
           throw new Error("the staged point count does not match — rolling back");
+        // BUG-390: one progress line per sub-step — the
+        // filing previously printed one line and then went
+        // silent while the single INSERT...SELECT ran.
+        progress?.stage(`filing · staged count verified · ${formatCount(points.length)} points`);
         await client.query("BEGIN");
         try {
           await client.query("DELETE FROM cqc_ratings");
           await client.query("DELETE FROM health_points");
-          const inserted = await client.query(
-            `INSERT INTO health_points (ods_code, name, service_type, address, postcode, latitude, longitude,
+          progress?.stage("filing · live rows deleted");
+          progress?.stage(
+            `filing · copying ${formatCount(points.length)} points into health_points`,
+          );
+          const inserted = await withFilingPulse(
+            progress,
+            {
+              stage: `filing · copying ${formatCount(points.length)} points into health_points`,
+            },
+            () =>
+              client.query(
+                `INSERT INTO health_points (ods_code, name, service_type, address, postcode, latitude, longitude,
              parent_ods_code, has_emergency_department, cqc_service_types, cqc_population_groups, provider_name, source_name, source_date, loaded_at)
            SELECT ods_code, name, service_type, address, postcode, latitude, longitude,
              parent_ods_code, has_emergency_department, cqc_service_types, cqc_population_groups, provider_name, source_name, source_date, loaded_at
            FROM health_stage RETURNING id, ods_code`,
+              ),
           );
+          progress?.stage(`filing · copy done · ${formatCount(points.length)} points`);
           const realId = new Map(inserted.rows.map((r) => [r.ods_code, r.id]));
+          const ratingsTally = progress?.tally({
+            label: "filing ratings",
+            total: points.length,
+            every: Math.max(1, Math.ceil(points.length / 10)),
+            unit: "points",
+          });
+          let processed = 0;
           for (const p of points) {
-            if (!p.rating) continue;
-            await client.query(
-              `INSERT INTO cqc_ratings (health_point_id, cqc_location_id, rating, rating_date, report_url, source_name, source_date)
+            if (p.rating) {
+              await client.query(
+                `INSERT INTO cqc_ratings (health_point_id, cqc_location_id, rating, rating_date, report_url, source_name, source_date)
              VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-              [
-                realId.get(p.odsCode),
-                p.rating.cqcLocationId,
-                p.rating.rating,
-                p.rating.ratingDate,
-                p.rating.reportUrl,
-                SOURCE_CQC_RATINGS,
-                ratingsAsAt,
-              ],
-            );
+                [
+                  realId.get(p.odsCode),
+                  p.rating.cqcLocationId,
+                  p.rating.rating,
+                  p.rating.ratingDate,
+                  p.rating.reportUrl,
+                  SOURCE_CQC_RATINGS,
+                  ratingsAsAt,
+                ],
+              );
+            }
+            // Ticked for every point, rated or not — an
+            // unrated point still counts as processed, never
+            // silently dropped from the tally.
+            processed += 1;
+            ratingsTally?.tick(processed);
           }
+          ratingsTally?.finish(processed);
           const filed = await client.query("SELECT count(*)::int AS n FROM health_points");
           if (filed.rows[0].n !== points.length)
             throw new Error("the filed point count does not match — rolling back");
+          progress?.stage(`filing · filed count verified · ${formatCount(points.length)} points`);
           await client.query("COMMIT");
+          progress?.stage(`filing · swap committed · ${formatCount(points.length)} points live`);
         } catch (error) {
           await client.query("ROLLBACK").catch(() => {});
           throw error;

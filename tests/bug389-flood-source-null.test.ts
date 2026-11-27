@@ -84,6 +84,7 @@ function progressStub() {
       count() {},
       stage() {},
       failed() {},
+      pulse: () => () => {},
     },
   };
 }

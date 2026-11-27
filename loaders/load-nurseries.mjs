@@ -85,6 +85,7 @@ import {
   createProgressLogger,
   formatCount,
   formatDuration,
+  withFilingPulse,
 } from "./progress.mjs";
 
 const OFSTED_PAGE =
@@ -661,19 +662,43 @@ export async function beginFiling(
         const stagedRes = await client.query("SELECT count(*)::int AS n FROM nurseries_stage");
         if (stagedRes.rows[0].n !== settings.length)
           throw new Error("the staged setting count does not match — rolling back");
+        // BUG-390: one progress line per sub-step — the
+        // filing previously printed one line and then went
+        // silent while the single INSERT...SELECT ran.
+        progress?.stage(
+          `filing · staged count verified · ${formatCount(settings.length)} settings`,
+        );
         await client.query("BEGIN");
         try {
           await client.query("DELETE FROM nurseries");
-          await client.query(
-            `INSERT INTO nurseries (urn, name, setting_type, address, postcode, latitude, longitude,
+          progress?.stage("filing · live rows deleted");
+          progress?.stage(
+            `filing · copying ${formatCount(settings.length)} settings into nurseries`,
+          );
+          await withFilingPulse(
+            progress,
+            {
+              stage: `filing · copying ${formatCount(settings.length)} settings into nurseries`,
+            },
+            () =>
+              client.query(
+                `INSERT INTO nurseries (urn, name, setting_type, address, postcode, latitude, longitude,
              source_name, source_date, loaded_at)
            SELECT urn, name, setting_type, address, postcode, latitude, longitude,
              source_name, source_date, loaded_at FROM nurseries_stage`,
+              ),
           );
+          progress?.stage(`filing · copy done · ${formatCount(settings.length)} settings`);
           const filed = await client.query("SELECT count(*)::int AS n FROM nurseries");
           if (filed.rows[0].n !== settings.length)
             throw new Error("the filed setting count does not match — rolling back");
+          progress?.stage(
+            `filing · filed count verified · ${formatCount(settings.length)} settings`,
+          );
           await client.query("COMMIT");
+          progress?.stage(
+            `filing · swap committed · ${formatCount(settings.length)} settings live`,
+          );
         } catch (error) {
           await client.query("ROLLBACK").catch(() => {});
           throw error;

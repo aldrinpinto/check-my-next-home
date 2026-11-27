@@ -68,6 +68,7 @@ import {
   createProgressLogger,
   formatCount,
   formatDuration,
+  withFilingPulse,
 } from "./progress.mjs";
 import { createShortPageTracker, isShortPage, verifyReadCounts } from "./read-tolerance.mjs";
 
@@ -808,21 +809,39 @@ export async function beginFiling(
         const stagedRes = await client.query("SELECT count(*)::int AS n FROM phi_stage");
         if (stagedRes.rows[0].n !== expectedFiled)
           throw new Error("the staged patch count does not match — rolling back");
+        // BUG-390: one progress line per sub-step — the
+        // filing previously printed one line and then went
+        // silent while the single INSERT...SELECT ran.
+        progress?.stage(`filing · staged count verified · ${formatCount(expectedFiled)} patches`);
         await client.query("BEGIN");
         try {
           await client.query(
             "DELETE FROM planning_layers WHERE constraint_type = 'priority_habitat'",
           );
-          await client.query(
-            `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
-             SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM phi_stage`,
+          progress?.stage("filing · live rows deleted");
+          progress?.stage(
+            `filing · copying ${formatCount(expectedFiled)} patches into planning_layers`,
           );
+          await withFilingPulse(
+            progress,
+            {
+              stage: `filing · copying ${formatCount(expectedFiled)} patches into planning_layers`,
+            },
+            () =>
+              client.query(
+                `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
+             SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM phi_stage`,
+              ),
+          );
+          progress?.stage(`filing · copy done · ${formatCount(expectedFiled)} patches`);
           const filedCount = await client.query(
             "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type = 'priority_habitat'",
           );
           if (filedCount.rows[0].n !== expectedFiled)
             throw new Error("the filed patch count does not match — rolling back");
+          progress?.stage(`filing · filed count verified · ${formatCount(expectedFiled)} patches`);
           await client.query("COMMIT");
+          progress?.stage(`filing · swap committed · ${formatCount(expectedFiled)} patches live`);
         } catch (error) {
           await client.query("ROLLBACK").catch(() => {});
           throw error;

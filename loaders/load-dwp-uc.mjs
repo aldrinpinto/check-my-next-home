@@ -1035,6 +1035,10 @@ export async function createUcFiler(pool, retrievedAt, { progress = null, restar
       const stagedRes = await client.query("SELECT count(*)::int AS n FROM uc_stage");
       if (stagedRes.rows[0].n !== staged)
         throw new Error("the staged UC row count does not match — rolling back");
+      // BUG-390: one progress line per sub-step — the
+      // swap previously printed one line and then went
+      // silent through the per-pair swaps and the prune.
+      progress?.stage(`filing · staged count verified · ${formatCount(staged)} rows`);
       const pairs = [...pairsSeen].sort();
       // BUG-265: the swap is the last long step — a stage
       // marker naming the series-month pairs it swaps.
@@ -1065,7 +1069,9 @@ export async function createUcFiler(pool, retrievedAt, { progress = null, restar
             [series],
           );
         }
+        progress?.stage("filing · old months pruned");
         await client.query("COMMIT");
+        progress?.stage("filing · swap committed");
       } catch (err) {
         await client.query("ROLLBACK").catch(() => {});
         throw err;

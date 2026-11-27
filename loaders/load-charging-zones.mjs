@@ -109,7 +109,7 @@ import pg from "pg";
 import proj4 from "proj4";
 import { createLoaderResume } from "./loader-resume.mjs";
 import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
-import { createProgressLogger, formatCount } from "./progress.mjs";
+import { createProgressLogger, formatCount, withFilingPulse } from "./progress.mjs";
 
 const USER_AGENT = "CheckMyNextHome/1.0 (+https://checkmynexthome.co.uk)";
 
@@ -744,16 +744,26 @@ export async function beginFiling(
           throw new Error(
             `the staged scheme count ${stagedRes.rows[0].n} does not match the ${filed.length} processed schemes — refusing the filing`,
           );
+        // BUG-390: one progress line per sub-step — the
+        // filing previously printed one line and then went
+        // silent while the single INSERT...SELECT ran.
+        progress?.stage(`filing · staged count verified · ${formatCount(filed.length)} schemes`);
         // Validity + measured area, per staged scheme: the
         // boundary as filed must be a valid shape of the
         // size the publisher's boundary measures (±25% of
         // the reference pinned at build) — a truncated,
         // wrong-layer or wrong-CRS republication fails
         // here, naming the scheme.
-        const areaRows = await client.query(
-          `SELECT scheme_key, ST_IsValid(geom) AS valid,
+        progress?.stage("filing · checking staged boundaries for validity and area");
+        const areaRows = await withFilingPulse(
+          progress,
+          { stage: "filing · checking staged boundaries for validity and area" },
+          () =>
+            client.query(
+              `SELECT scheme_key, ST_IsValid(geom) AS valid,
                   ST_Area(ST_Transform(geom, 27700)) / 1000000 AS km2
            FROM cz_stage`,
+            ),
         );
         const byKey = new Map(filed.map((entry) => [entry.scheme.key, entry.scheme]));
         for (const row of areaRows.rows) {
@@ -776,15 +786,24 @@ export async function beginFiling(
         }
         if (areaRows.rows.length !== filed.length)
           throw new Error("the staged area check did not cover every scheme — refusing the filing");
+        progress?.stage(
+          `filing · validity and area checked · ${formatCount(filed.length)} schemes`,
+        );
         // Pairwise disjointness over the staged set: the
         // zones are disjoint as published (verified at
         // build); interiors intersecting is a filing
         // refusal — a shared boundary edge or point (a
         // touch) is not an overlap.
-        const overlaps = await client.query(
-          `SELECT a.scheme_key AS a, b.scheme_key AS b
+        progress?.stage("filing · checking staged boundaries for overlaps");
+        const overlaps = await withFilingPulse(
+          progress,
+          { stage: "filing · checking staged boundaries for overlaps" },
+          () =>
+            client.query(
+              `SELECT a.scheme_key AS a, b.scheme_key AS b
            FROM cz_stage a JOIN cz_stage b ON a.scheme_key < b.scheme_key
            WHERE ST_Intersects(a.geom, b.geom) AND NOT ST_Touches(a.geom, b.geom)`,
+            ),
         );
         if (overlaps.rows.length > 0) {
           const pair = overlaps.rows[0];
@@ -792,6 +811,7 @@ export async function beginFiling(
             `the staged boundaries of ${byKey.get(pair.a)?.name ?? pair.a} and ${byKey.get(pair.b)?.name ?? pair.b} overlap — the zones are disjoint as published, so an overlap is a filing error; refusing the filing`,
           );
         }
+        progress?.stage("filing · no overlapping boundaries");
         // The swap: the whole set is replaced in this
         // transaction, so the set's loaded_at stamps share
         // one instant and a scheme that ever leaves the
@@ -799,14 +819,28 @@ export async function beginFiling(
         await client.query("BEGIN");
         try {
           await client.query("DELETE FROM charging_zones");
-          await client.query(
-            `INSERT INTO charging_zones (scheme_key, name, family, class, operator, in_force_date, checker_url, geom, source_name, source_date, terms_note, loaded_at)
-             SELECT scheme_key, name, family, class, operator, in_force_date, checker_url, geom, source_name, source_date, terms_note, loaded_at FROM cz_stage`,
+          progress?.stage("filing · live rows deleted");
+          progress?.stage(
+            `filing · copying ${formatCount(filed.length)} schemes into charging_zones`,
           );
+          await withFilingPulse(
+            progress,
+            {
+              stage: `filing · copying ${formatCount(filed.length)} schemes into charging_zones`,
+            },
+            () =>
+              client.query(
+                `INSERT INTO charging_zones (scheme_key, name, family, class, operator, in_force_date, checker_url, geom, source_name, source_date, terms_note, loaded_at)
+             SELECT scheme_key, name, family, class, operator, in_force_date, checker_url, geom, source_name, source_date, terms_note, loaded_at FROM cz_stage`,
+              ),
+          );
+          progress?.stage(`filing · copy done · ${formatCount(filed.length)} schemes`);
           const filedCount = await client.query("SELECT count(*)::int AS n FROM charging_zones");
           if (filedCount.rows[0].n !== filed.length)
             throw new Error("the filed scheme count does not match — rolling back");
+          progress?.stage(`filing · filed count verified · ${formatCount(filed.length)} schemes`);
           await client.query("COMMIT");
+          progress?.stage(`filing · swap committed · ${formatCount(filed.length)} schemes live`);
         } catch (error) {
           await client.query("ROLLBACK").catch(() => {});
           throw error;

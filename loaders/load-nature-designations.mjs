@@ -113,6 +113,7 @@ import {
   createProgressLogger,
   formatCount,
   formatDuration,
+  withFilingPulse,
 } from "./progress.mjs";
 import { createShortPageTracker, isShortPage, verifyReadCounts } from "./read-tolerance.mjs";
 
@@ -1444,21 +1445,39 @@ export async function beginFiling(
         const stagedRes = await client.query("SELECT count(*)::int AS n FROM nature_stage");
         if (stagedRes.rows[0].n !== expectedCount)
           throw new Error("the staged layer count does not match — rolling back");
+        // BUG-390: one progress line per sub-step — the
+        // filing previously printed one line and then went
+        // silent while the single INSERT...SELECT ran.
+        progress?.stage(`filing · staged count verified · ${formatCount(expectedCount)} layers`);
         await client.query("BEGIN");
         try {
           await client.query(
             "DELETE FROM planning_layers WHERE constraint_type IN ('sssi', 'sac', 'spa', 'ramsar', 'ancient_woodland')",
           );
-          await client.query(
-            `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
-             SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM nature_stage`,
+          progress?.stage("filing · live rows deleted");
+          progress?.stage(
+            `filing · copying ${formatCount(expectedCount)} layers into planning_layers`,
           );
+          await withFilingPulse(
+            progress,
+            {
+              stage: `filing · copying ${formatCount(expectedCount)} layers into planning_layers`,
+            },
+            () =>
+              client.query(
+                `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
+             SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM nature_stage`,
+              ),
+          );
+          progress?.stage(`filing · copy done · ${formatCount(expectedCount)} layers`);
           const filedCount = await client.query(
             "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type IN ('sssi', 'sac', 'spa', 'ramsar', 'ancient_woodland')",
           );
           if (filedCount.rows[0].n !== expectedCount)
             throw new Error("the filed layer count does not match — rolling back");
+          progress?.stage(`filing · filed count verified · ${formatCount(expectedCount)} layers`);
           await client.query("COMMIT");
+          progress?.stage(`filing · swap committed · ${formatCount(expectedCount)} layers live`);
         } catch (error) {
           await client.query("ROLLBACK").catch(() => {});
           throw error;

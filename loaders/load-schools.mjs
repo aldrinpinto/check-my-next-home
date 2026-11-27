@@ -55,6 +55,7 @@ import {
   createProgressLogger,
   formatCount,
   formatDuration,
+  withFilingPulse,
 } from "./progress.mjs";
 
 proj4.defs(
@@ -744,12 +745,26 @@ export async function beginSchoolsFiling(
       const stagedOutcomes = await client.query("SELECT count(*)::int AS n FROM outcomes_stage");
       if (stagedOutcomes.rows[0].n !== outcomesSize)
         throw new Error("the staged outcome count does not match — rolling back");
+      // BUG-390: one progress line per sub-step — the
+      // filing previously printed one line and then went
+      // silent while the single INSERT...SELECT ran.
+      progress?.stage(
+        `filing · staged counts verified · ${formatCount(schoolsLength)} schools, ${formatCount(outcomesSize)} outcomes`,
+      );
       await client.query("BEGIN");
       try {
         await client.query("DELETE FROM ofsted_outcomes");
         await client.query("DELETE FROM schools");
-        await client.query(
-          `INSERT INTO schools (urn, name, school_type, phase, age_range_low, age_range_high,
+        progress?.stage("filing · live rows deleted");
+        progress?.stage(`filing · copying ${formatCount(schoolsLength)} schools into schools`);
+        await withFilingPulse(
+          progress,
+          {
+            stage: `filing · copying ${formatCount(schoolsLength)} schools into schools`,
+          },
+          () =>
+            client.query(
+              `INSERT INTO schools (urn, name, school_type, phase, age_range_low, age_range_high,
              address, postcode, latitude, longitude, admissions_policy, religious_character,
              la_code, la_name, gender, sixth_form, website, number_of_pupils,
              position_approximate, source_name, source_date, loaded_at)
@@ -757,21 +772,38 @@ export async function beginSchoolsFiling(
              address, postcode, latitude, longitude, admissions_policy, religious_character,
              la_code, la_name, gender, sixth_form, website, number_of_pupils,
              position_approximate, source_name, source_date, loaded_at FROM schools_stage`,
+            ),
         );
-        await client.query(
-          `INSERT INTO ofsted_outcomes (urn, rating, inspection_date, report_url, latest_event_type,
+        progress?.stage(`filing · copy done · ${formatCount(schoolsLength)} schools`);
+        progress?.stage(
+          `filing · copying ${formatCount(outcomesSize)} outcomes into ofsted_outcomes`,
+        );
+        await withFilingPulse(
+          progress,
+          {
+            stage: `filing · copying ${formatCount(outcomesSize)} outcomes into ofsted_outcomes`,
+          },
+          () =>
+            client.query(
+              `INSERT INTO ofsted_outcomes (urn, rating, inspection_date, report_url, latest_event_type,
              latest_event_date, ungraded_outcome, report_card, source_name, source_date, loaded_at)
            SELECT urn, rating, inspection_date, report_url, latest_event_type,
              latest_event_date, ungraded_outcome, report_card, source_name, source_date, loaded_at
            FROM outcomes_stage`,
+            ),
         );
+        progress?.stage(`filing · copy done · ${formatCount(outcomesSize)} outcomes`);
         const filed = await client.query("SELECT count(*)::int AS n FROM schools");
         if (filed.rows[0].n !== schoolsLength)
           throw new Error("the filed school count does not match — rolling back");
+        progress?.stage(`filing · filed count verified · ${formatCount(schoolsLength)} schools`);
         // The outcomes stage is emptied inside the swap
         // transaction, so it can never survive a committed swap.
         await client.query("DELETE FROM outcomes_stage");
         await client.query("COMMIT");
+        progress?.stage(
+          `filing · swap committed · ${formatCount(schoolsLength)} schools, ${formatCount(outcomesSize)} outcomes live`,
+        );
       } catch (error) {
         await client.query("ROLLBACK").catch(() => {});
         throw error;

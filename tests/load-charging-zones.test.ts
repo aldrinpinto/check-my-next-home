@@ -479,9 +479,10 @@ describe("progress logging (BUG-265)", () => {
     const result = await fileChargingZones(rec.client as never, filing, { progress });
     expect(result).toEqual({ filedCount: 11, pendingCount: 1 });
     // BUG-368: the filing stage line is joined by one
-    // checkpoint line per staged scheme (11) and the
+    // checkpoint line per staged scheme (11), the ten
+    // BUG-390 filing sub-step lines, and the
     // staging-cleared line after the swap.
-    expect(lines).toHaveLength(13);
+    expect(lines).toHaveLength(23);
     expect(lines[0]).toMatch(
       /progress · filing 11 schemes — validity, area and disjointness checks, then the swap$/,
     );
@@ -490,6 +491,18 @@ describe("progress logging (BUG-265)", () => {
         /checkpoint \d+\/11 schemes \(\d+%\) · staged \d+ · resume from \d+/.test(l),
       ),
     ).toHaveLength(11);
+    expect(lines.slice(12, 22)).toEqual([
+      expect.stringMatching(/filing · staged count verified · 11 schemes$/),
+      expect.stringMatching(/filing · checking staged boundaries for validity and area$/),
+      expect.stringMatching(/filing · validity and area checked · 11 schemes$/),
+      expect.stringMatching(/filing · checking staged boundaries for overlaps$/),
+      expect.stringMatching(/filing · no overlapping boundaries$/),
+      expect.stringMatching(/filing · live rows deleted$/),
+      expect.stringMatching(/filing · copying 11 schemes into charging_zones$/),
+      expect.stringMatching(/filing · copy done · 11 schemes$/),
+      expect.stringMatching(/filing · filed count verified · 11 schemes$/),
+      expect.stringMatching(/filing · swap committed · 11 schemes live$/),
+    ]);
     expect(lines.at(-1)).toMatch(/progress · staging cleared · checkpoint removed$/);
     expect(lines.every((l) => !l.startsWith("load-"))).toBe(true);
   });

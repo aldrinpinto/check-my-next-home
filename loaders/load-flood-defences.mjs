@@ -87,6 +87,7 @@ import {
   createProgressLogger,
   formatCount,
   formatDuration,
+  withFilingPulse,
 } from "./progress.mjs";
 import {
   createFloodResume,
@@ -688,9 +689,23 @@ export async function createDefencesFiler(
           throw new Error(
             `staged ${stagedRows.rows[0].n} of ${expectedCount} defences — refusing to swap`,
           );
+        // BUG-390: one progress line per sub-step — the
+        // filing previously printed one line and then went
+        // silent while the single INSERT...SELECT ran.
+        progress?.stage(`filing · staged count verified · ${formatCount(expectedCount)} defences`);
         await client.query("DELETE FROM flood_defences");
-        await client.query(
-          `
+        progress?.stage("filing · live rows deleted");
+        progress?.stage(
+          `filing · copying ${formatCount(expectedCount)} defences into flood_defences`,
+        );
+        await withFilingPulse(
+          progress,
+          {
+            stage: `filing · copying ${formatCount(expectedCount)} defences into flood_defences`,
+          },
+          () =>
+            client.query(
+              `
         INSERT INTO flood_defences (
           asset_id, asset_name, asset_sub_type, protection_type,
           asset_maintainer, asset_operator, current_condition,
@@ -705,14 +720,18 @@ export async function createDefencesFiler(
                $2, $3
           FROM flood_defences_stage WHERE layer_type = $1
       `,
-          [DEFENCES_LAYER_TYPE, SOURCE_NAME, edition],
+              [DEFENCES_LAYER_TYPE, SOURCE_NAME, edition],
+            ),
         );
+        progress?.stage(`filing · copy done · ${formatCount(expectedCount)} defences`);
         // Lines file as published (no ST_MakeValid — see the
         // header); invalid lines are counted, never dropped.
         const invalid = await client.query(
           "SELECT count(*)::int AS n FROM flood_defences WHERE geom IS NOT NULL AND NOT ST_IsValid(geom)",
         );
+        progress?.stage(`filing · invalid filed defences · ${formatCount(invalid.rows[0].n)}`);
         await client.query("COMMIT");
+        progress?.stage(`filing · swap committed · ${formatCount(expectedCount)} defences live`);
         // The swap landed: clear the staging rows and the
         // checkpoint, so nothing of this run is left behind.
         await resume.clear();

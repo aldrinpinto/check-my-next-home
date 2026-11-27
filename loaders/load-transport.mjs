@@ -98,6 +98,7 @@ import {
   createProgressLogger,
   formatCount,
   formatDuration,
+  withFilingPulse,
 } from "./progress.mjs";
 
 proj4.defs(
@@ -656,17 +657,35 @@ export async function beginTransportFiling(
         const stagedRes = await client.query("SELECT count(*)::int AS n FROM transport_stage");
         if (stagedRes.rows[0].n !== expectedCount)
           throw new Error("the staged transport count does not match — rolling back");
+        // BUG-390: one progress line per sub-step — the
+        // filing previously printed one line and then went
+        // silent while the single INSERT...SELECT ran.
+        progress?.stage(`filing · staged count verified · ${formatCount(expectedCount)} stops`);
         await client.query("BEGIN");
         try {
           await client.query("DELETE FROM transport_stops");
-          await client.query(
-            `INSERT INTO transport_stops (atco_code, name, stop_type, latitude, longitude, source_name, source_date, loaded_at)
-             SELECT atco_code, name, stop_type, latitude, longitude, source_name, source_date, loaded_at FROM transport_stage`,
+          progress?.stage("filing · live rows deleted");
+          progress?.stage(
+            `filing · copying ${formatCount(expectedCount)} stops into transport_stops`,
           );
+          await withFilingPulse(
+            progress,
+            {
+              stage: `filing · copying ${formatCount(expectedCount)} stops into transport_stops`,
+            },
+            () =>
+              client.query(
+                `INSERT INTO transport_stops (atco_code, name, stop_type, latitude, longitude, source_name, source_date, loaded_at)
+             SELECT atco_code, name, stop_type, latitude, longitude, source_name, source_date, loaded_at FROM transport_stage`,
+              ),
+          );
+          progress?.stage(`filing · copy done · ${formatCount(expectedCount)} stops`);
           const filedCount = await client.query("SELECT count(*)::int AS n FROM transport_stops");
           if (filedCount.rows[0].n !== expectedCount)
             throw new Error("the filed transport count does not match — rolling back");
+          progress?.stage(`filing · filed count verified · ${formatCount(expectedCount)} stops`);
           await client.query("COMMIT");
+          progress?.stage(`filing · swap committed · ${formatCount(expectedCount)} stops live`);
         } catch (error) {
           await client.query("ROLLBACK").catch(() => {});
           throw error;

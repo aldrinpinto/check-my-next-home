@@ -79,6 +79,7 @@ import {
   createProgressLogger,
   formatCount,
   formatDuration,
+  withFilingPulse,
 } from "./progress.mjs";
 
 const FILES_BASE = "https://files.planning.data.gov.uk/dataset";
@@ -847,22 +848,52 @@ export async function beginFiling(
         );
         if (stagedPolygons.rows[0].n !== expectedPolygons)
           throw new Error("the staged polygon count does not match — rolling back");
+        // BUG-390: one progress line per sub-step — the
+        // filing previously printed one line and then went
+        // silent while the single INSERT...SELECT ran.
+        progress?.stage(
+          `filing · staged counts verified · ${formatCount(expectedListed)} listed buildings, ${formatCount(expectedPolygons)} polygons`,
+        );
         await client.query("BEGIN");
         try {
           await client.query("DELETE FROM listed_buildings");
-          await client.query(
-            `INSERT INTO listed_buildings (list_entry_id, name, grade, address, postcode, latitude, longitude, source_name, source_date, loaded_at)
-             SELECT list_entry_id, name, grade, address, postcode, latitude, longitude, source_name, source_date, loaded_at FROM heritage_listed_stage`,
+          progress?.stage("filing · live rows deleted");
+          progress?.stage(
+            `filing · copying ${formatCount(expectedListed)} listed buildings into listed_buildings`,
           );
+          await withFilingPulse(
+            progress,
+            {
+              stage: `filing · copying ${formatCount(expectedListed)} listed buildings into listed_buildings`,
+            },
+            () =>
+              client.query(
+                `INSERT INTO listed_buildings (list_entry_id, name, grade, address, postcode, latitude, longitude, source_name, source_date, loaded_at)
+             SELECT list_entry_id, name, grade, address, postcode, latitude, longitude, source_name, source_date, loaded_at FROM heritage_listed_stage`,
+              ),
+          );
+          progress?.stage(`filing · copy done · ${formatCount(expectedListed)} listed buildings`);
           for (const set of polygonSets) {
             await client.query("DELETE FROM planning_layers WHERE constraint_type = $1", [
               set.constraintType,
             ]);
           }
-          await client.query(
-            `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
-             SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM heritage_polygon_stage`,
+          progress?.stage("filing · live polygon rows deleted");
+          progress?.stage(
+            `filing · copying ${formatCount(expectedPolygons)} polygons into planning_layers`,
           );
+          await withFilingPulse(
+            progress,
+            {
+              stage: `filing · copying ${formatCount(expectedPolygons)} polygons into planning_layers`,
+            },
+            () =>
+              client.query(
+                `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
+             SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM heritage_polygon_stage`,
+              ),
+          );
+          progress?.stage(`filing · copy done · ${formatCount(expectedPolygons)} polygons`);
           const filedListed = await client.query("SELECT count(*)::int AS n FROM listed_buildings");
           if (filedListed.rows[0].n !== expectedListed)
             throw new Error("the filed listed-building count does not match — rolling back");
@@ -876,7 +907,13 @@ export async function beginFiling(
                 `the filed ${set.constraintType} count does not match — rolling back`,
               );
           }
+          progress?.stage(
+            `filing · filed counts verified · ${formatCount(expectedListed)} listed buildings, ${formatCount(expectedPolygons)} polygons`,
+          );
           await client.query("COMMIT");
+          progress?.stage(
+            `filing · swap committed · ${formatCount(expectedListed)} listed buildings, ${formatCount(expectedPolygons)} polygons live`,
+          );
         } catch (error) {
           await client.query("ROLLBACK").catch(() => {});
           throw error;

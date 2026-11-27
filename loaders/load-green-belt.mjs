@@ -43,7 +43,7 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { createLoaderResume } from "./loader-resume.mjs";
 import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
-import { createProgressLogger, formatCount } from "./progress.mjs";
+import { createProgressLogger, formatCount, withFilingPulse } from "./progress.mjs";
 
 const FILE_URL = "https://files.planning.data.gov.uk/dataset/green-belt.csv";
 const SOURCE_GREEN_BELT = "MHCLG Green Belt (via planning.data.gov.uk)";
@@ -462,19 +462,37 @@ export async function beginFiling(
         const stagedRes = await client.query("SELECT count(*)::int AS n FROM green_belt_stage");
         if (stagedRes.rows[0].n !== expectedPieces)
           throw new Error("the staged piece count does not match — rolling back");
+        // BUG-390: one progress line per sub-step — the
+        // filing previously printed one line and then went
+        // silent while the single INSERT...SELECT ran.
+        progress?.stage(`filing · staged count verified · ${formatCount(expectedPieces)} pieces`);
         await client.query("BEGIN");
         try {
           await client.query("DELETE FROM planning_layers WHERE constraint_type = 'green_belt'");
-          await client.query(
-            `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
-             SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM green_belt_stage`,
+          progress?.stage("filing · live rows deleted");
+          progress?.stage(
+            `filing · copying ${formatCount(expectedPieces)} pieces into planning_layers`,
           );
+          await withFilingPulse(
+            progress,
+            {
+              stage: `filing · copying ${formatCount(expectedPieces)} pieces into planning_layers`,
+            },
+            () =>
+              client.query(
+                `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
+             SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM green_belt_stage`,
+              ),
+          );
+          progress?.stage(`filing · copy done · ${formatCount(expectedPieces)} pieces`);
           const filedCount = await client.query(
             "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type = 'green_belt'",
           );
           if (filedCount.rows[0].n !== expectedPieces)
             throw new Error("the filed piece count does not match — rolling back");
+          progress?.stage(`filing · filed count verified · ${formatCount(expectedPieces)} pieces`);
           await client.query("COMMIT");
+          progress?.stage(`filing · swap committed · ${formatCount(expectedPieces)} pieces live`);
         } catch (error) {
           await client.query("ROLLBACK").catch(() => {});
           throw error;

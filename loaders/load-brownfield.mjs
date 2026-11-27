@@ -63,6 +63,7 @@ import {
   createProgressLogger,
   formatCount,
   formatDuration,
+  withFilingPulse,
 } from "./progress.mjs";
 
 const FILE_URL = "https://files.planning.data.gov.uk/dataset/brownfield-land.csv";
@@ -520,6 +521,10 @@ export async function beginFiling(
         const stagedRes = await client.query("SELECT count(*)::int AS n FROM brownfield_stage");
         if (stagedRes.rows[0].n !== expectedFiled)
           throw new Error("the staged site count does not match — rolling back");
+        // BUG-390: one progress line per sub-step — the
+        // filing previously printed one line and then went
+        // silent while the single INSERT...SELECT ran.
+        progress?.stage(`filing · staged count verified · ${formatCount(expectedFiled)} sites`);
         // The gate is the small tail of the same filing:
         // cleared and re-inserted fresh (one multi-row
         // INSERT) before the swap transaction. A kill here
@@ -542,27 +547,54 @@ export async function beginFiling(
             params,
           );
         }
+        progress?.stage(`filing · gate staged · ${formatCount(publishers.size)} organisations`);
         await client.query("BEGIN");
         try {
           await client.query("DELETE FROM brownfield_sites");
-          await client.query(
-            `INSERT INTO brownfield_sites (reference, organisation_entity, site_address, hectares, planning_permission_status, minimum_net_dwellings, maximum_net_dwellings, site_plan_url, latitude, longitude, source_name, source_date, loaded_at)
+          progress?.stage("filing · live rows deleted");
+          progress?.stage(
+            `filing · copying ${formatCount(expectedFiled)} sites into brownfield_sites`,
+          );
+          await withFilingPulse(
+            progress,
+            {
+              stage: `filing · copying ${formatCount(expectedFiled)} sites into brownfield_sites`,
+            },
+            () =>
+              client.query(
+                `INSERT INTO brownfield_sites (reference, organisation_entity, site_address, hectares, planning_permission_status, minimum_net_dwellings, maximum_net_dwellings, site_plan_url, latitude, longitude, source_name, source_date, loaded_at)
              SELECT reference, organisation_entity, site_address, hectares, planning_permission_status, minimum_net_dwellings, maximum_net_dwellings, site_plan_url, latitude, longitude, source_name, source_date, loaded_at FROM brownfield_stage`,
+              ),
           );
+          progress?.stage(`filing · copy done · ${formatCount(expectedFiled)} sites`);
           await client.query("DELETE FROM brownfield_publishers");
-          await client.query(
-            `INSERT INTO brownfield_publishers (organisation_entity, current_sites, source_name, source_date, loaded_at)
-             SELECT organisation_entity, current_sites, source_name, source_date, loaded_at FROM brownfield_gate_stage`,
+          progress?.stage(
+            `filing · copying ${formatCount(publishers.size)} publishers into brownfield_publishers`,
           );
+          await withFilingPulse(
+            progress,
+            {
+              stage: `filing · copying ${formatCount(publishers.size)} publishers into brownfield_publishers`,
+            },
+            () =>
+              client.query(
+                `INSERT INTO brownfield_publishers (organisation_entity, current_sites, source_name, source_date, loaded_at)
+             SELECT organisation_entity, current_sites, source_name, source_date, loaded_at FROM brownfield_gate_stage`,
+              ),
+          );
+          progress?.stage(`filing · copy done · ${formatCount(publishers.size)} publishers`);
           const filedCount = await client.query("SELECT count(*)::int AS n FROM brownfield_sites");
           if (filedCount.rows[0].n !== expectedFiled)
             throw new Error("the filed site count does not match — rolling back");
+          progress?.stage(`filing · filed count verified · ${formatCount(expectedFiled)} sites`);
           const gateCount = await client.query(
             "SELECT count(*)::int AS n FROM brownfield_publishers",
           );
           if (gateCount.rows[0].n !== publishers.size)
             throw new Error("the filed gate count does not match — rolling back");
+          progress?.stage(`filing · gate filed · ${formatCount(publishers.size)} publishers`);
           await client.query("COMMIT");
+          progress?.stage(`filing · swap committed · ${formatCount(expectedFiled)} sites live`);
         } catch (error) {
           await client.query("ROLLBACK").catch(() => {});
           throw error;

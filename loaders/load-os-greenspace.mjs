@@ -130,6 +130,7 @@ import {
   createProgressLogger,
   formatCount,
   formatDuration,
+  withFilingPulse,
 } from "./progress.mjs";
 
 const { Pool } = pg;
@@ -738,6 +739,13 @@ export async function createGreenspaceFiler(
       try {
         await client.query("BEGIN");
         await client.query("DELETE FROM greenspace_points");
+        // BUG-390: one progress line per sub-step — the
+        // filing previously printed one line and then went
+        // silent while the single INSERT...SELECT ran.
+        progress?.stage("filing · live rows deleted");
+        progress?.stage(
+          `filing · copying ${formatCount(stagedRows)} points into greenspace_points`,
+        );
         // The live table's position columns are latitude/longitude
         // (migration 0001) — this INSERT originally named them
         // lat/lon, the row objects' property names: the same
@@ -748,12 +756,21 @@ export async function createGreenspaceFiler(
         // node:sqlite ExperimentalWarning instead (runs 98–99) —
         // but the DDL cross-check finds it here without needing
         // the log, and the schema-contract tests now pin it.
-        await client.query(
-          `INSERT INTO greenspace_points (osm_id, name, point_role, latitude, longitude, source_name, source_date, loaded_at)
+        await withFilingPulse(
+          progress,
+          {
+            stage: `filing · copying ${formatCount(stagedRows)} points into greenspace_points`,
+          },
+          () =>
+            client.query(
+              `INSERT INTO greenspace_points (osm_id, name, point_role, latitude, longitude, source_name, source_date, loaded_at)
            SELECT osm_id, name, point_role, latitude, longitude, source_name, source_date, $1 FROM greenspace_stage`,
-          [retrievedAt],
+              [retrievedAt],
+            ),
         );
+        progress?.stage(`filing · copy done · ${formatCount(stagedRows)} points`);
         await client.query("COMMIT");
+        progress?.stage(`filing · swap committed · ${formatCount(stagedRows)} points live`);
       } catch (err) {
         await client.query("ROLLBACK").catch(() => {});
         client.release();

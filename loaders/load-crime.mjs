@@ -462,6 +462,16 @@ export async function beginFiling(
       progress?.stage(`filing ${formatCount(postcodes.length)} crime answers`);
       await client.query("BEGIN");
       try {
+        // BUG-390: the update loop previously ran silent —
+        // a tally over it, plus a line per sub-step, so a
+        // long filing shows its progress.
+        const filingTally = progress?.tally({
+          label: "filing",
+          total: postcodes.length,
+          every: Math.max(1, Math.ceil(postcodes.length / 10)),
+          unit: "answers",
+        });
+        let filedCount = 0;
         for (const pc of postcodes) {
           const res = await client.query(
             "UPDATE postcode_cache SET answers = answers || $1::jsonb WHERE postcode = $2",
@@ -471,7 +481,11 @@ export async function beginFiling(
             throw new Error(
               `${pc}: not in the postcode directory — run the postcode loader (step M4.1) first`,
             );
+          filedCount += 1;
+          filingTally?.tick(filedCount);
         }
+        filingTally?.finish(filedCount);
+        progress?.stage("filing · verifying filed answers");
         for (const pc of postcodes) {
           const res = await client.query(
             "SELECT answers->'crime' AS crime FROM postcode_cache WHERE postcode = $1",
@@ -490,7 +504,11 @@ export async function beginFiling(
               `${pc}: the filed crime answer does not match the counted figures — rolling back`,
             );
         }
+        progress?.stage("filing · filed answers verified");
         await client.query("COMMIT");
+        progress?.stage(
+          `filing · swap committed · ${formatCount(postcodes.length)} crime answers live`,
+        );
       } catch (error) {
         // BUG-265: the filing transaction rolls back, so
         // nothing is filed on failure.

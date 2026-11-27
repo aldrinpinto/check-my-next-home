@@ -58,6 +58,7 @@ import {
   createProgressLogger,
   formatCount,
   formatDuration,
+  withFilingPulse,
 } from "./progress.mjs";
 
 const FILES_BASE = "https://files.planning.data.gov.uk/dataset";
@@ -571,6 +572,10 @@ export async function beginFiling(
         const stagedRes = await client.query("SELECT count(*)::int AS n FROM planning_areas_stage");
         if (stagedRes.rows[0].n !== expectedLayers)
           throw new Error("the staged layer count does not match — rolling back");
+        // BUG-390: one progress line per sub-step — the
+        // filing previously printed one line and then went
+        // silent while the single INSERT...SELECT ran.
+        progress?.stage(`filing · staged count verified · ${formatCount(expectedLayers)} layers`);
         // The gate is the small tail of the same filing:
         // cleared and re-inserted fresh (one multi-row
         // INSERT) before the swap transaction. A kill here
@@ -604,26 +609,52 @@ export async function beginFiling(
           await client.query(
             "DELETE FROM planning_layers WHERE constraint_type IN ('conservation_area', 'article_4_area')",
           );
-          await client.query(
-            `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
+          progress?.stage("filing · live rows deleted");
+          progress?.stage(
+            `filing · copying ${formatCount(expectedLayers)} layers into planning_layers`,
+          );
+          await withFilingPulse(
+            progress,
+            {
+              stage: `filing · copying ${formatCount(expectedLayers)} layers into planning_layers`,
+            },
+            () =>
+              client.query(
+                `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
              SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM planning_areas_stage`,
+              ),
           );
+          progress?.stage(`filing · copy done · ${formatCount(expectedLayers)} layers`);
           await client.query("DELETE FROM article4_publishers");
-          await client.query(
-            `INSERT INTO article4_publishers (organisation_entity, current_areas, areas_with_geometry, source_name, source_date, loaded_at)
-             SELECT organisation_entity, current_areas, areas_with_geometry, source_name, source_date, loaded_at FROM article4_gate_stage`,
+          progress?.stage(
+            `filing · copying ${formatCount(publishers.size)} publishers into article4_publishers`,
           );
+          await withFilingPulse(
+            progress,
+            {
+              stage: `filing · copying ${formatCount(publishers.size)} publishers into article4_publishers`,
+            },
+            () =>
+              client.query(
+                `INSERT INTO article4_publishers (organisation_entity, current_areas, areas_with_geometry, source_name, source_date, loaded_at)
+             SELECT organisation_entity, current_areas, areas_with_geometry, source_name, source_date, loaded_at FROM article4_gate_stage`,
+              ),
+          );
+          progress?.stage(`filing · copy done · ${formatCount(publishers.size)} publishers`);
           const filedCount = await client.query(
             "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type IN ('conservation_area', 'article_4_area')",
           );
           if (filedCount.rows[0].n !== expectedLayers)
             throw new Error("the filed layer count does not match — rolling back");
+          progress?.stage(`filing · filed count verified · ${formatCount(expectedLayers)} layers`);
           const gateCount = await client.query(
             "SELECT count(*)::int AS n FROM article4_publishers",
           );
           if (gateCount.rows[0].n !== publishers.size)
             throw new Error("the filed gate count does not match — rolling back");
+          progress?.stage(`filing · gate filed · ${formatCount(publishers.size)} publishers`);
           await client.query("COMMIT");
+          progress?.stage(`filing · swap committed · ${formatCount(expectedLayers)} layers live`);
         } catch (error) {
           await client.query("ROLLBACK").catch(() => {});
           throw error;

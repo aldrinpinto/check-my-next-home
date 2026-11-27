@@ -82,6 +82,7 @@ import { statfsSync } from "node:fs";
  * @property {(args: ProgressCount) => void} count
  * @property {(args: { label: string, total?: number | null, every: number, unit?: string }) => ProgressTally} tally
  * @property {(args: { stage: string, done: number, total?: number | null, every?: number }) => boolean} heartbeat
+ * @property {(args: { stage: string, intervalMs?: number }) => (() => void)} pulse
  * @property {(args: { what: string, value: string, threshold: string }) => void} warning
  * @property {(args: { stage: string, filed: number, total?: number | null, error: unknown, resume: string }) => void} failed
  */
@@ -98,6 +99,13 @@ export function formatCount(n) {
 // whichever comes first (BUG-248).
 export const HEARTBEAT_EVERY_MS = 15 * 60 * 1000;
 export const HEARTBEAT_EVERY_BATCHES = 10;
+// Pulse cadence for one long filing step (BUG-390): a line
+// every 5 minutes while a single statement runs. Shorter
+// than the 15-minute heartbeat because the filing phase
+// previously went silent for ~30 minutes with no line at
+// all; longer than per-batch noise because the pulse only
+// fires while one statement is awaited.
+export const PULSE_EVERY_MS = 5 * 60 * 1000;
 // Health thresholds (BUG-248). Disk free is in GB, RSS in MB.
 export const DISK_FREE_WARN_GB = 15;
 export const RSS_WARN_MB = 4096;
@@ -279,6 +287,33 @@ export function createProgressLogger({
       return true;
     },
 
+    // A timer-driven pulse for one long indivisible step (a
+    // single INSERT...SELECT swap, BUG-390): emits a stage
+    // line every intervalMs while the step runs, naming the
+    // step and the time in. Returns stop(). The timer is
+    // unref'd so it never holds the process open; stop()
+    // MUST be called in a finally block — a pulse left
+    // running would log into the next stage. The first
+    // pulse fires one interval after start, never at once,
+    // so a fast step earns no pulse line at all.
+    pulse({ stage, intervalMs = PULSE_EVERY_MS }) {
+      if (!Number.isInteger(intervalMs) || intervalMs <= 0)
+        throw new Error(
+          `progress pulse for ${name}: "intervalMs" must be a positive integer, got ${intervalMs}`,
+        );
+      const pulseStartedAt = now();
+      const timer = setInterval(() => {
+        emit(`${stage} · still running · ${formatDuration(now() - pulseStartedAt)}`);
+      }, intervalMs);
+      timer.unref?.();
+      let stopped = false;
+      return () => {
+        if (stopped) return;
+        stopped = true;
+        clearInterval(timer);
+      };
+    },
+
     warning,
 
     // Printed by the loader itself, at the innermost catch
@@ -296,4 +331,19 @@ export function createProgressLogger({
       );
     },
   };
+}
+
+// Run one long filing step with a pulse around it (BUG-390):
+// the pulse starts before the work and stops in a finally
+// block, on success and on failure alike, so the log shows
+// the step is alive while a single statement runs and never
+// logs past it. With no logger the work just runs.
+export async function withFilingPulse(progress, { stage, intervalMs = PULSE_EVERY_MS }, work) {
+  if (!progress) return work();
+  const stop = progress.pulse({ stage, intervalMs });
+  try {
+    return await work();
+  } finally {
+    stop();
+  }
 }

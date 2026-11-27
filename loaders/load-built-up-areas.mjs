@@ -76,6 +76,7 @@ import {
   createProgressLogger,
   formatCount,
   formatDuration,
+  withFilingPulse,
 } from "./progress.mjs";
 
 const SERVICE_URL =
@@ -685,19 +686,37 @@ export async function beginFiling(
         const stagedRes = await client.query("SELECT count(*)::int AS n FROM built_up_area_stage");
         if (stagedRes.rows[0].n !== expectedCount)
           throw new Error("the staged area count does not match — rolling back");
+        // BUG-390: one progress line per sub-step — the
+        // filing previously printed one line and then went
+        // silent while the single INSERT...SELECT ran.
+        progress?.stage(`filing · staged count verified · ${formatCount(expectedCount)} areas`);
         await client.query("BEGIN");
         try {
           await client.query("DELETE FROM planning_layers WHERE constraint_type = 'built_up_area'");
-          await client.query(
-            `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
-           SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM built_up_area_stage`,
+          progress?.stage("filing · live rows deleted");
+          progress?.stage(
+            `filing · copying ${formatCount(expectedCount)} areas into planning_layers`,
           );
+          await withFilingPulse(
+            progress,
+            {
+              stage: `filing · copying ${formatCount(expectedCount)} areas into planning_layers`,
+            },
+            () =>
+              client.query(
+                `INSERT INTO planning_layers (constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at)
+           SELECT constraint_type, name, geom, source_reference, organisation, quality, detail, source_name, source_date, loaded_at FROM built_up_area_stage`,
+              ),
+          );
+          progress?.stage(`filing · copy done · ${formatCount(expectedCount)} areas`);
           const filedCount = await client.query(
             "SELECT count(*)::int AS n FROM planning_layers WHERE constraint_type = 'built_up_area'",
           );
           if (filedCount.rows[0].n !== expectedCount)
             throw new Error("the filed area count does not match — rolling back");
+          progress?.stage(`filing · filed count verified · ${formatCount(expectedCount)} areas`);
           await client.query("COMMIT");
+          progress?.stage(`filing · swap committed · ${formatCount(expectedCount)} areas live`);
         } catch (error) {
           await client.query("ROLLBACK").catch(() => {});
           throw error;

@@ -101,6 +101,7 @@ import {
   createProgressLogger,
   formatCount,
   formatDuration,
+  withFilingPulse,
 } from "./progress.mjs";
 import { createShortPageTracker, isShortPage, verifyReadCounts } from "./read-tolerance.mjs";
 
@@ -986,38 +987,78 @@ export async function beginFiling(
         );
         if (staged.rows[0].n !== expectedCount)
           throw new Error("the staged shape count does not match — rolling back");
-        const invalidStaged = await client.query(
-          "SELECT count(*)::int AS n FROM flood_stage WHERE layer_type = $1 AND NOT ST_IsValid(geom)",
-          [LAYER_TYPE],
+        // BUG-390: one progress line per sub-step — the
+        // filing previously printed one line and then went
+        // silent for ~30 minutes while the single
+        // INSERT...SELECT ran.
+        progress?.stage(`filing · staged count verified · ${formatCount(expectedCount)} shapes`);
+        progress?.stage("filing · scanning staged shapes for invalid geometry");
+        const invalidStaged = await withFilingPulse(
+          progress,
+          { stage: "filing · scanning staged shapes for invalid geometry" },
+          () =>
+            client.query(
+              "SELECT count(*)::int AS n FROM flood_stage WHERE layer_type = $1 AND NOT ST_IsValid(geom)",
+              [LAYER_TYPE],
+            ),
         );
         const invalidCount = invalidStaged.rows[0].n;
+        progress?.stage(`filing · invalid staged shapes · ${formatCount(invalidCount)}`);
         await client.query("DELETE FROM flood_layers WHERE layer_type = $1", [LAYER_TYPE]);
-        await client.query(
-          `INSERT INTO flood_layers (layer_type, risk_label, geom, layer_date, detail, source_name, source_date, loaded_at)
-           SELECT layer_type, risk_label, ST_Multi(ST_CollectionExtract(ST_MakeValid(geom), 3)), layer_date, detail, source_name, source_date, loaded_at FROM flood_stage WHERE layer_type = $1`,
-          [LAYER_TYPE],
+        progress?.stage("filing · live rows deleted");
+        progress?.stage(
+          `filing · copying ${formatCount(expectedCount)} shapes into flood_layers (validity repair)`,
         );
+        await withFilingPulse(
+          progress,
+          {
+            stage: `filing · copying ${formatCount(expectedCount)} shapes into flood_layers (validity repair)`,
+          },
+          () =>
+            client.query(
+              `INSERT INTO flood_layers (layer_type, risk_label, geom, layer_date, detail, source_name, source_date, loaded_at)
+           SELECT layer_type, risk_label, ST_Multi(ST_CollectionExtract(ST_MakeValid(geom), 3)), layer_date, detail, source_name, source_date, loaded_at FROM flood_stage WHERE layer_type = $1`,
+              [LAYER_TYPE],
+            ),
+        );
+        progress?.stage(`filing · copy done · ${formatCount(expectedCount)} shapes`);
         const filedCount = await client.query(
           "SELECT count(*)::int AS n FROM flood_layers WHERE layer_type = $1",
           [LAYER_TYPE],
         );
         if (filedCount.rows[0].n !== expectedCount)
           throw new Error("the filed shape count does not match — rolling back");
-        const emptied = await client.query(
-          "SELECT count(*)::int AS n FROM flood_layers WHERE layer_type = $1 AND ST_IsEmpty(geom)",
-          [LAYER_TYPE],
+        progress?.stage(`filing · filed count verified · ${formatCount(expectedCount)} shapes`);
+        progress?.stage("filing · scanning filed shapes for emptied geometry");
+        const emptied = await withFilingPulse(
+          progress,
+          { stage: "filing · scanning filed shapes for emptied geometry" },
+          () =>
+            client.query(
+              "SELECT count(*)::int AS n FROM flood_layers WHERE layer_type = $1 AND ST_IsEmpty(geom)",
+              [LAYER_TYPE],
+            ),
         );
         if (emptied.rows[0].n !== 0)
           throw new Error(
             `${emptied.rows[0].n} shapes were emptied by validity repair — rolling back (L4: never drop silently)`,
           );
-        const invalidFiled = await client.query(
-          "SELECT count(*)::int AS n FROM flood_layers WHERE layer_type = $1 AND NOT ST_IsValid(geom)",
-          [LAYER_TYPE],
+        progress?.stage(`filing · emptied by repair · ${formatCount(emptied.rows[0].n)} shapes`);
+        progress?.stage("filing · scanning filed shapes for invalid geometry");
+        const invalidFiled = await withFilingPulse(
+          progress,
+          { stage: "filing · scanning filed shapes for invalid geometry" },
+          () =>
+            client.query(
+              "SELECT count(*)::int AS n FROM flood_layers WHERE layer_type = $1 AND NOT ST_IsValid(geom)",
+              [LAYER_TYPE],
+            ),
         );
         if (invalidFiled.rows[0].n !== 0)
           throw new Error(`${invalidFiled.rows[0].n} filed shapes are invalid — rolling back`);
+        progress?.stage(`filing · invalid filed shapes · ${formatCount(invalidFiled.rows[0].n)}`);
         await client.query("COMMIT");
+        progress?.stage(`filing · swap committed · ${formatCount(expectedCount)} shapes live`);
         // The swap landed: clear the staging rows and the
         // checkpoint, so nothing of this run is left behind.
         await resume.clear();
