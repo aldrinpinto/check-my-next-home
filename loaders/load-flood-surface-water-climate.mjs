@@ -111,7 +111,11 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { bboxOfPolygons, createGoldenSift, createTotals } from "./flood-stream.mjs";
-import { createFloodResume } from "./flood-resume.mjs";
+import {
+  createFloodResume,
+  isTransientFetchError,
+  TRANSIENT_RETRY_BUDGET_MS,
+} from "./flood-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -224,26 +228,50 @@ function polygonsToWkt(polygons) {
 // --- fetching ------------------------------------------------------
 
 const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
-async function fetchResponse(url, what, attempts = RETRY_DELAYS_MS.length + 1) {
-  let lastError = null;
-  for (let attempt = 1; attempt <= attempts; attempt++) {
+// BUG-384: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the old 5-attempt budget died after ~3 minutes of
+// connect timeouts (BUG-381) and took a 5-hour read with it.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError):
+// retrying them cannot help.
+async function fetchResponse(
+  url,
+  what,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
     try {
       const response = await fetch(url);
-      if (!response.ok) throw new Error(`HTTP ${response.status} for ${what}`);
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status} for ${what}`);
+        error.status = response.status;
+        throw error;
+      }
       return response;
     } catch (error) {
-      lastError = error;
-      if (attempt < attempts)
-        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt - 1]));
+      if (!isTransientFetchError(error)) throw error;
+      // BUG-384 cap: 30 minutes of retrying, then the run
+      // dies with the original error and waits (founder's
+      // rule) — a dead service never parks it forever.
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, what);
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
-  throw lastError;
 }
-async function fetchJson(url, what) {
-  return (await fetchResponse(url, what)).json();
+async function fetchJson(url, what, opts) {
+  return (await fetchResponse(url, what, opts)).json();
 }
-async function fetchText(url, what) {
-  return (await fetchResponse(url, what)).text();
+async function fetchText(url, what, opts) {
+  return (await fetchResponse(url, what, opts)).text();
 }
 
 // The edition date, from the serving system's own build
@@ -264,8 +292,8 @@ export function parseEdition(xml) {
   return [...dates][0];
 }
 
-async function fetchEdition() {
-  const xml = await fetchText(WMS_URL, "the surface water climate WMS capabilities");
+async function fetchEdition(opts) {
+  const xml = await fetchText(WMS_URL, "the surface water climate WMS capabilities", opts);
   return parseEdition(xml);
 }
 
@@ -321,29 +349,38 @@ function serviceErrorText(body) {
   return parts.length > 0 ? parts.join(": ") : "unknown error";
 }
 
-// One items page, fetched and judged INSIDE the retry boundary
-// (the guard pattern the 13 Nov 2026 PHI diagnosis set,
-// scratch-nature/PHI-DIAGNOSIS.md: a body the service failed
-// with must never read as a page of data — above all, never as
-// an empty page that ends the read). The count oracle must be
-// restated, the features member must be an array, and an empty
-// page while the count says more remain is a failed page: the
-// SAME startIndex is re-requested, and after the last attempt
-// the load fails loudly and files nothing.
+// One items page, fetched and judged (the guard pattern the
+// 13 Nov 2026 PHI diagnosis set, scratch-nature/PHI-DIAGNOSIS.md:
+// a body the service failed with must never read as a page of
+// data — above all, never as an empty page that ends the read).
+// Two retry levels, kept apart: the fetch retries transient
+// TRANSPORT failures within the 30-minute retry budget
+// (fetchResponse, BUG-384),
+// while a page whose BODY fails the contract is re-requested
+// in place within the delays budget — a single glitched page
+// must not kill the run, and a page that stays bad past the
+// budget fails loudly and files nothing. The transport call
+// sits OUTSIDE the try: a non-transient fetch failure (a 404,
+// an auth error) is not a bad body and is never re-requested
+// here. The count oracle must be restated, the features
+// member must be an array, and an empty page while the count
+// says more remain is a failed page.
 async function fetchSurfaceWaterClimatePage(
   startIndex,
   expected,
   read,
   delaysMs = RETRY_DELAYS_MS,
+  onRetry = null,
+  retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
 ) {
   let lastError = null;
   for (let attempt = 1; attempt <= delaysMs.length + 1; attempt++) {
+    const response = await fetchResponse(
+      `${ITEMS_URL}?limit=${PAGE}&startIndex=${startIndex}&f=json`,
+      "the surface water climate features",
+      { delaysMs, onRetry, retryBudgetMs },
+    );
     try {
-      const response = await fetchResponse(
-        `${ITEMS_URL}?limit=${PAGE}&startIndex=${startIndex}&f=json`,
-        "the surface water climate features",
-        1,
-      );
       const page = await response.json();
       const errorText = serviceErrorText(page);
       if (errorText)
@@ -356,7 +393,7 @@ async function fetchSurfaceWaterClimatePage(
         );
       if (!Array.isArray(page.features))
         throw new Error(
-          `the surface water climate page at startIndex ${startIndex} carries no features array`,
+          `the the surface water climate service returned an error for the page at startIndex ${startIndex} carries no features array`,
         );
       if (page.features.length === 0)
         throw new Error(`surface water climate: paging stopped at ${read} of ${expected} features`);
@@ -384,15 +421,29 @@ async function fetchSurfaceWaterClimatePage(
 // item, as it always did — the shape the paging tests pin.
 export async function readLive({
   delaysMs = RETRY_DELAYS_MS,
+  retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
   onItems = null,
   progress = null,
   resume = null,
 } = {}) {
-  const first = await fetchJson(`${ITEMS_URL}?limit=1&f=json`, "the surface water climate count");
+  // BUG-384: a fetch retry earns a visible warning line, so a
+  // run parked on a down service shows in the log instead of
+  // looking stalled.
+  const onRetry = (error, attempt, delay, what) =>
+    progress?.warning({
+      what: "fetch retry",
+      value: `${what} attempt ${attempt} failed (${String(error?.message ?? error).split(/\r?\n/)[0]})`,
+      threshold: `retrying in ${formatDuration(delay)}`,
+    });
+  const first = await fetchJson(`${ITEMS_URL}?limit=1&f=json`, "the surface water climate count", {
+    delaysMs,
+    onRetry,
+    retryBudgetMs,
+  });
   const expected = first.numberMatched;
   if (!Number.isInteger(expected) || expected <= 0)
     throw new Error("contract failure: the surface water items response carries no numberMatched");
-  const edition = await fetchEdition();
+  const edition = await fetchEdition({ delaysMs, onRetry, retryBudgetMs });
   // BUG-366: resume — a checkpoint for this loader, edition and
   // count lets the read pick up where a killed run stopped
   // instead of starting from zero. The totals seed from the
@@ -439,7 +490,14 @@ export async function readLive({
   const heartbeatEvery = Math.max(1, Math.ceil(expected / 2));
   while (totals.read < expected) {
     const started = Date.now();
-    const page = await fetchSurfaceWaterClimatePage(startIndex, expected, totals.read, delaysMs);
+    const page = await fetchSurfaceWaterClimatePage(
+      startIndex,
+      expected,
+      totals.read,
+      delaysMs,
+      onRetry,
+      retryBudgetMs,
+    );
     const batch = page.features;
     const processed = processFeatures(batch);
     totals.addBatch(processed, batch.length);
@@ -735,6 +793,12 @@ export async function beginFiling(
         pendingBytes += wkt.length;
         if (pending.length >= 25 || pendingBytes >= 4_000_000) await flushPending();
       }
+      // BUG-382: flush the tail before returning — the read loop
+      // checkpoints immediately after this call, and the
+      // checkpoint's filed count must name rows that are
+      // durable, not rows still buffered here (a kill after
+      // the checkpoint left staging 9 rows short of it).
+      await flushPending();
     },
     async finishFiling(expectedCount) {
       try {

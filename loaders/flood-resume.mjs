@@ -75,6 +75,53 @@ import { formatCount } from "./progress.mjs";
 export const FLOOD_RESUME_CHECKPOINT_TABLE = "flood_loader_checkpoint";
 export const FLOOD_RESUME_WINDOW_METRES = GOLDEN_WINDOW_MILES * 1609.344;
 
+// BUG-384 (cap, founder-ordered 27 Nov 2026): a transient
+// fetch failure retries for at most 30 minutes of wall-clock
+// retrying per fetch — long enough to ride out an EA outage
+// (BUG-381's ran ~3 minutes), short enough that a dead
+// service never parks a run forever. When the budget is
+// spent the original error fails the run, and the run waits
+// (the founder's rule) instead of retrying. Overridable per
+// fetch for tests (retryBudgetMs).
+export const TRANSIENT_RETRY_BUDGET_MS = 30 * 60 * 1000;
+
+// BUG-384: which fetch failures are worth retrying. A connection
+// blip — the service not answering, a reset, a 5xx or a 429 —
+// is transient: the read retries it for up to 30 minutes
+// (TRANSIENT_RETRY_BUDGET_MS, BUG-384 cap), so a multi-hour
+// read never dies on one (BUG-381: the old 5-attempt budget
+// ran out after ~3 minutes of connect timeouts) — but a dead
+// service still fails the run after half an hour instead of
+// parking it forever. Anything else (another 4xx, a contract
+// violation,
+// a malformed body) fails fast: retrying it cannot help. The
+// status, when the loader's fetch stamps it on the error, is
+// the authority; the code and message are the backstop for
+// errors the transport raises without one.
+const TRANSIENT_ERROR_CODES = new Set([
+  "ECONNABORTED",
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "EAI_AGAIN",
+  "ENOTFOUND",
+  "EPIPE",
+  "ETIMEDOUT",
+  "UND_ERR_BODY_TIMEOUT",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_SOCKET",
+]);
+export function isTransientFetchError(error) {
+  if (!error || typeof error !== "object") return false;
+  const status = error.status;
+  if (typeof status === "number") return status === 408 || status === 429 || status >= 500;
+  const code = error.cause?.code ?? error.code;
+  if (typeof code === "string" && TRANSIENT_ERROR_CODES.has(code)) return true;
+  return /connect timeout|connection (reset|aborted|refused)|socket hang up|timed out|fetch failed|network error|temporarily unavailable/i.test(
+    String(error.message ?? ""),
+  );
+}
+
 // --- checkpoint rows -------------------------------------------------
 
 export async function readCheckpoint(client, loader) {

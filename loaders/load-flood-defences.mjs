@@ -88,7 +88,11 @@ import {
   formatCount,
   formatDuration,
 } from "./progress.mjs";
-import { createFloodResume } from "./flood-resume.mjs";
+import {
+  createFloodResume,
+  isTransientFetchError,
+  TRANSIENT_RETRY_BUDGET_MS,
+} from "./flood-resume.mjs";
 
 export const ITEM = "load-flood-defences";
 
@@ -788,12 +792,48 @@ function zipMemberDate(zipPath) {
   });
 }
 
-async function fetchLive() {
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+// BUG-384: the one-shot download retried like the OGC pages —
+// a transient failure (connect timeout, reset, 5xx, 429)
+// retries for up to 30 minutes (TRANSIENT_RETRY_BUDGET_MS,
+// founder-ordered 27 Nov 2026) instead of killing the run;
+// past the budget the original error fails the run and it
+// waits. Anything else throws at once.
+async function fetchDownload(progress = null) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
+    try {
+      const response = await fetch(DOWNLOAD_URL);
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status} for the AIMS GeoPackage download`);
+        error.status = response.status;
+        throw error;
+      }
+      return response;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      // BUG-384 cap: 30 minutes of retrying, then the run
+      // dies with the original error and waits (founder's
+      // rule) — a dead service never parks it forever.
+      if (Date.now() - startedAt >= TRANSIENT_RETRY_BUDGET_MS) throw error;
+      const delay = RETRY_DELAYS_MS[Math.min(attempt - 1, RETRY_DELAYS_MS.length - 1)];
+      progress?.warning({
+        what: "fetch retry",
+        value: `the AIMS GeoPackage download attempt ${attempt} failed (${String(error?.message ?? error).split(/\r?\n/)[0]})`,
+        threshold: `retrying in ${formatDuration(delay)}`,
+      });
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
+async function fetchLive(progress = null) {
   rmSync(WORKDIR, { recursive: true, force: true });
   mkdirSync(WORKDIR, { recursive: true });
   const zipPath = join(WORKDIR, "aims.zip");
-  const response = await fetch(DOWNLOAD_URL);
-  if (!response.ok) throw new Error(`HTTP ${response.status} for the AIMS GeoPackage download`);
+  const response = await fetchDownload(progress);
   // The zip streams to disk (BUG-187) — the whole payload is
   // never buffered in memory on its way through.
   await pipeline(Readable.fromWeb(response.body), createWriteStream(zipPath));
@@ -831,7 +871,7 @@ async function main() {
   // filing marker below.
   const progress = createProgressLogger({ name: "load-flood-defences" });
 
-  const { gpkgPath, edition } = fixtureDir ? readFixture(fixtureDir) : await fetchLive();
+  const { gpkgPath, edition } = fixtureDir ? readFixture(fixtureDir) : await fetchLive(progress);
 
   // One streaming pass (BUG-187): each row is read off the
   // file cursor, offered to the golden statistics and

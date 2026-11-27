@@ -252,11 +252,25 @@ function createFakeDb() {
           rows: [{ n: rows.length, s: String(rows.reduce((acc, r) => acc + r.seq, 0)) }],
         };
       }
+      // Climate staging (BUG-382: the climate filers stage into
+      // flood_climate_stage, so their prepare() needs the same
+      // count/sum answer as the flood_stage table).
+      if (sql.includes("coalesce(sum(seq), 0)::bigint AS s FROM flood_climate_stage")) {
+        const rows = stage.filter((r) => r.layerType === (params[0] as string));
+        return {
+          rows: [{ n: rows.length, s: String(rows.reduce((acc, r) => acc + r.seq, 0)) }],
+        };
+      }
       if (sql.includes("SELECT count(*)::int AS n FROM flood_stage WHERE layer_type = $1"))
         return {
           rows: [{ n: stage.filter((r) => r.layerType === (params[0] as string)).length }],
         };
       if (sql.includes("DELETE FROM flood_stage WHERE layer_type = $1")) {
+        for (let i = stage.length - 1; i >= 0; i -= 1)
+          if (stage[i].layerType === (params[0] as string)) stage.splice(i, 1);
+        return { rows: [] };
+      }
+      if (sql.includes("DELETE FROM flood_climate_stage WHERE layer_type = $1")) {
         for (let i = stage.length - 1; i >= 0; i -= 1)
           if (stage[i].layerType === (params[0] as string)) stage.splice(i, 1);
         return { rows: [] };
@@ -501,9 +515,12 @@ describe("fixture-mode resume end to end (BUG-366)", () => {
       expect(refDb.layers).toHaveLength(EXPECTED);
 
       // Run one: parts 1+2 stage and checkpoint; part 3 stages
-      // its flushed chunks and then the run dies — the 6 rows
-      // still buffered in the filer die with it, the checkpoint
-      // stands at part 2, and the live table is untouched.
+      // its flushed chunks and then the run dies — the rows
+      // still buffered in the filer (after its last flush) die
+      // with it, the checkpoint stands at part 2, and the live
+      // table is untouched. (BUG-382: the checkpoint flushes
+      // the tail first, so nothing is buffered at part 2 — the
+      // old "6 rows still buffered" shape is gone.)
       const db = createFakeDb();
       const run1 = collect();
       const filer1 = await beginFiling(run1.progress, { client: db as never });
@@ -528,7 +545,10 @@ describe("fixture-mode resume end to end (BUG-366)", () => {
       // the read (every seq from 0, no gaps), past the
       // checkpoint and short of the whole part.
       expect(db.stage.length).toBeGreaterThan(381);
-      expect(db.stage.length).toBeLessThan(462);
+      // Short of the whole part (463): the exact count is the
+      // chunking's business — the 4 MB flush can fire late in
+      // part 3 and leave a single row buffered.
+      expect(db.stage.length).toBeLessThan(EXPECTED);
       expect(db.stage.map((r) => r.seq).sort((a, b) => a - b)).toEqual(
         Array.from({ length: db.stage.length }, (_, i) => i),
       );
@@ -543,7 +563,7 @@ describe("fixture-mode resume end to end (BUG-366)", () => {
 
       // Run two: the same fake database — the run resumes from
       // the checkpoint, re-reads part 3 (its flushed rows are
-      // no-ops, the 6 lost rows stage now), and files the set.
+      // no-ops, the rows lost from the buffer stage now), and files the set.
       const run2 = collect();
       const filer2 = await beginFiling(run2.progress, { client: db as never });
       const resumed = await readFixture(FIXTURE_DIR, {
@@ -756,4 +776,55 @@ describe("staging INSERTs — placeholder count matches the target columns (BUG-
     expect(call, "no staging INSERT recorded for flood_defences_stage").toBeDefined();
     assertStagingInsertShape(call!, "flood_defences_stage");
   });
+});
+
+describe("checkpoint after an unflushed tail — the filer flushes before the checkpoint (BUG-382)", () => {
+  const ogcFilers = [
+    ["flood zones", beginFiling],
+    ["flood rivers and sea", beginRiversSeaFiling],
+    ["flood surface water", beginSurfaceWaterFiling],
+    ["flood rivers and sea climate", beginRiversSeaClimateFiling],
+    ["flood surface water climate", beginSurfaceWaterClimateFiling],
+  ] as const;
+
+  it.each(ogcFilers)(
+    "%s resumes after a kill with 10 unflushed rows still buffered",
+    async (_label, begin) => {
+      const db = createFakeDb();
+      const { progress } = collect();
+      // A killed run, the BUG-381 shape: 10 items staged —
+      // below the 25-row flush threshold, so nothing has
+      // reached the database — then the checkpoint written
+      // for them, filed ahead of staged rows. A fresh filer
+      // must resume from that checkpoint, not discard it.
+      const filer = await begin(progress, { client: db as never });
+      const items = Array.from({ length: 10 }, (_, i) => ({
+        polygons: [
+          [
+            [
+              [0, 0],
+              [0.01, 0],
+              [0.01, 0.01],
+              [0, 0],
+            ],
+          ],
+        ],
+        label: i % 2 === 0 ? "FZ2" : "FZ3",
+        detail: "river · test",
+      }));
+      await filer.stageItems(items, EDITION);
+      await filer.checkpoint({
+        edition: EDITION,
+        expected: 100,
+        nextStartIndex: 10,
+        totals: { read: 10, filed: 10, geoless: 0, perLabel: {} },
+      });
+      const fresh = await begin(progress, { client: db as never });
+      const outcome = await fresh.prepare({ edition: EDITION, expected: 100 });
+      expect(outcome.resumed, "the checkpoint was discarded — the unflushed tail is lost").toBe(
+        true,
+      );
+      expect(outcome.checkpoint?.next_start_index).toBe(10);
+    },
+  );
 });
