@@ -260,6 +260,17 @@ describe("resume (BUG-368)", () => {
       }
       if (/CREATE TABLE IF NOT EXISTS phi_stage/.test(text)) return { rows: [] };
       if (/INSERT INTO phi_stage/.test(text)) {
+        // pg binds by the highest $N the statement names: the
+        // bind must supply exactly that many parameters. Enforce
+        // it here, or a stride/column mismatch sails through the
+        // fake and only fails on real Postgres (BUG-380: stride
+        // 9 named 4501 placeholders for a 500-row chunk while
+        // the bind supplied 5000).
+        const highest = Math.max(...[...text.matchAll(/\$(\d+)/g)].map((m) => Number(m[1])));
+        if (params.length !== highest)
+          throw new Error(
+            `bind message supplies ${params.length} parameters, but prepared statement "" requires ${highest}`,
+          );
         insertCalls += 1;
         if (failAfterInserts !== null && insertCalls > failAfterInserts)
           throw new Error("simulated kill: the database connection dropped mid-insert");
@@ -452,4 +463,21 @@ describe("resume (BUG-368)", () => {
     expect(fake.staged().length).toBe(0);
     expect(fake.checkpoints.get("load-priority-habitats")).toBeUndefined();
   });
+
+  it(
+    "a 500-row stage flush binds exactly as many parameters as its placeholders name (BUG-380)",
+    { timeout: 60_000 },
+    async () => {
+      const fake = createFakeClient();
+      const { run } = await runLoad(fake);
+      expect(run.state.read).toBe(1716);
+      expect(run.state.filed).toBe(1716);
+      // Three 500-row flushes plus a 216-row tail: every staged
+      // row carries its dense seq, in read order.
+      const staged = fake.staged();
+      expect(staged.length).toBe(1716);
+      expect(staged.map((r) => r.seq)).toEqual(Array.from({ length: 1716 }, (_, i) => i));
+      expect(staged.map((r) => r.reference)).toEqual(fixtureRefs());
+    },
+  );
 });

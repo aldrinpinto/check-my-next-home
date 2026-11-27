@@ -588,7 +588,12 @@ export async function beginFiling(
       const params = [];
       const base = resume.takeSeq(chunk.length);
       chunk.forEach((row, i) => {
-        const b = i * 9;
+        // Ten columns per row (seq included) — the stride must
+        // match the column count, or pg binds fewer params
+        // than the statement names (BUG-380: stride 9 named
+        // 4501 placeholders for a 500-row chunk while the
+        // bind supplied 5000).
+        const b = i * 10;
         values.push(
           `($${b + 1},$${b + 2},ST_Multi(ST_GeomFromText($${b + 3}, 4326)),$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8},$${b + 9},$${b + 10})`,
         );
