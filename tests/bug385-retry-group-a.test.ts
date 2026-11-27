@@ -262,9 +262,28 @@ describe("os-greenspace download retries whole from scratch (BUG-385)", () => {
       globalThis.fetch = (async () => {
         calls += 1;
         if (calls === 1) {
-          const cut = new Readable({ read() {} });
-          cut.push(Buffer.from("partial-"));
-          cut.destroy(connectTimeoutError());
+          // BUG-386: the cut must land while the stream is
+          // flowing — a Readable whose read() pushes the
+          // partial bytes, then destroys with the error on
+          // the next read. Destroying before Readable.toWeb
+          // wraps it swallows the error on Node 22 (CI's
+          // runtime): toWeb yields a stream that ends cleanly
+          // with zero bytes, the loader files the empty file
+          // as a success, and the error escapes unhandled —
+          // the exact CI #377 failure. (Node 24 propagates
+          // the pre-wrap destroy error, which is why this
+          // passed locally.)
+          let pushed = false;
+          const cut = new Readable({
+            read() {
+              if (!pushed) {
+                pushed = true;
+                this.push(Buffer.from("partial-"));
+              } else {
+                this.destroy(connectTimeoutError());
+              }
+            },
+          });
           return { ok: true, status: 200, body: Readable.toWeb(cut) };
         }
         return {
