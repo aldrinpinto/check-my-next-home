@@ -69,9 +69,11 @@ class FakeClient {
   runs: Row[] = [];
   items: Row[] = [];
   failOnSwapInsert = false;
+  failOnMergeInsert = false;
   failStamp = false;
   checkpoints = new Map<string, Record<string, unknown>>();
   #seq = 0;
+  #mergeDeleteSeen = false;
   #snapshot: {
     live: Row[];
     stage: Row[] | null;
@@ -162,6 +164,12 @@ class FakeClient {
       return { rows: [], rowCount: n };
     }
     if (sql.startsWith("INSERT INTO price_paid_stage")) {
+      // BUG-378: a kill between the merge's delete and its
+      // inserts — the staged set is half-merged when the run
+      // dies. The flag arms only once the merge's delete has
+      // run, so the intake inserts are never caught by it.
+      if (this.failOnMergeInsert && this.#mergeDeleteSeen)
+        throw new Error("simulated kill mid-merge");
       const width = COLUMNS.length;
       for (let at = 0; at < params.length; at += width) {
         const row = valuesToRow(params.slice(at, at + width));
@@ -182,6 +190,7 @@ class FakeClient {
       return { rows: [], rowCount: before - this.stage.length };
     }
     if (sql.startsWith("DELETE FROM price_paid_stage WHERE transaction_id = ANY")) {
+      this.#mergeDeleteSeen = true;
       const guids = new Set(params[0] as string[]);
       this.stage = (this.stage as Row[]).filter((r) => !guids.has(r.transaction_id as string));
       return { rows: [] };
@@ -1347,5 +1356,190 @@ describe("runNational resume (BUG-368)", () => {
   it("parses --restart", () => {
     expect(parseModeArgs(["--national", "--restart"]).restart).toBe(true);
     expect(parseModeArgs(["--national"]).restart).toBe(false);
+  });
+});
+
+describe("runNational resume from deduped/merged (BUG-378)", () => {
+  // The fixture repeated 150 times: 6,000 lines collapsing to
+  // 40 distinct ids in the dedupe (5,960 duplicates), and the
+  // update file's two guids both match staged rows
+  // (updateMatched 2, upserted 1, merged total 39) — so both
+  // biting cases are live in this fixture: a resume from
+  // "merged" with duplicates > 0, and a resume from "deduped"
+  // after a partial merge.
+  const repeatedLines = Array.from({ length: 150 }, () => fullLines).flat();
+  const liveKey = (rows: Row[]) =>
+    rows.map((r) => `${r.transaction_id}|${r.postcode}|${r.price}|${r.sale_date}|${r.paon}`).sort();
+
+  it("a kill at the swap resumes from the merged checkpoint and files the same register", async () => {
+    const client = new FakeClient();
+    client.seedCache(["CM3 2JT", "CM3 2AA", "E16 1GN", "EH1 1AA", "BT1 1AA"]);
+    const lines: string[] = [];
+    const progress = createProgressLogger({
+      name: "load-sold-prices",
+      log: (line: string) => lines.push(line),
+    });
+
+    // Run one: intake, dedupe and merge all complete — the
+    // merged checkpoint stands — then the swap insert fails.
+    client.failOnSwapInsert = true;
+    await expect(
+      runNational(client as never, {
+        fullLines: repeatedLines,
+        updateLines,
+        edition: EDITION,
+        progress,
+        resumeEdition: EDITION,
+      }),
+    ).rejects.toThrow(/armed failure on the swap insert/);
+    expect(client.checkpoints.get("load-sold-prices")?.state).toMatchObject({ phase: "merged" });
+    expect(client.stage).toHaveLength(39);
+
+    // Run two: the same edition resumes past the merge and
+    // files the register.
+    client.failOnSwapInsert = false;
+    const resumed = await runNational(client as never, {
+      fullLines: repeatedLines,
+      updateLines,
+      edition: EDITION,
+      progress,
+      resumeEdition: EDITION,
+    });
+    expect(resumed.total).toBe(39);
+    expect(
+      lines.some((l) => /resuming from checkpoint · 39 rows staged · edition 2026-10-28/.test(l)),
+    ).toBe(true);
+
+    // The control: the same input in one uninterrupted run.
+    const control = new FakeClient();
+    control.seedCache(["CM3 2JT", "CM3 2AA", "E16 1GN", "EH1 1AA", "BT1 1AA"]);
+    const controlResult = await runNational(control as never, {
+      fullLines: repeatedLines,
+      updateLines,
+      edition: EDITION,
+    });
+    expect(resumed.total).toBe(controlResult.total);
+    expect(liveKey(client.live)).toEqual(liveKey(control.live));
+    // The successful swap clears staging + checkpoint: nothing
+    // is left behind for the next pass.
+    expect(client.checkpoints.get("load-sold-prices")).toBeUndefined();
+    expect(client.stage).toHaveLength(0);
+  });
+
+  it("a kill mid-merge resumes from the deduped checkpoint and files the same register", async () => {
+    const client = new FakeClient();
+    client.seedCache(["CM3 2JT", "CM3 2AA", "E16 1GN", "EH1 1AA", "BT1 1AA"]);
+    const lines: string[] = [];
+    const progress = createProgressLogger({
+      name: "load-sold-prices",
+      log: (line: string) => lines.push(line),
+    });
+
+    // Run one: the merge's delete lands, its first insert dies —
+    // the merge is atomic with its checkpoint, so the kill rolls
+    // the stage back to the intact deduped set (40 rows) and the
+    // deduped checkpoint stands. (Before the fix the delete
+    // persisted and the stage was left half-merged at 38 rows.)
+    client.failOnMergeInsert = true;
+    await expect(
+      runNational(client as never, {
+        fullLines: repeatedLines,
+        updateLines,
+        edition: EDITION,
+        progress,
+        resumeEdition: EDITION,
+      }),
+    ).rejects.toThrow(/simulated kill mid-merge/);
+    expect(client.checkpoints.get("load-sold-prices")?.state).toMatchObject({ phase: "deduped" });
+    expect(client.stage).toHaveLength(40);
+
+    // Run two: the same edition resumes, re-runs the merge and
+    // files the register.
+    client.failOnMergeInsert = false;
+    const resumed = await runNational(client as never, {
+      fullLines: repeatedLines,
+      updateLines,
+      edition: EDITION,
+      progress,
+      resumeEdition: EDITION,
+    });
+    expect(resumed.total).toBe(39);
+
+    // The control: the same input in one uninterrupted run.
+    const control = new FakeClient();
+    control.seedCache(["CM3 2JT", "CM3 2AA", "E16 1GN", "EH1 1AA", "BT1 1AA"]);
+    const controlResult = await runNational(control as never, {
+      fullLines: repeatedLines,
+      updateLines,
+      edition: EDITION,
+    });
+    expect(resumed.total).toBe(controlResult.total);
+    expect(liveKey(client.live)).toEqual(liveKey(control.live));
+    expect(client.checkpoints.get("load-sold-prices")).toBeUndefined();
+    expect(client.stage).toHaveLength(0);
+  });
+
+  it("a half-merged stage left by the old code is refused, and --restart recovers it", async () => {
+    const client = new FakeClient();
+    client.seedCache(["CM3 2JT", "CM3 2AA", "E16 1GN", "EH1 1AA", "BT1 1AA"]);
+
+    // Run one: killed mid-merge — the stage rolls back to the
+    // deduped set (40 rows) and the deduped checkpoint stands.
+    client.failOnMergeInsert = true;
+    await expect(
+      runNational(client as never, {
+        fullLines: repeatedLines,
+        updateLines,
+        edition: EDITION,
+        resumeEdition: EDITION,
+      }),
+    ).rejects.toThrow(/simulated kill mid-merge/);
+    expect(client.stage).toHaveLength(40);
+
+    // Seed the state a kill under the old code left behind: the
+    // merge's delete ran but its inserts never did (38 rows).
+    const updateStats = { malformed: 0, emptyPostcode: 0, uncovered: {}, duplicates: 0 };
+    const updateGuids = [
+      ...new Set(parseAllRecords(updateLines, updateStats).map((r) => r.transactionId)),
+    ];
+    await client.query("DELETE FROM price_paid_stage WHERE transaction_id = ANY($1)", [
+      updateGuids,
+    ]);
+    expect(client.stage).toHaveLength(38);
+
+    // The resumed run refuses: the staged set is not the
+    // deduped set the checkpoint accounts for — fail closed,
+    // never file a register it cannot account for.
+    client.failOnMergeInsert = false;
+    await expect(
+      runNational(client as never, {
+        fullLines: repeatedLines,
+        updateLines,
+        edition: EDITION,
+        resumeEdition: EDITION,
+      }),
+    ).rejects.toThrow(/refusing to file a register it cannot account for \(BUG-188\)/);
+
+    // --restart discards the inconsistent stage and files the
+    // register from the start.
+    const restarted = await runNational(client as never, {
+      fullLines: repeatedLines,
+      updateLines,
+      edition: EDITION,
+      resumeEdition: EDITION,
+      restart: true,
+    });
+    expect(restarted.total).toBe(39);
+
+    // The control: the same input in one uninterrupted run.
+    const control = new FakeClient();
+    control.seedCache(["CM3 2JT", "CM3 2AA", "E16 1GN", "EH1 1AA", "BT1 1AA"]);
+    const controlResult = await runNational(control as never, {
+      fullLines: repeatedLines,
+      updateLines,
+      edition: EDITION,
+    });
+    expect(restarted.total).toBe(controlResult.total);
+    expect(liveKey(client.live)).toEqual(liveKey(control.live));
   });
 });

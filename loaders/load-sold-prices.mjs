@@ -937,34 +937,40 @@ export async function runNational(
     const stagedCount = async () =>
       (await client.query(`SELECT count(*)::int AS n FROM ${STAGE_TABLE}`)).rows[0].n;
 
-    // 1b — the source-completeness guard (BUG-188): when the
-    // caller declared the full file's size, the lines consumed
-    // must account for exactly that many bytes — one terminator
-    // per line, LF or CRLF, the final terminator present or not.
-    // Anything else means the source under-delivered (or over-
-    // delivered) and the register this pass would file is not the
-    // register the source describes; refuse before the swap.
-    if (expectedFullBytes !== null && expectedFullBytes !== undefined) {
-      const honestSizes = new Set([
-        lineBytes + linesRead, // LF, final newline present
-        lineBytes + linesRead - 1, // LF, no final newline
-        lineBytes + 2 * linesRead, // CRLF, final newline present
-        lineBytes + 2 * linesRead - 2, // CRLF, no final newline
-      ]);
-      if (!honestSizes.has(expectedFullBytes))
+    // 1b/1c — the intake guards run only when this run read
+    // the file: a run that died after the intake trusts the
+    // checkpointed tallies (the dedupe/merge reconciliations
+    // below are the guard for the staged set it resumes from).
+    // The byte guard (BUG-188): when the caller declared the
+    // full file's size, the lines consumed must account for
+    // exactly that many bytes — one terminator per line, LF or
+    // CRLF, the final terminator present or not. Anything else
+    // means the source under-delivered (or over-delivered) and
+    // the register this pass would file is not the register the
+    // source describes; refuse before the swap.
+    if (resumePhase === "intake") {
+      if (expectedFullBytes !== null && expectedFullBytes !== undefined) {
+        const honestSizes = new Set([
+          lineBytes + linesRead, // LF, final newline present
+          lineBytes + linesRead - 1, // LF, no final newline
+          lineBytes + 2 * linesRead, // CRLF, final newline present
+          lineBytes + 2 * linesRead - 2, // CRLF, no final newline
+        ]);
+        if (!honestSizes.has(expectedFullBytes))
+          throw new Error(
+            `the full file under-delivered: its source declared ${expectedFullBytes} bytes but the pass read ${linesRead} lines accounting for ${lineBytes + linesRead} of them — refusing to file a partial register (BUG-188)`,
+          );
+      }
+
+      // The staged count must equal the parsed count: a batch
+      // insert that landed short is a silent hole of exactly the
+      // BUG-188 shape, caught here instead of after the swap.
+      const afterIntake = await stagedCount();
+      if (afterIntake !== recordsStaged)
         throw new Error(
-          `the full file under-delivered: its source declared ${expectedFullBytes} bytes but the pass read ${linesRead} lines accounting for ${lineBytes + linesRead} of them — refusing to file a partial register (BUG-188)`,
+          `the national pass staged ${afterIntake} rows from ${recordsStaged} parsed records — refusing to file a register it cannot account for (BUG-188)`,
         );
     }
-
-    // 1c — the staged count must equal the parsed count: a batch
-    // insert that landed short is a silent hole of exactly the
-    // BUG-188 shape, caught here instead of after the swap.
-    const afterIntake = await stagedCount();
-    if (afterIntake !== recordsStaged)
-      throw new Error(
-        `the national pass staged ${afterIntake} rows from ${recordsStaged} parsed records — refusing to file a register it cannot account for (BUG-188)`,
-      );
 
     // 2 — duplicate transaction ids in the full file collapse to
     // the last row filed (the legacy loader's Map semantics), in
@@ -973,15 +979,44 @@ export async function runNational(
     // staged set already holds the collapsed register, and the
     // duplicate count stands checkpointed.
     let afterDedupe;
-    if (resumePhase === "deduped" || resumePhase === "merged") {
+    let parsedStaged;
+    if (resumePhase === "merged") {
+      // The merge already ran: the deduped count stands
+      // checkpointed in the merged checkpoint's state — the
+      // staged set no longer holds it (the merge replaced
+      // rows), so it cannot be re-read from the table. A merged
+      // checkpoint written before afterDedupe was carried is
+      // reconstructed from the merge reconciliation itself:
+      // afterMerge = afterDedupe − updateMatched + upserted.
+      stats.duplicates = resumeState.duplicates ?? 0;
+      afterDedupe =
+        resumeState.afterDedupe ??
+        (resumeState.afterMerge ?? resumePrep.checkpoint.filed_count) +
+          (resumeState.updateMatched ?? 0) -
+          (resumeState.upserted ?? 0);
+      parsedStaged = resumeState.parsedStaged ?? afterDedupe + stats.duplicates;
+    } else if (resumePhase === "deduped") {
       stats.duplicates = resumeState.duplicates ?? 0;
       afterDedupe = await stagedCount();
+      // The deduped checkpoint carries the parsed count; a
+      // checkpoint written before that field existed is
+      // reconstructed from the collapsed total + duplicates.
+      // The merge is atomic with its checkpoint (step 3), so a
+      // run that died mid-merge rolled the stage back to
+      // exactly this deduped set — the count here is the
+      // deduped total, never a half-merged one.
+      parsedStaged = resumeState.parsedStaged ?? afterDedupe + stats.duplicates;
+      if (afterDedupe !== parsedStaged - stats.duplicates)
+        throw new Error(
+          `the national pass holds ${afterDedupe} staged rows after collapsing ${stats.duplicates} duplicates from ${parsedStaged} parsed records — refusing to file a register it cannot account for (BUG-188)`,
+        );
     } else {
       // The dedupe and its checkpoint commit together: a kill
       // between the DELETE and the checkpoint would leave a
       // staged set the intake checkpoint's prefix proof cannot
       // recognise (the DELETE punches holes in the seqs), and
       // the next run would discard the whole intake.
+      parsedStaged = recordsStaged;
       await client.query("BEGIN");
       try {
         const deduped = await client.query(
@@ -990,9 +1025,9 @@ export async function runNational(
         );
         stats.duplicates = deduped.rowCount ?? 0;
         afterDedupe = await stagedCount();
-        if (afterDedupe !== recordsStaged - stats.duplicates)
+        if (afterDedupe !== parsedStaged - stats.duplicates)
           throw new Error(
-            `the national pass holds ${afterDedupe} staged rows after collapsing ${stats.duplicates} duplicates from ${recordsStaged} parsed records — refusing to file a register it cannot account for (BUG-188)`,
+            `the national pass holds ${afterDedupe} staged rows after collapsing ${stats.duplicates} duplicates from ${parsedStaged} parsed records — refusing to file a register it cannot account for (BUG-188)`,
           );
         let row = null;
         if (resume) {
@@ -1002,7 +1037,7 @@ export async function runNational(
             nextStartIndex: linesRead,
             read: linesRead,
             filed: afterDedupe,
-            state: { ...checkpointState("deduped"), afterDedupe },
+            state: { ...checkpointState("deduped"), parsedStaged, afterDedupe },
           });
           await writeCheckpoint(client, row);
         }
@@ -1013,10 +1048,6 @@ export async function runNational(
         throw err;
       }
     }
-    if (afterDedupe !== recordsStaged - stats.duplicates)
-      throw new Error(
-        `the national pass holds ${afterDedupe} staged rows after collapsing ${stats.duplicates} duplicates from ${recordsStaged} parsed records — refusing to file a register it cannot account for (BUG-188)`,
-      );
 
     // 3 — the monthly update file merged over the staged full
     // file, by transaction id (the register's standing definition:
@@ -1028,50 +1059,72 @@ export async function runNational(
     const updateGuids = [...new Set(updateRecords.map((r) => r.transactionId))];
     let updateMatched = 0;
     let merged;
+    let afterMerge;
     if (resumePhase === "merged") {
       // The merge already ran: its counts stand checkpointed,
       // and the staged set already holds the merged register.
+      // afterDedupe here is the state-carried deduped count
+      // (step 2), never the staged count — the staged set
+      // holds the merged register now, so re-reading it as the
+      // deduped count would refuse a register that reconciles.
       updateMatched = resumeState.updateMatched ?? 0;
       merged = { upserted: resumeState.upserted ?? 0 };
-    } else {
-      for (let at = 0; at < updateGuids.length; at += GUID_CHUNK) {
-        const res = await client.query(
-          `SELECT count(*)::int AS n FROM ${STAGE_TABLE} WHERE transaction_id = ANY($1)`,
-          [updateGuids.slice(at, at + GUID_CHUNK)],
+      afterMerge = await stagedCount();
+      if (afterMerge !== afterDedupe - updateMatched + merged.upserted)
+        throw new Error(
+          `the national pass holds ${afterMerge} staged rows after the update merge (expected ${afterDedupe - updateMatched + merged.upserted}: ${afterDedupe} staged − ${updateMatched} replaced or deleted + ${merged.upserted} upserted) — refusing to file a register it cannot account for (BUG-188)`,
         );
-        updateMatched += res.rows[0].n;
+    } else {
+      // The merge and its checkpoint commit together (the
+      // dedupe's shape): a kill mid-merge rolls the stage
+      // back to the deduped set, so the resumed run re-runs
+      // the merge from a clean deduped register instead of a
+      // half-merged one — and the match count below is taken
+      // against that deduped set, never a half-merged one.
+      await client.query("BEGIN");
+      try {
+        for (let at = 0; at < updateGuids.length; at += GUID_CHUNK) {
+          const res = await client.query(
+            `SELECT count(*)::int AS n FROM ${STAGE_TABLE} WHERE transaction_id = ANY($1)`,
+            [updateGuids.slice(at, at + GUID_CHUNK)],
+          );
+          updateMatched += res.rows[0].n;
+        }
+        merged = await mergeUpdateRecords(client, STAGE_TABLE, updateRecords, null, null);
+        afterMerge = await stagedCount();
+        if (afterMerge !== afterDedupe - updateMatched + merged.upserted)
+          throw new Error(
+            `the national pass holds ${afterMerge} staged rows after the update merge (expected ${afterDedupe - updateMatched + merged.upserted}: ${afterDedupe} staged − ${updateMatched} replaced or deleted + ${merged.upserted} upserted) — refusing to file a register it cannot account for (BUG-188)`,
+          );
+        let row = null;
+        if (resume) {
+          row = resume.checkpointRow({
+            edition: resumeEdition,
+            expected: null,
+            nextStartIndex: linesRead,
+            read: linesRead,
+            filed: afterMerge,
+            state: {
+              ...checkpointState("merged"),
+              parsedStaged,
+              afterDedupe,
+              updateMatched,
+              upserted: merged.upserted,
+              afterMerge,
+            },
+          });
+          await writeCheckpoint(client, row);
+        }
+        await client.query("COMMIT");
+        if (resume && row) resume.noteCheckpoint(row, { unit: "lines" });
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw err;
       }
-      merged = await mergeUpdateRecords(client, STAGE_TABLE, updateRecords, null, null);
     }
     progress?.stage(
       `update merged — ${formatCount(merged.upserted)} upserted, ${formatCount(updateRecords.length - merged.upserted)} deleted`,
     );
-    const afterMerge = await stagedCount();
-    if (afterMerge !== afterDedupe - updateMatched + merged.upserted)
-      throw new Error(
-        `the national pass holds ${afterMerge} staged rows after the update merge (expected ${afterDedupe - updateMatched + merged.upserted}: ${afterDedupe} staged − ${updateMatched} replaced or deleted + ${merged.upserted} upserted) — refusing to file a register it cannot account for (BUG-188)`,
-      );
-    // The merged checkpoint is written only once the merge has
-    // reconciled: a run that died mid-merge resumes at the
-    // deduped checkpoint and re-runs the merge (delete-then-set
-    // per id, so the re-run lands the same register), while a
-    // run that died after it resumes past the merge entirely.
-    if (resume && resumePhase !== "merged") {
-      await resume.checkpoint({
-        edition: resumeEdition,
-        expected: null,
-        nextStartIndex: linesRead,
-        read: linesRead,
-        filed: afterMerge,
-        state: {
-          ...checkpointState("merged"),
-          updateMatched,
-          upserted: merged.upserted,
-          afterMerge,
-        },
-        unit: "lines",
-      });
-    }
 
     // 4 — the edition settles once, over the whole staged set:
     // the file's publication date when the source gave one, else
