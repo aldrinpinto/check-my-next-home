@@ -178,6 +178,7 @@ import {
 } from "./progress.mjs";
 import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 import { createLoaderResume } from "./loader-resume.mjs";
+import { createShortPageTracker, isShortPage, verifyReadCounts } from "./read-tolerance.mjs";
 
 const { Pool } = pg;
 
@@ -952,21 +953,71 @@ async function fetchBuffer(url, what, opts = {}) {
 // slow-document warning. No total: the category total
 // counts every item in the category, not the selected
 // documents, so no percentage is ever shown.
-async function enumerateLive(onDocument, { progress = null } = {}) {
-  let total = null;
+//
+// BUG-387: page.total CAN serve as the independent expected
+// (assessed from this loop before wiring): it is the search
+// API's count of results matching the filtered query, so the
+// paged enumeration should return exactly that many results
+// in total — the loop already trusts it as its bound. The
+// "No total" note above means the total counts category
+// items, not the selected documents, so the gate below is
+// read-vs-total over `enumerated`, and the filed/geoless
+// pair is the enumeration's own reconciliation (selected
+// for a document fetch vs counted as not selected); the
+// case rows-vs-staged reconciliation stays fileCases' own
+// check. The expected is fixed from the FIRST page's
+// total — a snapshot: items published mid-run wait for the
+// next run, and items removed mid-run fail the gate rather
+// than filing thin.
+/**
+ * @param {(doc: { item: { link: string, title: string, decisionDate: string | null, subCategory: string | null }, parsed: any }) => void} onDocument
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function enumerateLive(onDocument, { progress = null } = {}) {
+  let expected = null;
   let enumerated = 0;
   let documents = 0;
+  let selected = 0;
+  // BUG-387: the short pages this enumeration met, for the one
+  // re-fetch each earns (below) and the loud log if the read
+  // lands short.
+  const refetch = createShortPageTracker();
   const readTally = progress?.tally({ label: "reading", every: 10, unit: "documents" });
   const readWatch = createBatchWatch();
-  for (let start = 0; total === null || start < total; start += 100) {
+  for (let start = 0; expected === null || start < expected; start += 100) {
     const page = await fetchJson(
       `${SEARCH_API}?count=100&start=${start}&filter_tribunal_decision_category=building-safety-act`,
       "the GOV.UK tribunal decisions search",
     );
-    total = page.total;
-    const results = page.results ?? [];
+    if (expected === null) expected = page.total;
+    let results = page.results ?? [];
+    // BUG-387: a page that comes back short — fewer results
+    // than asked for while more remain — is re-requested ONCE,
+    // in place, through the same fetchJson, so it carries the
+    // BUG-385 transient retry; the fuller of the two pages is
+    // the one enumerated. The loop still advances start by 100
+    // after a page that stays short, so the shortfall is the
+    // gate's to catch below.
+    const want = Math.min(100, expected - start);
+    if (isShortPage({ returned: results.length, want, read: enumerated, expected })) {
+      refetch.note({ startIndex: start, want, returned: results.length });
+      const again = await fetchJson(
+        `${SEARCH_API}?count=100&start=${start}&filter_tribunal_decision_category=building-safety-act`,
+        "the GOV.UK tribunal decisions search",
+      );
+      const againResults = again.results ?? [];
+      refetch.recordRefetch({ startIndex: start, returned: againResults.length });
+      progress?.warning({
+        what: "short page re-fetched (BUG-387)",
+        value: `page at start ${start} returned ${formatCount(results.length)} of ${formatCount(want)} — re-fetch returned ${formatCount(againResults.length)}`,
+        threshold: "one re-fetch per short page",
+      });
+      if (againResults.length > results.length) results = againResults;
+    }
     enumerated += results.length;
-    for (const item of selectItems(results)) {
+    const selectedItems = selectItems(results);
+    selected += selectedItems.length;
+    for (const item of selectedItems) {
       const started = Date.now();
       const doc = await fetchJson(`${CONTENT_API}${item.link}`, `the decision page ${item.link}`);
       const md = doc.details?.metadata ?? {};
@@ -1000,7 +1051,20 @@ async function enumerateLive(onDocument, { progress = null } = {}) {
     if (results.length === 0) break;
   }
   readTally?.finish(documents);
-  return { categoryTotal: total, enumerated };
+  // BUG-387: the read gate — read-vs-total with the 1%
+  // tolerance after the re-fetch. A shortfall over 1% throws
+  // with nothing filed, exactly as a failed enumeration
+  // throws today; an overshoot (read above the service count)
+  // is never tolerated.
+  const verdict = verifyReadCounts({
+    label: "tribunal decisions",
+    read: enumerated,
+    expected,
+    filed: selected,
+    geoless: enumerated - selected,
+    refetch: refetch.summary(),
+  });
+  return { categoryTotal: expected, enumerated, refetch: refetch.summary(), verdict };
 }
 
 // Reads one fixture PDF from a --file directory: the
@@ -1079,15 +1143,26 @@ async function main() {
   const builder = createCaseBuilder();
   let categoryTotal;
   let enumerated;
+  let verdict;
   let rows;
   let failures;
   let unfiledCases;
   let metadataDateFallbacks;
   let noPostcode;
   try {
-    ({ categoryTotal, enumerated } = args.fileDir
+    ({ categoryTotal, enumerated, verdict } = args.fileDir
       ? await enumerateFixture(args.fileDir, (doc) => builder.addDocument(doc), { progress })
       : await enumerateLive((doc) => builder.addDocument(doc), { progress }));
+    if (verdict?.withinTolerance) {
+      // BUG-387: LOUD, twice — the progress log line here and
+      // the run summary below both carry the shortfall; a
+      // tolerated short read is never silent.
+      progress.warning({
+        what: "read shortfall accepted (BUG-387)",
+        value: verdict.notice,
+        threshold: "1% after re-fetch",
+      });
+    }
     ({ rows, failures, unfiledCases, metadataDateFallbacks, noPostcode } = builder.finish());
     if (unfiledCases.length > 0)
       throw new Error(
@@ -1123,7 +1198,8 @@ async function main() {
       : "") +
     (categoryTotal !== null
       ? ` · enumerated ${formatCount(enumerated)} of ${formatCount(categoryTotal)} Building Safety Act category items on GOV.UK`
-      : ` · fixture set of ${formatCount(enumerated)} captured documents`);
+      : ` · fixture set of ${formatCount(enumerated)} captured documents`) +
+    (verdict?.notice ? ` · ${verdict.notice}` : "");
 
   if (args.verifyOnly) {
     console.log(`${summary} — verified only, nothing filed.`);

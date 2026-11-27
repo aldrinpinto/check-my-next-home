@@ -114,6 +114,7 @@ import {
   formatCount,
   formatDuration,
 } from "./progress.mjs";
+import { createShortPageTracker, isShortPage, verifyReadCounts } from "./read-tolerance.mjs";
 
 const NE_BASE = "https://services.arcgis.com/JJzESW51TqeY9uat/arcgis/rest/services";
 const ORGANISATION = "Natural England";
@@ -502,7 +503,13 @@ async function fetchServicePage(
   expected,
   pageSize,
   lastObjectId,
-  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+  {
+    delaysMs = RETRY_DELAYS_MS,
+    onRetry = null,
+    retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
+    progress = null,
+    refetch = null,
+  } = {},
 ) {
   const want = Math.min(pageSize, expected - offset);
   const q = new URLSearchParams({
@@ -524,6 +531,7 @@ async function fetchServicePage(
   // fetch failure (a 404, an auth error) is not a bad body
   // and is never re-requested here.
   let lastError = null;
+  let lastPage = null;
   for (let attempt = 1; attempt <= delaysMs.length + 1; attempt++) {
     const response = await fetchResponse(`${layerUrl}/query?${q}`, `the ${spec.service} features`, {
       delaysMs,
@@ -532,6 +540,7 @@ async function fetchServicePage(
     });
     try {
       const page = await response.json();
+      lastPage = page;
       validateServicePage(page, { spec, want, lastObjectId, offset });
       return page;
     } catch (error) {
@@ -539,6 +548,46 @@ async function fetchServicePage(
       if (attempt <= delaysMs.length)
         await new Promise((resolve) => setTimeout(resolve, delaysMs[attempt - 1]));
     }
+  }
+  // BUG-387: the delays budget is spent and the page is still
+  // short — one re-fetch, in place, before giving up. The
+  // re-fetch goes through fetchResponse, so it carries the
+  // BUG-385 transient retry exactly like a first fetch. A page
+  // that stays short fails exactly as today (the short-page
+  // error below); any other re-fetch failure surfaces as
+  // itself.
+  const lastReturned = Array.isArray(lastPage?.features) ? lastPage.features.length : 0;
+  if (isShortPage({ returned: lastReturned, want, read: offset, expected })) {
+    refetch?.note({ startIndex: offset, want, returned: lastReturned });
+    let again = null;
+    let againError = null;
+    try {
+      const response = await fetchResponse(
+        `${layerUrl}/query?${q}`,
+        `the ${spec.service} features`,
+        { delaysMs, onRetry, retryBudgetMs },
+      );
+      again = await response.json();
+    } catch (error) {
+      againError = error;
+    }
+    const againReturned = Array.isArray(again?.features) ? again.features.length : 0;
+    refetch?.recordRefetch({ startIndex: offset, returned: againReturned });
+    progress?.warning({
+      what: "short page re-fetched (BUG-387)",
+      value: `page at offset ${offset} returned ${formatCount(lastReturned)} of ${formatCount(want)} — re-fetch returned ${formatCount(againReturned)}`,
+      threshold: "one re-fetch per short page",
+    });
+    if (!againError) {
+      try {
+        validateServicePage(again, { spec, want, lastObjectId, offset });
+        return again;
+      } catch (error) {
+        againError = error;
+      }
+    }
+    if (isShortPage({ returned: againReturned, want, read: offset, expected })) throw lastError;
+    throw againError ?? lastError;
   }
   throw lastError;
 }
@@ -616,6 +665,10 @@ export async function readServiceLiveStream(
   });
   const readWatch = createBatchWatch();
   const heartbeatEvery = Math.max(1, Math.ceil(expected / 2));
+  // BUG-387: the short pages this read met, for the one re-fetch
+  // each earns (in fetchServicePage) and the loud log if the read
+  // lands short.
+  const refetch = createShortPageTracker();
   let read = head.startOffset;
   let offset = head.startOffset;
   let lastObjectId = head.lastObjectId ?? null;
@@ -629,7 +682,7 @@ export async function readServiceLiveStream(
         expected,
         pageSize,
         lastObjectId,
-        fetchOpts,
+        { ...fetchOpts, progress, refetch },
       );
       if (onFeatures) await onFeatures(page.features, sourceDate);
       lastObjectId = page.features[page.features.length - 1].properties.OBJECTID;
@@ -665,15 +718,43 @@ export async function readServiceLiveStream(
     throw err;
   }
   readTally?.finish(read);
-  if (read !== expected)
-    throw new Error(`${spec.service}: read ${read} features but the service count is ${expected}`);
-  return { sourceDate, expected };
+  // BUG-387: the read gate — the sanity band stays inline in
+  // main(), exactly as before (the fail-closed pin expects its
+  // wording there); the read-vs-expected check carries the 1%
+  // tolerance after the re-fetch. The tolerance is the ONLY
+  // relaxation. The read function hands every feature on, so
+  // filed is the read itself here — the filed/geoless
+  // reconciliation is judged by the processors' finish() in
+  // main().
+  const verdict = verifyReadCounts({
+    label: spec.service,
+    read,
+    expected,
+    filed: read,
+    geoless: 0,
+    refetch: refetch.summary(),
+  });
+  if (verdict.withinTolerance) {
+    // LOUD: the progress log line here, and the run summary in
+    // main() (via the returned notice) both carry the shortfall
+    // — a tolerated short read is never silent.
+    progress?.warning({
+      what: "read shortfall accepted (BUG-387)",
+      value: verdict.notice,
+      threshold: "1% after re-fetch",
+    });
+  }
+  return { sourceDate, expected, refetch: refetch.summary(), notice: verdict.notice };
 }
 
 // The collecting form over the streaming read: the whole
 // service's features in one array — the shape this step
 // was built with, kept for small inputs and tests. The
 // filing run streams.
+/**
+ * @param {any} spec
+ * @param {{ delaysMs?: number[], onRetry?: ((error: any, attempt: number, delay: number, what: string) => void) | null, retryBudgetMs?: number, progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
 export async function readServiceLive(
   spec,
   {
@@ -684,7 +765,7 @@ export async function readServiceLive(
   } = {},
 ) {
   const features = [];
-  const { sourceDate, expected } = await readServiceLiveStream(spec, {
+  const { sourceDate, expected, refetch, notice } = await readServiceLiveStream(spec, {
     delaysMs,
     onRetry,
     retryBudgetMs,
@@ -693,7 +774,7 @@ export async function readServiceLive(
       features.push(...batch);
     },
   });
-  return { features, sourceDate, expected };
+  return { features, sourceDate, expected, refetch, notice };
 }
 
 // A fixture file too large for one connector push is held as
@@ -1515,7 +1596,7 @@ async function main() {
         for (const item of await filer.stagedGoldenItems(key)) sift.offer(item);
         return { startOffset: cp.next_start_index, lastObjectId: cp.state?.lastObjectId ?? null };
       };
-      const { sourceDate } = await readStream(
+      const { sourceDate, notice } = await readStream(
         key,
         async (features, date) => {
           const filed = processor.processBatch(features);
@@ -1536,7 +1617,7 @@ async function main() {
       );
       const totals = processor.finish();
       filedSoFar += totals.filed;
-      return { ...totals, sourceDate, sifted: sift.items };
+      return { ...totals, sourceDate, sifted: sift.items, notice: notice ?? null };
     };
     sssi = await loadStatutoryLayer("sssi");
     sac = await loadStatutoryLayer("sac");
@@ -1579,7 +1660,7 @@ async function main() {
       });
       return { startOffset: cp.next_start_index, lastObjectId: cp.state?.lastObjectId ?? null };
     };
-    await readStream(
+    const { notice: revNotice } = await readStream(
       "awiRev",
       async (features, date) => {
         const items = revProcessor.processBatch(features);
@@ -1640,7 +1721,7 @@ async function main() {
       for (const item of await filer.stagedGoldenItems("awi")) origSift.offer(item);
       return { startOffset: cp.next_start_index, lastObjectId: cp.state?.lastObjectId ?? null };
     };
-    await readStream(
+    const { notice: origNotice } = await readStream(
       "awi",
       async (features, date) => {
         const items = origProcessor.processBatch(features);
@@ -1672,6 +1753,9 @@ async function main() {
       geoless: origTotals.geoless + revTotals.geoless,
       replaced: merger.replaced(),
       filed: revItems.length + origFiled,
+      // BUG-387: a tolerated short read on either inventory is
+      // carried to the run summary below (null when exact).
+      notice: [revNotice, origNotice].filter((notice) => notice != null).join(" · ") || null,
     };
 
     if (!fixtureMode) {
@@ -1722,13 +1806,20 @@ async function main() {
   }
 
   const geoNote = (n) => (n > 0 ? ` · ${formatCount(n)} without geometry counted` : "");
+  // BUG-387: a tolerated short read is logged LOUDLY twice —
+  // the progress warning fired at the read gate, and the run
+  // summary carries the same line here.
+  const shortReadNotices = [sssi.notice, sac.notice, spa.notice, ramsar.notice, awi.notice].filter(
+    (notice) => notice != null,
+  );
   const summary = () =>
     `load-nature-designations · Natural England ArcGIS services · ` +
     `SSSI: ${formatCount(sssi.filed)} features filed · ${formatCount(sssi.sites)} sites (${formatCount(sssi.read)} read${geoNote(sssi.geoless)}) · ` +
     `SAC: ${formatCount(sac.filed)} designated features filed · ${formatCount(sac.sites)} designated sites (${formatCount(sac.read)} read · ${formatCount(sac.excluded)} candidate features excluded${geoNote(sac.geoless)}) · ` +
     `SPA: ${formatCount(spa.filed)} features filed · ${formatCount(spa.sites)} sites (${formatCount(spa.read)} read${geoNote(spa.geoless)}) · ` +
     `Ramsar: ${formatCount(ramsar.filed)} features filed · ${formatCount(ramsar.sites)} sites (${formatCount(ramsar.read)} read${geoNote(ramsar.geoless)}) · ` +
-    `ancient woodland: ${formatCount(awi.filed)} filed (${formatCount(awi.origRead)} in the original inventory · ${formatCount(awi.revRead)} in the revised inventory · ${formatCount(awi.replaced)} originals replaced by the revision${geoNote(awi.geoless)})`;
+    `ancient woodland: ${formatCount(awi.filed)} filed (${formatCount(awi.origRead)} in the original inventory · ${formatCount(awi.revRead)} in the revised inventory · ${formatCount(awi.replaced)} originals replaced by the revision${geoNote(awi.geoless)})` +
+    (shortReadNotices.length > 0 ? ` · ${shortReadNotices.join(" · ")}` : "");
 
   if (verifyOnly) {
     console.log(`${summary()} · golden homes OK (verify only, nothing filed)`);

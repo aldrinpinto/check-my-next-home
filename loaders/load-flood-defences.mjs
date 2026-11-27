@@ -93,6 +93,7 @@ import {
   isTransientFetchError,
   TRANSIENT_RETRY_BUDGET_MS,
 } from "./flood-resume.mjs";
+import { assessShortRead, shortReadNotice } from "./read-tolerance.mjs";
 
 export const ITEM = "load-flood-defences";
 
@@ -900,8 +901,14 @@ async function main() {
   try {
     let read;
     let goldenSummary;
+    let shortfallNotice = null;
     try {
       const stats = createHomeStats();
+      // BUG-387: the file's own row count is the read's expected
+      // count — the stream must reconcile with it exactly, or
+      // within the 1% tolerance below. It is read once, here,
+      // and reused by the resume decision.
+      const fileCount = countDefencesFile(gpkgPath);
       // BUG-366: the resume decision, from the file's row
       // count, before the stream starts. The stream then
       // re-reads from the top — the golden statistics need
@@ -911,7 +918,7 @@ async function main() {
       if (filer) {
         const prepared = await filer.prepare({
           edition,
-          expected: countDefencesFile(gpkgPath),
+          expected: fileCount,
         });
         if (prepared.resumed) resumeFrom = prepared.checkpoint.next_start_index;
       }
@@ -933,6 +940,29 @@ async function main() {
           `read ${read} features — outside the ±10% sanity band (${BAND_LOW}–${BAND_HIGH}) ` +
             `around the ${SNAPSHOT} of the 13 Nov 2026 build; refusing to file`,
         );
+      // BUG-387: the stream must reconcile with the file's own row
+      // count. There is no re-fetch pass here: the stream reads a
+      // local SQLite cursor that yields every row or throws — it
+      // cannot return short — and the download re-fetch already
+      // lives in fetchLive (BUG-384). A shortfall within 1% is
+      // accepted LOUDLY (the warning below and the run summary);
+      // anything more refuses to file, exactly as a short OGC
+      // read does.
+      const readVerdict = assessShortRead({ read, expected: fileCount });
+      if (!readVerdict.accepted)
+        throw new Error(`read ${read} of ${fileCount} defences in the file — refusing to file`);
+      if (readVerdict.withinTolerance) {
+        shortfallNotice = shortReadNotice({
+          label: "flood defences",
+          read,
+          expected: fileCount,
+        });
+        progress.warning({
+          what: "read shortfall accepted (BUG-387)",
+          value: shortfallNotice,
+          threshold: "1% after re-fetch",
+        });
+      }
       const homeResults = stats.result();
       assertGoldenStats(homeResults);
       goldenSummary = homeResults
@@ -958,7 +988,8 @@ async function main() {
       return {
         summary:
           `${ITEM} · ${SOURCE_NAME} · edition ${edition} · ${formatCount(read)} features verified, nothing filed ` +
-          `— golden homes OK: ${goldenSummary}`,
+          `— golden homes OK: ${goldenSummary}` +
+          (shortfallNotice ? ` · ${shortfallNotice}` : ""),
       };
     }
     // BUG-265: the filing swap is the run's second long step.
@@ -980,7 +1011,8 @@ async function main() {
     return {
       summary:
         `${ITEM} · ${SOURCE_NAME} · edition ${edition} · ${formatCount(read)} features filed ` +
-        `(${formatCount(invalidCount)} invalid lines filed as published) — golden homes OK: ${goldenSummary}`,
+        `(${formatCount(invalidCount)} invalid lines filed as published) — golden homes OK: ${goldenSummary}` +
+        (shortfallNotice ? ` · ${shortfallNotice}` : ""),
     };
   } finally {
     if (client) client.release();

@@ -70,6 +70,7 @@ import pg from "pg";
 import { createGoldenSift, GOLDEN_WINDOW_MILES } from "./flood-stream.mjs";
 import { createLoaderResume } from "./loader-resume.mjs";
 import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
+import { createShortPageTracker } from "./read-tolerance.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -390,6 +391,9 @@ export async function fetchResponse(
   }
 }
 
+/**
+ * @param {{ onItems?: ((items: any[], rawOffset: number, tallies: { geoless: number, invalid: number }) => Promise<void>) | null, progress?: import("./progress.mjs").ProgressLogger | null, onEdition?: ((edition: string) => Promise<{ startOffset: number, seed?: { total: number, filed: number, geoless: number, invalid: number }, seedItems?: any[] }>) | null, delaysMs?: number[], onRetry?: ((error: any, attempt: number, delay: number, what: string) => void) | null, retryBudgetMs?: number }} [options]
+ */
 export async function readLive({
   onItems = null,
   progress = null,
@@ -404,38 +408,71 @@ export async function readLive({
   // candidates. The edition is the dataset's own date,
   // constant for this edition.
   const resume = (await onEdition?.(EDITION_DATE)) ?? { startOffset: 0 };
+  // BUG-387: the short pages this read met, for the one re-fetch
+  // each earns (below). The service publishes no count up front,
+  // so there is no independent expected — a page is short when it
+  // returns fewer than PAGE_SIZE features while returning any at
+  // all (the helper's isShortPage needs an expected, so the test
+  // here is local). A short page stays the loop terminator: the
+  // re-fetch is the recovery, and a page that stays short ends
+  // the read exactly as today. No tolerance applies here either:
+  // the 7,000–8,500 band in main subsumes any 1% tolerance (a
+  // read within 1% of the published 7,775 can never change the
+  // band's verdict), so the band stays the gate, inline and
+  // byte-identical.
+  const refetch = createShortPageTracker();
+  async function fetchPage(offset) {
+    const params = new URLSearchParams({
+      where: "1=1",
+      outFields: "BUA24CD,BUA24NM,BUA24NMW",
+      outSR: "4326",
+      f: "geojson",
+      resultOffset: String(offset),
+      resultRecordCount: String(PAGE_SIZE),
+      orderByFields: "BUA24CD",
+      geometryPrecision: "6",
+    });
+    const response = await fetchResponse(
+      `${SERVICE_URL}?${params}`,
+      "the built-up areas download",
+      {
+        delaysMs,
+        onRetry,
+        retryBudgetMs,
+      },
+    );
+    const page = await response.json();
+    return page.features ?? [];
+  }
   async function* pages() {
     for (let offset = resume.startOffset; ; offset += PAGE_SIZE) {
-      const params = new URLSearchParams({
-        where: "1=1",
-        outFields: "BUA24CD,BUA24NM,BUA24NMW",
-        outSR: "4326",
-        f: "geojson",
-        resultOffset: String(offset),
-        resultRecordCount: String(PAGE_SIZE),
-        orderByFields: "BUA24CD",
-        geometryPrecision: "6",
-      });
-      const response = await fetchResponse(
-        `${SERVICE_URL}?${params}`,
-        "the built-up areas download",
-        {
-          delaysMs,
-          onRetry,
-          retryBudgetMs,
-        },
-      );
-      const page = await response.json();
-      const batch = page.features ?? [];
+      let batch = await fetchPage(offset);
+      // BUG-387: a page that comes back short — fewer features
+      // than asked for, but not empty — is re-requested ONCE, in
+      // place, through the same fetchPage, so it carries the
+      // BUG-385 transient retry; the fuller of the two pages is
+      // the one staged.
+      if (batch.length > 0 && batch.length < PAGE_SIZE) {
+        refetch.note({ startIndex: offset, want: PAGE_SIZE, returned: batch.length });
+        const againBatch = await fetchPage(offset);
+        refetch.recordRefetch({ startIndex: offset, returned: againBatch.length });
+        progress?.warning({
+          what: "short page re-fetched (BUG-387)",
+          value: `page at resultOffset ${offset} returned ${formatCount(batch.length)} of ${formatCount(PAGE_SIZE)} — re-fetch returned ${formatCount(againBatch.length)}`,
+          threshold: "one re-fetch per short page",
+        });
+        if (againBatch.length > batch.length) batch = againBatch;
+      }
       yield batch;
       if (batch.length < PAGE_SIZE) break;
     }
   }
-  return driveRead(pages(), onItems, {
+  const processed = await driveRead(pages(), onItems, {
     progress,
     seed: resume.seed ?? null,
     seedItems: resume.seedItems ?? [],
   });
+  return { ...processed, refetch: refetch.summary() };
 }
 
 /**

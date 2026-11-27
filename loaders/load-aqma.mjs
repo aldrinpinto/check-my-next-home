@@ -85,6 +85,7 @@ import { createGoldenSift, GOLDEN_WINDOW_MILES } from "./flood-stream.mjs";
 import { createLoaderResume } from "./loader-resume.mjs";
 import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 import { createProgressLogger, formatCount } from "./progress.mjs";
+import { createShortPageTracker } from "./read-tolerance.mjs";
 
 const SERVICE_BASE =
   "https://ukair.maps.rcdo.co.uk/ukairserver/rest/services/AQMA/aqma_boundaries/MapServer";
@@ -506,6 +507,9 @@ async function driveRead(
   };
 }
 
+/**
+ * @param {{ onItems?: ((items: any[], edition: string) => Promise<void>) | null, progress?: import("./progress.mjs").ProgressLogger | null, onEdition?: ((edition: string) => Promise<{ startOffset: number, seed?: { total: number, filed: number, perNation: Record<string, number> }, seedItems?: any[] }>) | null, delaysMs?: number[], onRetry?: ((error: any, attempt: number, delay: number, what: string) => void) | null, retryBudgetMs?: number }} [options]
+ */
 export async function readLive({
   onItems = null,
   progress = null,
@@ -521,6 +525,18 @@ export async function readLive({
   // runner returns the offset the read starts from, the
   // seeded totals, and the staged golden candidates.
   const resume = (await onEdition?.(edition)) ?? { startOffset: 0 };
+  // BUG-387: the short pages this read met, for the one re-fetch
+  // each earns (below). The service publishes no count up front,
+  // so there is no independent expected — a page is short when it
+  // returns fewer than PAGE_SIZE features while returning any at
+  // all (the helper's isShortPage needs an expected, so the test
+  // here is local). A short page stays the loop terminator: the
+  // re-fetch is the recovery, and a page that stays short ends
+  // the read exactly as today. No tolerance applies here either:
+  // the ±10% band below subsumes any 1% tolerance (a read within
+  // 1% of the snapshot can never change the band's verdict), so
+  // the band stays the gate, inline and byte-identical.
+  const refetch = createShortPageTracker();
   async function* pages() {
     for (let offset = resume.startOffset; ; offset += PAGE_SIZE) {
       const params = new URLSearchParams({
@@ -538,7 +554,28 @@ export async function readLive({
         "the AQMA boundaries download",
         fetchOpts,
       );
-      const batch = page.features ?? [];
+      let batch = page.features ?? [];
+      // BUG-387: a page that comes back short — fewer features
+      // than asked for, but not empty — is re-requested ONCE, in
+      // place, through the same fetchJson, so it carries the
+      // BUG-385 transient retry; the fuller of the two pages is
+      // the one staged.
+      if (batch.length > 0 && batch.length < PAGE_SIZE) {
+        refetch.note({ startIndex: offset, want: PAGE_SIZE, returned: batch.length });
+        const again = await fetchJson(
+          `${QUERY_URL}?${params}`,
+          "the AQMA boundaries download",
+          fetchOpts,
+        );
+        const againBatch = again.features ?? [];
+        refetch.recordRefetch({ startIndex: offset, returned: againBatch.length });
+        progress?.warning({
+          what: "short page re-fetched (BUG-387)",
+          value: `page at resultOffset ${offset} returned ${formatCount(batch.length)} of ${formatCount(PAGE_SIZE)} — re-fetch returned ${formatCount(againBatch.length)}`,
+          threshold: "one re-fetch per short page",
+        });
+        if (againBatch.length > batch.length) batch = againBatch;
+      }
       yield batch;
       if (batch.length < PAGE_SIZE) break;
     }
@@ -548,7 +585,7 @@ export async function readLive({
     seed: resume.seed ?? null,
     seedItems: resume.seedItems ?? [],
   });
-  return { ...processed, edition };
+  return { ...processed, edition, refetch: refetch.summary() };
 }
 
 /**

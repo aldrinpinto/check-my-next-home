@@ -98,6 +98,7 @@ import {
   formatDuration,
 } from "./progress.mjs";
 import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
+import { assessShortRead, createShortPageTracker, shortReadNotice } from "./read-tolerance.mjs";
 
 const { Pool } = pg;
 
@@ -951,23 +952,60 @@ export function readDatasetFromDir(dir, code) {
 // the per-dataset timings the build's verify pull reports.
 /**
  * @param {{ kind: string, dir?: string }} source
- * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, fetchOpts?: import("./flood-resume.mjs").FetchRetryOptions }} [options]
  */
 export async function loadCensusRows(source, { progress = null, fetchOpts } = {}) {
   const parsedByCode = new Map();
   const timings = [];
-  for (const dataset of DATASETS) {
+  // BUG-387: the re-fetch record — one entry per dataset that
+  // came back short of the contracted area count. The dataset
+  // is the chunk here (a whole ONS file, not a page): the
+  // tracker's startIndex is the dataset's ordinal among
+  // DATASETS, and the loud warning names the dataset code.
+  const refetch = createShortPageTracker();
+  const readDataset = (dataset) =>
+    source.kind === "dir"
+      ? readDatasetFromDir(source.dir, dataset.code)
+      : downloadDatasetCsv(dataset.code, fetchOpts);
+  for (let i = 0; i < DATASETS.length; i += 1) {
+    const dataset = DATASETS[i];
     const started = Date.now();
     // BUG-265: each dataset is its own long step — the slowest
     // single file took ~37 s at the first pull — so a stage
     // marker opens it and a count closes it, against the
     // contracted national area count.
     progress?.stage(`reading ${dataset.code} — ${dataset.title}`);
-    const text =
-      source.kind === "dir"
-        ? await readDatasetFromDir(source.dir, dataset.code)
-        : await downloadDatasetCsv(dataset.code, fetchOpts);
-    parsedByCode.set(dataset.code, parseDatasetCsv(text, dataset));
+    let parsed = parseDatasetCsv(await readDataset(dataset), dataset);
+    // BUG-387: a dataset short of the contracted area count is
+    // re-downloaded ONCE, in place, through the same fetch —
+    // which already carries the BUG-385 transient retry — and
+    // the fuller of the two parses stands. Live pulls only:
+    // the fixture dir holds a 3-area subset by design, not a
+    // short read, and re-reading the same file recovers
+    // nothing. A dataset that stays short is NOT rescued by
+    // the tolerance below: buildRows needs all seven datasets
+    // per area, so a single short dataset fails the whole load
+    // exactly as today — the tolerance applies only to the
+    // uniform shortfall at the MSOA_COUNT gate.
+    if (source.kind !== "dir" && parsed.size < MSOA_COUNT) {
+      refetch.note({ startIndex: i, want: MSOA_COUNT, returned: parsed.size });
+      progress?.warning({
+        what: `short dataset re-downloaded (BUG-387)`,
+        value: `${dataset.code} returned ${formatCount(parsed.size)} of ${formatCount(MSOA_COUNT)} areas — re-downloading once`,
+        threshold: "one re-download per short dataset",
+      });
+      const again = parseDatasetCsv(await readDataset(dataset), dataset);
+      refetch.recordRefetch({ startIndex: i, returned: again.size });
+      if (again.size > parsed.size) {
+        progress?.warning({
+          what: `short dataset recovered (BUG-387)`,
+          value: `${dataset.code} re-download returned ${formatCount(again.size)} areas (recovered ${formatCount(again.size - parsed.size)})`,
+          threshold: "fuller parse wins",
+        });
+        parsed = again;
+      }
+    }
+    parsedByCode.set(dataset.code, parsed);
     progress?.count({
       label: dataset.code,
       done: parsedByCode.get(dataset.code).size,
@@ -976,7 +1014,41 @@ export async function loadCensusRows(source, { progress = null, fetchOpts } = {}
     });
     timings.push({ code: dataset.code, ms: Date.now() - started });
   }
-  return { rows: buildRows(parsedByCode), timings };
+  return { rows: buildRows(parsedByCode), timings, refetch: refetch.summary() };
+}
+
+// BUG-387: the MSOA_COUNT gate's tolerance decision, for
+// main(). goldenChecks reports a short read as one failure
+// among its list — the deterministic line "the load holds N
+// areas, expected exactly 7264 MSOAs" — and this drops that
+// line ONLY when the shortfall is within 1% after the
+// re-fetch, logging it LOUDLY (progress warning + the run
+// summary). Anything else stays: an over-1% shortfall keeps
+// its failure and main() throws exactly as today; every
+// other golden failure is untouched. Returns the failures
+// to act on and the loud notice (null unless the tolerance
+// accepted the read).
+/**
+ * @param {{ rows: any[], golden: string[], refetch?: import("./read-tolerance.mjs").ShortReadSummary | null, progress?: import("./progress.mjs").ProgressLogger | null }} decision
+ * @returns {{ failures: string[], notice: string | null }}
+ */
+export function tolerateMsoaShortfall({ rows, golden, refetch = null, progress = null }) {
+  const read = rows.length;
+  const assessment = assessShortRead({ read, expected: MSOA_COUNT });
+  const msoaFailure = `the load holds ${read} areas, expected exactly ${MSOA_COUNT} MSOAs`;
+  const idx = golden.indexOf(msoaFailure);
+  if (idx === -1) return { failures: golden, notice: null };
+  // The failure exists, so the read is short (an exact read
+  // produces no failure): accepted here means within the 1%
+  // tolerance, and anything over it keeps its failure.
+  if (!assessment.withinTolerance) return { failures: golden, notice: null };
+  const notice = shortReadNotice({ label: "census", read, expected: MSOA_COUNT, refetch });
+  progress?.warning({
+    what: "read shortfall accepted (BUG-387)",
+    value: notice,
+    threshold: "1% after re-fetch",
+  });
+  return { failures: golden.filter((_, i) => i !== idx), notice };
 }
 
 function summaryLine(rows, filed) {
@@ -1001,9 +1073,24 @@ async function main() {
   // and counts, and the filing tally below.
   const progress = createProgressLogger({ name: "load-census" });
   let rows;
+  let refetch = null;
+  let msoaNotice = null;
   try {
-    ({ rows } = await loadCensusRows(source, { progress }));
-    const golden = goldenChecks(rows, { full: !fixtureMode });
+    ({ rows, refetch } = await loadCensusRows(source, { progress }));
+    let golden = goldenChecks(rows, { full: !fixtureMode });
+    // BUG-387: the MSOA_COUNT gate's 1% tolerance, live pulls
+    // only — the fixture holds 3 areas by design and its
+    // golden run never checks the count. A tolerated shortfall
+    // is dropped from the failures and logged LOUDLY; an
+    // over-1% shortfall stays and throws exactly as today.
+    if (!fixtureMode) {
+      ({ failures: golden, notice: msoaNotice } = tolerateMsoaShortfall({
+        rows,
+        golden,
+        refetch,
+        progress,
+      }));
+    }
     if (golden.length > 0) throw new Error(`golden checks failed: ${golden.join("; ")}`);
   } catch (err) {
     // BUG-265: the read, the assembly and the golden checks
@@ -1017,7 +1104,10 @@ async function main() {
     throw err;
   }
   if (verifyOnly) {
-    console.log(`${summaryLine(rows, false)} — golden homes OK (verify-only: nothing filed)`);
+    console.log(
+      `${summaryLine(rows, false)} — golden homes OK (verify-only: nothing filed)` +
+        (msoaNotice ? ` · ${msoaNotice}` : ""),
+    );
     return;
   }
   progress.stage(`filing ${formatCount(rows.length)} areas`);
@@ -1027,7 +1117,9 @@ async function main() {
   } finally {
     await pool.end();
   }
-  console.log(`${summaryLine(rows, true)} — golden homes OK`);
+  console.log(
+    `${summaryLine(rows, true)} — golden homes OK` + (msoaNotice ? ` · ${msoaNotice}` : ""),
+  );
 }
 
 // Run only as a script (run-loaders / npm), never on import.

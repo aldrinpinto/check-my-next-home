@@ -884,6 +884,51 @@ async function md5OfFile(path) {
   return hash.digest("hex");
 }
 
+// BUG-387: download one country extract and verify it
+// against Geofabrik's published md5 — with ONE re-download
+// when the first download fails its hash. A download that
+// completes but is truncated is not a fetch error (the
+// BUG-385 retry never sees it); the hash is the only thing
+// that catches it, and today it fails the run after the
+// largest download in the project. The re-download goes
+// through downloadExtract, so it carries the same 30-minute
+// whole-download retry. A second hash failure throws exactly
+// as today — refusing to file from an unverified extract.
+// (The --pbf-dir path does not use this: its files are local,
+// and re-reading the same file recovers nothing. The floor
+// check in extractAndMap does not use it either: a
+// hash-verified download re-downloads to identical bytes.)
+/**
+ * @param {string} country
+ * @param {string} latestUrl
+ * @param {string} dest
+ * @param {string} published
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ */
+export async function downloadAndVerifyExtract(
+  country,
+  latestUrl,
+  dest,
+  published,
+  { progress = null } = {},
+) {
+  await downloadExtract(country, latestUrl, dest);
+  progress?.stage(`verifying the ${country} download against Geofabrik's md5...`);
+  let actual = await md5OfFile(dest);
+  if (md5Matches(actual, published)) return;
+  progress?.warning({
+    what: "downloaded extract failed its md5 check — re-downloading once (BUG-387)",
+    value: `${country}: downloaded extract hashes to ${actual} but Geofabrik publishes ${published}`,
+    threshold: "one re-download per extract",
+  });
+  await downloadExtract(country, latestUrl, dest);
+  actual = await md5OfFile(dest);
+  if (!md5Matches(actual, published))
+    throw new Error(
+      `${country}: downloaded extract hashes to ${actual} but Geofabrik publishes ${published} — refusing to file from an unverified extract`,
+    );
+}
+
 // Cut one extract down to its candidate elements with the
 // libosmium cutter; returns the elements read and the mapped
 // candidate rows (pre-dedupe), stamped with the extract's
@@ -1078,17 +1123,12 @@ async function main() {
           }
           dataDate = extractDataDate(head.url);
           published = parsePublishedMd5(await fetchText(`${latestUrl}.md5`, `${country} md5`));
-          // BUG-385: the whole download retries from scratch
-          // inside downloadExtract (up to 30 minutes); a
-          // partial file is always discarded, and the md5 below
-          // remains the only acceptance test.
-          await downloadExtract(country, latestUrl, dest);
-          progress.stage(`verifying the ${country} download against Geofabrik's md5...`);
-          const actual = await md5OfFile(dest);
-          if (!md5Matches(actual, published))
-            throw new Error(
-              `${country}: downloaded extract hashes to ${actual} but Geofabrik publishes ${published} — refusing to file from an unverified extract`,
-            );
+          // BUG-387: the download + md5 verify, with one
+          // re-download when the first download fails its
+          // hash (see downloadAndVerifyExtract); a partial
+          // file is always discarded, and the md5 remains
+          // the only acceptance test.
+          await downloadAndVerifyExtract(country, latestUrl, dest, published, { progress });
         } catch (err) {
           progress.failed({
             stage: `download ${country}`,

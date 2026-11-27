@@ -102,6 +102,7 @@ import {
   formatCount,
   formatDuration,
 } from "./progress.mjs";
+import { createShortPageTracker, isShortPage, verifyReadCounts } from "./read-tolerance.mjs";
 
 const ITEMS_URL =
   "https://environment.data.gov.uk/geoservices/datasets/04532375-a198-476e-985e-0579a0a11b47/ogc/features/v1/collections/Flood_Zones_2_3_Rivers_and_Sea/items";
@@ -569,6 +570,9 @@ export async function readLive({
   const readWatch = createBatchWatch();
   const heartbeatEvery = Math.max(1, Math.ceil(expected / 2));
   let nullSourceTotal = 0;
+  // BUG-387: the short pages this read met, for the one re-fetch
+  // each earns (below) and the loud log if the read lands short.
+  const refetch = createShortPageTracker();
   while (totals.read < expected) {
     const started = Date.now();
     const page = await fetchZonesPage(
@@ -579,7 +583,31 @@ export async function readLive({
       onRetry,
       retryBudgetMs,
     );
-    const batch = page.features;
+    let batch = page.features;
+    // BUG-387: a page that comes back short — fewer features than
+    // asked for while more remain — is re-requested ONCE, in place,
+    // before it is staged. The re-fetch goes through the same
+    // fetchZonesPage, so it carries the BUG-384 transient retry;
+    // the fuller of the two pages is the one staged.
+    const want = Math.min(PAGE, expected - startIndex);
+    if (isShortPage({ returned: batch.length, want, read: totals.read, expected })) {
+      refetch.note({ startIndex, want, returned: batch.length });
+      const again = await fetchZonesPage(
+        startIndex,
+        expected,
+        totals.read,
+        delaysMs,
+        onRetry,
+        retryBudgetMs,
+      );
+      refetch.recordRefetch({ startIndex, returned: again.features.length });
+      progress?.warning({
+        what: "short page re-fetched (BUG-387)",
+        value: `page at startIndex ${startIndex} returned ${formatCount(batch.length)} of ${formatCount(want)} — re-fetch returned ${formatCount(again.features.length)}`,
+        threshold: "one re-fetch per short page",
+      });
+      if (again.features.length > batch.length) batch = again.features;
+    }
     const processed = processFeatures(batch);
     totals.addBatch(processed, batch.length);
     // BUG-389: a page whose features carry no flood_source
@@ -632,6 +660,7 @@ export async function readLive({
     expected,
     edition,
     captured: null,
+    refetch: refetch.summary(),
   };
 }
 
@@ -754,6 +783,7 @@ export async function readFixture(
     expected: totals.read,
     edition: stamp.edition,
     captured: stamp.captured ?? null,
+    refetch: null, // a fixture read has no pages to re-fetch (BUG-387)
   };
 }
 
@@ -1034,6 +1064,7 @@ async function main() {
   }
 
   let processed;
+  let verdict = null;
   try {
     const onItems = async (items, edition) => {
       if (filer) await filer.stageItems(items, edition);
@@ -1042,6 +1073,11 @@ async function main() {
       ? await readFixture(fixtureDir, { onItems, progress, resume: filer })
       : await readLive({ onItems, progress, resume: filer });
 
+    // BUG-387: the read gate — the sanity band stays inline, exactly
+    // as before (the fail-closed pin expects its wording here); the
+    // read-vs-expected check carries the 1% tolerance after the
+    // re-fetch, and the reconciliation stays exact. The tolerance
+    // is the ONLY relaxation.
     if (!fixtureMode) {
       const lo = Math.floor(SNAPSHOT * 0.9);
       const hi = Math.ceil(SNAPSHOT * 1.1);
@@ -1050,12 +1086,24 @@ async function main() {
           `sanity failure: ${processed.read} flood zone features is outside the expected band (${lo}–${hi}, the 12 Nov 2026 snapshot ±10%)`,
         );
     }
-    if (processed.read !== processed.expected)
-      throw new Error(
-        `flood zones: read ${processed.read} features but the service count is ${processed.expected} — nothing filed`,
-      );
-    if (processed.filed + processed.geoless !== processed.read)
-      throw new Error("flood zones: the processed counts do not reconcile — nothing filed");
+    verdict = verifyReadCounts({
+      label: "flood zones",
+      read: processed.read,
+      expected: processed.expected,
+      filed: processed.filed,
+      geoless: processed.geoless,
+      refetch: processed.refetch,
+    });
+    if (verdict.withinTolerance) {
+      // LOUD, twice: the progress log line here and the run
+      // summary below both carry the shortfall — a tolerated
+      // short read is never silent.
+      progress.warning({
+        what: "read shortfall accepted (BUG-387)",
+        value: verdict.notice,
+        threshold: "1% after re-fetch",
+      });
+    }
     checkGolden(processed);
   } catch (error) {
     // BUG-248: the read, sanity band, reconciliation and
@@ -1079,7 +1127,8 @@ async function main() {
     ` · ${formatCount(processed.filed)} features filed (${formatCount(processed.read)} read · ${perLabel} · ${formatCount(processed.geoless)} without geometry counted)` +
     (processed.nullSource > 0
       ? ` · ${formatCount(processed.nullSource)} flood_source null mapped to unknown`
-      : "");
+      : "") +
+    (verdict?.notice ? ` · ${verdict.notice}` : "");
 
   if (verifyOnly) {
     console.log(

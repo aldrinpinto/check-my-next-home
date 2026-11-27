@@ -85,6 +85,7 @@ import {
 } from "./progress.mjs";
 import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 import { createLoaderResume } from "./loader-resume.mjs";
+import { createShortPageTracker } from "./read-tolerance.mjs";
 
 const { Pool } = pg;
 
@@ -601,8 +602,24 @@ export async function pullClaimantMonth(selector, codes, fetchOpts) {
 // are assembled together, so a page boundary falling
 // between an LSOA's two measure rows is harmless, while a
 // duplicated or missing measure still fails the assembly.
+/**
+ * @param {string} selector
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, fetchOpts?: import("./flood-resume.mjs").FetchRetryOptions }} [options]
+ */
 export async function pullClaimantNational(selector, { progress = null, fetchOpts } = {}) {
   const observations = [];
+  // BUG-387: the short pages this pull met, for the one re-fetch
+  // each earns (below). Nomis publishes no count up front, so
+  // there is no independent expected — a page is short when it
+  // returns fewer than PAGE_SIZE rows while returning any at all
+  // (the helper's isShortPage needs an expected, so the test
+  // here is local). A short page stays the loop terminator: the
+  // re-fetch is the recovery, and a page that stays short ends
+  // the pull exactly as today. No tolerance applies here either:
+  // the per-month LSOA band (35,000–36,500 around the published
+  // 35,672, in goldenChecks) subsumes any 1% tolerance, so the
+  // band stays the gate, inline and byte-identical.
+  const refetch = createShortPageTracker();
   // BUG-265: the paged pull is the run's long phase — a
   // line per page (25,000 rows), a heartbeat every 50,000
   // rows, and a warning for a page that takes more than 3x
@@ -611,8 +628,28 @@ export async function pullClaimantNational(selector, { progress = null, fetchOpt
   const pullWatch = createBatchWatch();
   for (let offset = 0; ; offset += PAGE_SIZE) {
     const started = Date.now();
-    const text = await fetchRetry(claimantUrl({ selector, offset }), fetchOpts);
-    const rawCount = parseCsvText(text).length - 1;
+    let text = await fetchRetry(claimantUrl({ selector, offset }), fetchOpts);
+    let rawCount = parseCsvText(text).length - 1;
+    // BUG-387: a page that comes back short — fewer rows than
+    // asked for, but not empty — is re-requested ONCE, in place,
+    // through the same fetchRetry, so it carries the BUG-385
+    // transient retry; the fuller of the two pages is the one
+    // parsed.
+    if (rawCount > 0 && rawCount < PAGE_SIZE) {
+      refetch.note({ startIndex: offset, want: PAGE_SIZE, returned: rawCount });
+      const againText = await fetchRetry(claimantUrl({ selector, offset }), fetchOpts);
+      const againCount = parseCsvText(againText).length - 1;
+      refetch.recordRefetch({ startIndex: offset, returned: againCount });
+      progress?.warning({
+        what: "short page re-fetched (BUG-387)",
+        value: `page at offset ${formatCount(offset)} returned ${formatCount(rawCount)} of ${formatCount(PAGE_SIZE)} rows — re-fetch returned ${formatCount(againCount)}`,
+        threshold: "one re-fetch per short page",
+      });
+      if (againCount > rawCount) {
+        text = againText;
+        rawCount = againCount;
+      }
+    }
     observations.push(...parseClaimantObservations(text));
     const { tookMs, averageMs, slow } = pullWatch.observe(Date.now() - started);
     progress?.count({ label: "pull", done: observations.length, unit: "rows", extra: selector });
@@ -630,7 +667,7 @@ export async function pullClaimantNational(selector, { progress = null, fetchOpt
         "the national pull paged past seven pages without a short page — the source shape changed",
       );
   }
-  return assembleClaimantRows(observations);
+  return { rows: assembleClaimantRows(observations), refetch: refetch.summary() };
 }
 
 // The live filing set: the latest month and the revised
@@ -639,7 +676,7 @@ export async function pullClaimantNational(selector, { progress = null, fetchOpt
 // every captured response in the folder the same way.
 /**
  * @param {{ kind: string, dir?: string, codes?: string[] }} source
- * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, fetchOpts?: import("./flood-resume.mjs").FetchRetryOptions }} [options]
  */
 export async function loadClaimantRows(source, { progress = null, fetchOpts } = {}) {
   if (source.kind === "dir") {
@@ -662,18 +699,24 @@ export async function loadClaimantRows(source, { progress = null, fetchOpts } = 
         extra: `${formatCount(observations.length)} observations`,
       });
     }
-    return { rows: assembleClaimantRows(observations) };
+    return { rows: assembleClaimantRows(observations), refetch: [] };
   }
   const chunks = [];
+  // BUG-387: the short-page re-fetch record, one summary per
+  // month pulled nationally (the named-codes pull is a single
+  // response, not a paged pull, so it earns no entry).
+  const refetch = [];
   for (const selector of MONTH_SELECTORS) {
     // BUG-265: a stage marker per month — the pull is the
     // run's long phase.
     progress?.stage(`pulling ${selector} — Claimant Count month`);
-    chunks.push(
-      source.codes
-        ? await pullClaimantMonth(selector, source.codes, fetchOpts)
-        : await pullClaimantNational(selector, { progress, fetchOpts }),
-    );
+    if (source.codes) {
+      chunks.push(await pullClaimantMonth(selector, source.codes, fetchOpts));
+    } else {
+      const pulled = await pullClaimantNational(selector, { progress, fetchOpts });
+      chunks.push(pulled.rows);
+      refetch.push({ month: selector, ...pulled.refetch });
+    }
   }
   const seen = new Set();
   const rows = [];
@@ -683,7 +726,7 @@ export async function loadClaimantRows(source, { progress = null, fetchOpts } = 
     seen.add(key);
     rows.push(row);
   }
-  return { rows };
+  return { rows, refetch };
 }
 
 function summaryLine(rows, filed) {

@@ -1285,14 +1285,75 @@ export async function fetchSchemaNodeOrNull(id, fetchOpts) {
 
 // --- pulls --------------------------------------------------------
 
+// BUG-387: the geography axis of one Stat-Xplore table
+// response — the LSOAs it covers, which is the per-month
+// LSOA count (the cube is complete: one row per geography
+// item per month). Null when the response is not the real
+// {fields, cubes} shape: the parse throws its shape error
+// as today, and no re-fetch is attempted on a response
+// whose coverage cannot be read.
+export function tableGeoCount(json, discovery) {
+  if (!json || !Array.isArray(json.fields) || json.fields.length !== 2) return null;
+  const geoField = json.fields.find((f) => f.uri === discovery?.geographyFieldId);
+  if (!geoField || !Array.isArray(geoField.items)) return null;
+  return geoField.items.length;
+}
+
 // One series' filing rows for the given months. With
 // lsoaCodes set (the verify pull) the query is restricted
 // to those areas.
-export async function pullUcSeries(databaseEntry, { months, lsoaCodes, discovery, fetchOpts }) {
+/**
+ * @param {any} databaseEntry
+ * @param {{ months: string[], lsoaCodes?: string[], discovery?: any, fetchOpts?: import("./flood-resume.mjs").FetchRetryOptions, progress?: import("./progress.mjs").ProgressLogger | null }} pull
+ * @returns {Promise<{ rows: any[], discovery: any, refetch: { series: string, months: string[], first: number, recovered: number } | null }>}
+ */
+export async function pullUcSeries(
+  databaseEntry,
+  { months, lsoaCodes, discovery, fetchOpts, progress = null },
+) {
   const disc = discovery ?? (await fetchDiscovery(databaseEntry, {}, fetchOpts));
   const query = buildTableQuery(disc, databaseEntry, { months, lsoaCodes });
-  const json = await callStatXplore("table", null, query, fetchOpts);
-  return { rows: parseTableResponse(json, databaseEntry, disc), discovery: disc };
+  let json = await callStatXplore("table", null, query, fetchOpts);
+  // BUG-387: a series pull short of the LSOA band's floor is
+  // re-POSTed ONCE, in place, through callStatXplore — which
+  // already carries the BUG-385 transient retry — and the
+  // fuller of the two responses stands. The verify pull
+  // (lsoaCodes set) selects a handful of golden areas by
+  // design, so the band — and the re-fetch — do not apply
+  // there. There is NO 1% tolerance here: the gate is the
+  // band itself (35,000–36,500 around the published 35,672),
+  // which already subsumes any 1% tolerance, and the band
+  // check in goldenChecks / the golden tally stays exactly
+  // as it is — a pull that stays short fails there, nothing
+  // filed.
+  let refetch = null;
+  if (!lsoaCodes) {
+    const first = tableGeoCount(json, disc);
+    if (first !== null && first < LSOA_COUNT_BAND.min) {
+      progress?.warning({
+        what: "short series pull re-posted (BUG-387)",
+        value: `${databaseEntry.series} for ${months.join(", ")} returned ${formatCount(first)} LSOAs, below the ${formatCount(LSOA_COUNT_BAND.min)} floor — re-posting once`,
+        threshold: "one re-POST per short series pull",
+      });
+      const again = await callStatXplore("table", null, query, fetchOpts);
+      const second = tableGeoCount(again, disc);
+      if (second !== null && second > first) {
+        progress?.warning({
+          what: "short series pull recovered (BUG-387)",
+          value: `${databaseEntry.series} re-post returned ${formatCount(second)} LSOAs (recovered ${formatCount(second - first)})`,
+          threshold: "fuller response wins",
+        });
+        json = again;
+        refetch = {
+          series: databaseEntry.series,
+          months: [...months],
+          first,
+          recovered: second - first,
+        };
+      }
+    }
+  }
+  return { rows: parseTableResponse(json, databaseEntry, disc), discovery: disc, refetch };
 }
 
 // The fixture routes: the first pull's real schema
@@ -1385,13 +1446,14 @@ export async function loadUcRows(
         months: [latest],
         lsoaCodes: wanted,
         discovery,
+        progress,
       });
       rows.push(...goldenRows);
       progress?.count({ label: `pull ${entry.series}`, done: goldenRows.length, unit: "rows" });
       continue;
     }
     if (months.length === 0) continue;
-    const { rows: seriesRows } = await pullUcSeries(entry, { months, discovery });
+    const { rows: seriesRows } = await pullUcSeries(entry, { months, discovery, progress });
     rows.push(...seriesRows);
     progress?.count({ label: `pull ${entry.series}`, done: seriesRows.length, unit: "rows" });
   }
@@ -1506,7 +1568,35 @@ export async function streamUcRows(
     }
     if (months.length === 0) continue;
     const { skip = 0 } = (await onEdition?.({ series: entry.series, months })) ?? {};
-    const json = await callStatXplore("table", null, buildTableQuery(discovery, entry, { months }));
+    // BUG-387: the same short-pull re-POST as pullUcSeries,
+    // before the drain — the drain stages rows as it goes, so
+    // a re-fetch after it would double-stage the short
+    // response's rows. The fuller response is drained instead;
+    // a pull that stays short fails at the golden tally's band
+    // check, nothing filed.
+    let json = await callStatXplore("table", null, buildTableQuery(discovery, entry, { months }));
+    const first = tableGeoCount(json, discovery);
+    if (first !== null && first < LSOA_COUNT_BAND.min) {
+      progress?.warning({
+        what: "short series pull re-posted (BUG-387)",
+        value: `${entry.series} for ${months.join(", ")} returned ${formatCount(first)} LSOAs, below the ${formatCount(LSOA_COUNT_BAND.min)} floor — re-posting once`,
+        threshold: "one re-POST per short series pull",
+      });
+      const again = await callStatXplore(
+        "table",
+        null,
+        buildTableQuery(discovery, entry, { months }),
+      );
+      const second = tableGeoCount(again, discovery);
+      if (second !== null && second > first) {
+        progress?.warning({
+          what: "short series pull recovered (BUG-387)",
+          value: `${entry.series} re-post returned ${formatCount(second)} LSOAs (recovered ${formatCount(second - first)})`,
+          threshold: "fuller response wins",
+        });
+        json = again;
+      }
+    }
     await drain(json, entry, discovery, skip);
   }
   await flush();

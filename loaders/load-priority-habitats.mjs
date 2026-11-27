@@ -69,6 +69,7 @@ import {
   formatCount,
   formatDuration,
 } from "./progress.mjs";
+import { createShortPageTracker, isShortPage, verifyReadCounts } from "./read-tolerance.mjs";
 
 const NE_BASE = "https://services.arcgis.com/JJzESW51TqeY9uat/arcgis/rest/services";
 const SERVICE = "Priority_Habitats_Inventory_England";
@@ -362,7 +363,13 @@ async function fetchPhiPage(
   offset,
   expected,
   lastObjectId,
-  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+  {
+    delaysMs = RETRY_DELAYS_MS,
+    onRetry = null,
+    retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
+    progress = null,
+    refetch = null,
+  } = {},
 ) {
   const want = Math.min(PAGE_SIZE, expected - offset);
   const isFinal = offset + want === expected;
@@ -385,6 +392,7 @@ async function fetchPhiPage(
   // fetch failure (a 404, an auth error) is not a bad body
   // and is never re-requested here.
   let lastError = null;
+  let lastPage = null;
   for (let attempt = 1; attempt <= delaysMs.length + 1; attempt++) {
     const response = await fetchResponse(`${layerUrl}/query?${q}`, "the PHI features", {
       delaysMs,
@@ -393,6 +401,7 @@ async function fetchPhiPage(
     });
     try {
       const page = await response.json();
+      lastPage = page;
       validatePhiPage(page, { want, isFinal, lastObjectId, offset });
       return page;
     } catch (error) {
@@ -400,6 +409,46 @@ async function fetchPhiPage(
       if (attempt <= delaysMs.length)
         await new Promise((resolve) => setTimeout(resolve, delaysMs[attempt - 1]));
     }
+  }
+  // BUG-387: the delays budget is spent and the page is still
+  // short — one re-fetch, in place, before giving up. The
+  // re-fetch goes through fetchResponse, so it carries the
+  // BUG-385 transient retry exactly like a first fetch. A page
+  // that stays short fails exactly as today (the short-page
+  // error below); any other re-fetch failure surfaces as
+  // itself.
+  const lastReturned = Array.isArray(lastPage?.features) ? lastPage.features.length : 0;
+  if (isShortPage({ returned: lastReturned, want, read: offset, expected })) {
+    refetch?.note({ startIndex: offset, want, returned: lastReturned });
+    let again = null;
+    let againError = null;
+    try {
+      const response = await fetchResponse(`${layerUrl}/query?${q}`, "the PHI features", {
+        delaysMs,
+        onRetry,
+        retryBudgetMs,
+      });
+      again = await response.json();
+    } catch (error) {
+      againError = error;
+    }
+    const againReturned = Array.isArray(again?.features) ? again.features.length : 0;
+    refetch?.recordRefetch({ startIndex: offset, returned: againReturned });
+    progress?.warning({
+      what: "short page re-fetched (BUG-387)",
+      value: `page at offset ${offset} returned ${formatCount(lastReturned)} of ${formatCount(want)} — re-fetch returned ${formatCount(againReturned)}`,
+      threshold: "one re-fetch per short page",
+    });
+    if (!againError) {
+      try {
+        validatePhiPage(again, { want, isFinal, lastObjectId, offset });
+        return again;
+      } catch (error) {
+        againError = error;
+      }
+    }
+    if (isShortPage({ returned: againReturned, want, read: offset, expected })) throw lastError;
+    throw againError ?? lastError;
   }
   throw lastError;
 }
@@ -420,7 +469,7 @@ async function fetchPhiPage(
  * @param {string} layerUrl
  * @param {number} expected
  * @param {(batch: any[]) => Promise<void>} onBatch
- * @param {{ delaysMs?: number[], onRetry?: ((error: any, attempt: number, delay: number, what: string) => void) | null, retryBudgetMs?: number, log?: ((message: string) => void) | null, progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ * @param {{ delaysMs?: number[], onRetry?: ((error: any, attempt: number, delay: number, what: string) => void) | null, retryBudgetMs?: number, log?: ((message: string) => void) | null, progress?: import("./progress.mjs").ProgressLogger | null, refetch?: ReturnType<import("./read-tolerance.mjs").createShortPageTracker> | null }} [options]
  */
 export async function readPhiPages(
   layerUrl,
@@ -432,6 +481,11 @@ export async function readPhiPages(
     retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
     log = () => {},
     progress = null,
+    // BUG-387: the tracker for the short pages this read met —
+    // the caller owns it and reads the summary at the gate.
+    // A caller that passes none still gets the one re-fetch
+    // per short page; only the record is skipped.
+    refetch = null,
     // BUG-368: a resumed run starts paging at the
     // checkpoint's input position instead of zero, with the
     // OBJECTID order check seeded from the last feature the
@@ -464,6 +518,8 @@ export async function readPhiPages(
       delaysMs,
       onRetry,
       retryBudgetMs,
+      progress,
+      refetch,
     });
     await onBatch(page.features);
     lastObjectId = page.features[page.features.length - 1].properties.OBJECTID;
@@ -969,6 +1025,13 @@ async function main() {
   // The service's count, once known — the failure line's
   // total, and the staging tally's.
   let expected = null;
+  // BUG-387: the short pages the live read met, for the one
+  // re-fetch each earns (in fetchPhiPage) and the loud log if
+  // the read lands short. The fixture read has no pages to
+  // re-fetch, so the tracker stays empty there. The read
+  // gate's verdict, for the run summary below.
+  const refetch = createShortPageTracker();
+  let verdict = null;
 
   // BUG-368: the filing run's filer — persistent staging +
   // checkpoint, opened ahead of the read so a failure
@@ -1067,12 +1130,35 @@ async function main() {
         async (batch) => {
           for (const feature of batch) await run.processFeature(feature);
         },
-        { progress, startOffset, lastObjectId: state.lastObjectId },
+        { progress, startOffset, lastObjectId: state.lastObjectId, refetch },
       );
-      if (state.read !== expected)
-        throw new Error(
-          `read ${state.read} patches but the service count is ${expected} — the read does not reconcile`,
-        );
+      // BUG-387: the read gate — the sanity band stays inline,
+      // exactly as before (below); the read-vs-expected check
+      // carries the 1% tolerance after the re-fetch, and the
+      // reconciliation stays exact. The tolerance is the ONLY
+      // relaxation.
+      verdict = verifyReadCounts({
+        label: "PHI",
+        read: state.read,
+        expected,
+        filed: state.filed,
+        // Duplicates are processed-but-unfiled patches, like
+        // the geoless ones, so they count on the processed
+        // side here; the explicit three-way reconciliation
+        // below still judges the split exactly as before.
+        geoless: state.geoless + state.duplicates,
+        refetch: refetch.summary(),
+      });
+      if (verdict.withinTolerance) {
+        // LOUD, twice: the progress log line here and the run
+        // summary below both carry the shortfall — a tolerated
+        // short read is never silent.
+        progress.warning({
+          what: "read shortfall accepted (BUG-387)",
+          value: verdict.notice,
+          threshold: "1% after re-fetch",
+        });
+      }
     }
     // The staged read stands complete before the golden
     // checks judge it — the tail flush checkpoints it.
@@ -1100,7 +1186,8 @@ async function main() {
 
     const summary = () =>
       `load-priority-habitats · Natural England · Priority Habitat Inventory ${versionLabel} (${versionDate(version)}) · ` +
-      `${formatCount(state.filed)} patches filed (${formatCount(state.read)} read · ${formatCount(state.geoless)} without geometry counted · ${formatCount(state.duplicates)} duplicate UIDs dropped)`;
+      `${formatCount(state.filed)} patches filed (${formatCount(state.read)} read · ${formatCount(state.geoless)} without geometry counted · ${formatCount(state.duplicates)} duplicate UIDs dropped)` +
+      (verdict?.notice ? ` · ${verdict.notice}` : "");
 
     if (verifyOnly) {
       console.log(`${summary()} · golden homes OK (verify only, nothing filed)`);
