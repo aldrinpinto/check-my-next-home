@@ -353,10 +353,20 @@ async function fetchEdition(opts) {
 // source or origin outside the published vocabularies fail
 // the run (the contract check, gap L3/L5: labels are read
 // off the fetched features themselves, never trusted from a
-// filtered query).
+// filtered query). One exception, BUG-389 (27 Nov 2026): a
+// missing flood_source (null or absent) files as "unknown"
+// instead of failing the run — the live service published
+// exactly one such shape (…410161, FZ2, origin "recorded",
+// flood_source null, page at startIndex 409,991) and it
+// killed two runs at 99%; "unknown" is already in the
+// published vocabulary, so nothing is invented. The mapped
+// count is returned as nullSource and logged per page/part
+// by the callers. Any other out-of-vocabulary value still
+// fails the run.
 function processFeatures(raw) {
   let geoless = 0;
   let malformed = 0;
+  let nullSource = 0;
   const perLabel = Object.fromEntries(VOCAB.map((label) => [label, 0]));
   const items = [];
   for (const feature of raw) {
@@ -377,7 +387,12 @@ function processFeatures(raw) {
     const label = props.flood_zone;
     if (!VOCAB.includes(label))
       throw new Error(`contract failure: flood_zone "${label}" is outside {FZ2, FZ3}`);
-    const source = props.flood_source;
+    // BUG-389: a missing source is "unknown", not a failure.
+    let source = props.flood_source;
+    if (source === null || source === undefined) {
+      source = "unknown";
+      nullSource += 1;
+    }
     if (!SOURCES.includes(source))
       throw new Error(
         `contract failure: flood_source "${source}" is outside {river, sea, river and sea, unknown}`,
@@ -397,7 +412,7 @@ function processFeatures(raw) {
     throw new Error(
       `flood zones: ${malformed} features carry geometry that does not parse — contract failure, nothing filed`,
     );
-  return { items, geoless, perLabel };
+  return { items, geoless, perLabel, nullSource };
 }
 
 function serviceErrorText(body) {
@@ -481,6 +496,9 @@ async function fetchZonesPage(
 // retained (the returned items); the totals accumulate as
 // scalars either way. Without a sink the read returns every
 // item, as it always did — the shape the paging tests pin.
+/**
+ * @param {{ delaysMs?: number[], retryBudgetMs?: number, onItems?: ((items: any[], edition: string) => Promise<void>) | null, progress?: import("./progress.mjs").ProgressLogger | null, resume?: any }} [options]
+ */
 export async function readLive({
   delaysMs = RETRY_DELAYS_MS,
   retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
@@ -550,6 +568,7 @@ export async function readLive({
   // fast, and its line count is pinned by test.
   const readWatch = createBatchWatch();
   const heartbeatEvery = Math.max(1, Math.ceil(expected / 2));
+  let nullSourceTotal = 0;
   while (totals.read < expected) {
     const started = Date.now();
     const page = await fetchZonesPage(
@@ -563,6 +582,18 @@ export async function readLive({
     const batch = page.features;
     const processed = processFeatures(batch);
     totals.addBatch(processed, batch.length);
+    // BUG-389: a page whose features carry no flood_source
+    // files them as "unknown" (processFeatures) — the mapping
+    // earns a visible warning line per affected page, so the
+    // count is in the log, not silent.
+    if (processed.nullSource > 0) {
+      nullSourceTotal += processed.nullSource;
+      progress?.warning({
+        what: "flood_source null mapped to unknown",
+        value: `${formatCount(processed.nullSource)} feature${processed.nullSource === 1 ? "" : "s"} on the page at startIndex ${startIndex}`,
+        threshold: "filed as unknown — the source was missing, not a different value",
+      });
+    }
     const { tookMs, averageMs, slow } = readWatch.observe(Date.now() - started);
     readTally?.tick(totals.read);
     progress?.heartbeat({
@@ -596,6 +627,7 @@ export async function readLive({
     filed: totals.filed,
     geoless: totals.geoless,
     perLabel: totals.perLabel,
+    nullSource: nullSourceTotal,
     read: totals.read,
     expected,
     edition,
@@ -666,6 +698,7 @@ export async function readFixture(
   // re-read from its start and re-staged idempotently.
   let skipped = 0;
   const resumeFrom = resumed?.resumed ? resumed.checkpoint.read_count : 0;
+  let nullSourceTotal = 0;
   for (const [part, name] of names.entries()) {
     const body = JSON.parse(await readFile(join(fixtureDir, name), "utf8"));
     const features = body.features ?? [];
@@ -675,6 +708,17 @@ export async function readFixture(
     }
     const processed = processFeatures(features);
     totals.addBatch(processed, features.length);
+    // BUG-389: same mapping as the live read — a part whose
+    // features carry no flood_source files them as "unknown",
+    // with a visible warning line per affected part.
+    if (processed.nullSource > 0) {
+      nullSourceTotal += processed.nullSource;
+      progress?.warning({
+        what: "flood_source null mapped to unknown",
+        value: `${formatCount(processed.nullSource)} feature${processed.nullSource === 1 ? "" : "s"} in fixture part ${part + 1} (${name})`,
+        threshold: "filed as unknown — the source was missing, not a different value",
+      });
+    }
     if (onItems) {
       for (const item of processed.items) sift.offer(item);
       await onItems(processed.items, stamp.edition);
@@ -705,6 +749,7 @@ export async function readFixture(
     filed: totals.filed,
     geoless: totals.geoless,
     perLabel: totals.perLabel,
+    nullSource: nullSourceTotal,
     read: totals.read,
     expected: totals.read,
     edition: stamp.edition,
@@ -1031,7 +1076,10 @@ async function main() {
   const summary = () =>
     `load-flood-zones · Environment Agency Flood Map for Planning zones · edition ${processed.edition}` +
     (processed.captured ? ` (fixture captured ${processed.captured})` : "") +
-    ` · ${formatCount(processed.filed)} features filed (${formatCount(processed.read)} read · ${perLabel} · ${formatCount(processed.geoless)} without geometry counted)`;
+    ` · ${formatCount(processed.filed)} features filed (${formatCount(processed.read)} read · ${perLabel} · ${formatCount(processed.geoless)} without geometry counted)` +
+    (processed.nullSource > 0
+      ? ` · ${formatCount(processed.nullSource)} flood_source null mapped to unknown`
+      : "");
 
   if (verifyOnly) {
     console.log(
