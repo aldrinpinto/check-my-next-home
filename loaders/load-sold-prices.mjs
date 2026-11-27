@@ -481,8 +481,21 @@ async function deleteByGuids(client, table, guids) {
 // inserts that follow can never meet the row they replace — the
 // in-memory Map's delete-then-set, in SQL. A category change is
 // the source's own pair (D of the old id, A under a new id) and
-// lands as exactly one row in the new category.
-async function mergeUpdateRecords(client, table, records, sourceDate, sourceName = SOURCE_NAME) {
+// lands as exactly one row in the new category. seqBase, when
+// given, carries the staging seq for the upserts (BUG-379):
+// the legacy stage's seq is NOT NULL with no default, so its
+// merge must supply one; the national stage's seq is an
+// identity column and the live register has no seq column, so
+// those callers pass none. Batches advance the base, so the
+// seqs stay contiguous across them.
+async function mergeUpdateRecords(
+  client,
+  table,
+  records,
+  sourceDate,
+  sourceName = SOURCE_NAME,
+  seqBase = null,
+) {
   const upserts = records.filter((r) => r.recordStatus !== "D");
   const guids = [...new Set(records.map((r) => r.transactionId))];
   await deleteByGuids(client, table, guids);
@@ -493,6 +506,7 @@ async function mergeUpdateRecords(client, table, records, sourceDate, sourceName
       upserts.slice(at, at + INSERT_BATCH_ROWS),
       sourceDate,
       sourceName,
+      seqBase === null ? null : seqBase + at,
     );
   }
   return {
@@ -1597,7 +1611,29 @@ export async function runLegacy(
           );
           updateMatched += res.rows[0].n;
         }
-        merged = await mergeUpdateRecords(client, LEGACY_STAGE_TABLE, updateRecords, null, null);
+        // The legacy stage's seq is NOT NULL with no default
+        // (BUG-379): the merge's upserts must carry seqs, and
+        // they continue past the greatest seq staged — the
+        // dedupe punched holes, so the filed count is not
+        // the max. Read the max: the merge is atomic with
+        // its checkpoint, so a kill mid-merge rolls the
+        // stage back and the resumed run reads the same
+        // deduped max again.
+        let nextSeq = null;
+        if (updateRecords.some((r) => r.recordStatus !== "D")) {
+          const res = await client.query(
+            `SELECT coalesce(max(seq), -1) + 1 AS next FROM ${LEGACY_STAGE_TABLE}`,
+          );
+          nextSeq = res.rows[0].next;
+        }
+        merged = await mergeUpdateRecords(
+          client,
+          LEGACY_STAGE_TABLE,
+          updateRecords,
+          null,
+          null,
+          nextSeq,
+        );
         afterMerge = await stagedCount();
         if (afterMerge !== afterDedupe - updateMatched + merged.upserted)
           throw new Error(

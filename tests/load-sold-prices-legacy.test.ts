@@ -153,6 +153,12 @@ class FakeClient {
         ] as Row[],
       };
     }
+    if (sql.startsWith("SELECT coalesce(max(seq), -1) + 1 AS next FROM sold_prices_legacy_stage")) {
+      const seqs = (this.stage as Row[])
+        .map((r) => r.seq)
+        .filter((s): s is number => typeof s === "number");
+      return { rows: [{ next: seqs.length === 0 ? 0 : Math.max(...seqs) + 1 }] as Row[] };
+    }
     if (sql.startsWith("DELETE FROM sold_prices_legacy_stage WHERE seq >=")) {
       const before = (this.stage as Row[]).length;
       this.stage = (this.stage as Row[]).filter((r) => (r.seq ?? 0) < (params[0] as number));
@@ -183,10 +189,17 @@ class FakeClient {
       this.stageInserts += 1;
       if (this.failAfterStageInserts !== null && this.stageInserts > this.failAfterStageInserts)
         throw new Error("simulated kill: the database connection dropped mid-insert");
-      // The intake's takeSeq insert carries the seq first
-      // (18 params a row); the merge's upsert carries none
-      // (17 params a row, seq left null).
+      // The stage's seq is NOT NULL with no default (BUG-379):
+      // every insert must carry it — the intake's takeSeq
+      // insert and the merge's upsert both carry the seq
+      // first (18 params a row). A 17-param insert is the
+      // unfixed merge, and real Postgres refuses it with
+      // the not-null error this branch reproduces.
       const width = sql.includes("(seq, transaction_id") ? COLUMNS.length + 1 : COLUMNS.length;
+      if (width === COLUMNS.length)
+        throw new Error(
+          'null value in column "seq" of relation "sold_prices_legacy_stage" violates not-null constraint',
+        );
       for (let at = 0; at < params.length; at += width) {
         const values = params.slice(at, at + width);
         const row =
@@ -368,6 +381,25 @@ describe("legacy load resume (BUG-368)", () => {
     expect(fake.live.filter((r) => r.transaction_id === UPSERT_GUID).length).toBe(1);
     expect(fake.stage?.length).toBe(0);
     expect(fake.checkpoints.get("load-sold-prices-legacy")).toBeUndefined();
+  });
+
+  it("the update merge's upserts carry seqs past the staged max (BUG-379)", async () => {
+    const fake = new FakeClient();
+    // Kill on the filing's first live insert, as in the
+    // first test: the intake, dedupe and merge all stand
+    // checkpointed, so the staged set can be inspected —
+    // and the merge's upsert is in it, not refused by the
+    // stage's NOT NULL seq (the CI #371 failure: a
+    // seq-less upsert is what real Postgres rejected).
+    fake.armFailNextLiveInsert();
+    await expect(runLegacyLoad(fake)).rejects.toThrow(/simulated kill/);
+    expect(fake.stage?.length).toBe(39);
+    const seqs = (fake.stage ?? []).map((r) => r.seq);
+    expect(seqs.every((s) => typeof s === "number")).toBe(true);
+    expect(new Set(seqs).size).toBe(seqs.length);
+    // The intake staged seqs 0..39 and the dedupe removed
+    // none, so the merge's upsert continues at 40.
+    expect(fake.stage?.find((r) => r.transaction_id === UPSERT_GUID)?.seq).toBe(40);
   });
 
   it("an edition change discards the staged rows and files from zero", async () => {
