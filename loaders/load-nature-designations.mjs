@@ -106,6 +106,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { createLoaderResume } from "./loader-resume.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 import { createGoldenSift } from "./flood-stream.mjs";
 import {
   createBatchWatch,
@@ -402,20 +403,45 @@ function polygonsToWkt(polygons) {
 // --- fetching ------------------------------------------------------
 
 const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
-async function fetchJson(url, what, attempts = RETRY_DELAYS_MS.length + 1) {
-  let lastError = null;
-  for (let attempt = 1; attempt <= attempts; attempt++) {
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError).
+async function fetchResponse(
+  url,
+  what,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
     try {
       const response = await fetch(url);
-      if (!response.ok) throw new Error(`HTTP ${response.status} for ${what}`);
-      return await response.json();
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status} for ${what}`);
+        error.status = response.status;
+        throw error;
+      }
+      return response;
     } catch (error) {
-      lastError = error;
-      if (attempt < attempts)
-        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt - 1]));
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, what);
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
-  throw lastError;
+}
+
+export async function fetchJson(url, what, opts) {
+  // The body read stays outside the retry boundary, so a
+  // parse failure fails fast instead of re-requesting.
+  return (await fetchResponse(url, what, opts)).json();
 }
 
 // --- paging: the count is the contract -------------------------
@@ -476,7 +502,7 @@ async function fetchServicePage(
   expected,
   pageSize,
   lastObjectId,
-  delaysMs = RETRY_DELAYS_MS,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
 ) {
   const want = Math.min(pageSize, expected - offset);
   const q = new URLSearchParams({
@@ -489,11 +515,22 @@ async function fetchServicePage(
     orderByFields: "OBJECTID",
     f: "geojson",
   });
+  // Two retry levels, kept apart (the flood loaders' shape,
+  // BUG-384): the fetch retries transient TRANSPORT failures
+  // within the 30-minute budget (fetchResponse, BUG-385),
+  // while a page whose BODY fails the contract is
+  // re-requested in place within the delays budget. The
+  // transport call sits OUTSIDE the try: a non-transient
+  // fetch failure (a 404, an auth error) is not a bad body
+  // and is never re-requested here.
   let lastError = null;
   for (let attempt = 1; attempt <= delaysMs.length + 1; attempt++) {
+    const response = await fetchResponse(`${layerUrl}/query?${q}`, `the ${spec.service} features`, {
+      delaysMs,
+      onRetry,
+      retryBudgetMs,
+    });
     try {
-      const response = await fetch(`${layerUrl}/query?${q}`);
-      if (!response.ok) throw new Error(`HTTP ${response.status} for the ${spec.service} features`);
       const page = await response.json();
       validateServicePage(page, { spec, want, lastObjectId, offset });
       return page;
@@ -521,6 +558,8 @@ export async function readServiceLiveStream(
   spec,
   {
     delaysMs = RETRY_DELAYS_MS,
+    onRetry = null,
+    retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
     onFeatures = null,
     progress = null,
     // BUG-368: onHead fires the resume decision once the
@@ -532,8 +571,13 @@ export async function readServiceLiveStream(
     resumeNote = null,
   } = {},
 ) {
+  const fetchOpts = { delaysMs, onRetry, retryBudgetMs };
   const layerUrl = `${NE_BASE}/${spec.service}/FeatureServer/0`;
-  const meta = await fetchJson(`${layerUrl}?f=json`, `the ${spec.service} layer metadata`);
+  const meta = await fetchJson(
+    `${layerUrl}?f=json`,
+    `the ${spec.service} layer metadata`,
+    fetchOpts,
+  );
   const metaFields = (meta.fields ?? []).map((f) => f.name);
   for (const field of spec.fields) {
     if (!metaFields.includes(field))
@@ -546,6 +590,7 @@ export async function readServiceLiveStream(
   const countBody = await fetchJson(
     `${layerUrl}/query?where=1%3D1&returnCountOnly=true&f=json`,
     `the ${spec.service} count`,
+    fetchOpts,
   );
   const countError = serviceErrorText(countBody);
   if (countError) throw new Error(`the ${spec.service} count query failed: ${countError}`);
@@ -584,7 +629,7 @@ export async function readServiceLiveStream(
         expected,
         pageSize,
         lastObjectId,
-        delaysMs,
+        fetchOpts,
       );
       if (onFeatures) await onFeatures(page.features, sourceDate);
       lastObjectId = page.features[page.features.length - 1].properties.OBJECTID;
@@ -629,10 +674,20 @@ export async function readServiceLiveStream(
 // service's features in one array — the shape this step
 // was built with, kept for small inputs and tests. The
 // filing run streams.
-export async function readServiceLive(spec, { delaysMs = RETRY_DELAYS_MS, progress = null } = {}) {
+export async function readServiceLive(
+  spec,
+  {
+    delaysMs = RETRY_DELAYS_MS,
+    onRetry = null,
+    retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
+    progress = null,
+  } = {},
+) {
   const features = [];
   const { sourceDate, expected } = await readServiceLiveStream(spec, {
     delaysMs,
+    onRetry,
+    retryBudgetMs,
     progress,
     onFeatures: async (batch) => {
       features.push(...batch);

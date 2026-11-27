@@ -57,6 +57,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { createLoaderResume } from "./loader-resume.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -170,15 +171,62 @@ export async function nationalForWindow(client, months) {
   return { total: rows.reduce((sum, row) => sum + row.england_total, 0), residents };
 }
 
-async function fetchJson(url) {
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    const response = await fetch(url);
-    if (response.ok) return response.json();
-    if (attempt === 2)
-      throw new Error(`Police.uk request failed: HTTP ${response.status} (${url})`);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError).
+export async function fetchResponse(
+  url,
+  what,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status} for ${what}`);
+        error.status = response.status;
+        throw error;
+      }
+      return response;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, what);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
   }
-  throw new Error("unreachable");
+}
+
+// BUG-385: the retry lives in fetchResponse now — this helper
+// keeps its old shape and its old error message. The body
+// read sits outside fetchResponse's try, so a malformed body
+// fails fast instead of retrying. Note the behaviour change
+// the retry brings: the old 2-attempt loop retried every
+// HTTP failure once, including a 404; a non-transient
+// failure now throws at once, with a single attempt.
+export async function fetchJson(
+  url,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+) {
+  let response;
+  try {
+    response = await fetchResponse(url, "Police.uk", { delaysMs, onRetry, retryBudgetMs });
+  } catch (err) {
+    if (typeof err.status === "number")
+      throw new Error(`Police.uk request failed: HTTP ${err.status} (${url})`);
+    throw err;
+  }
+  return response.json();
 }
 
 // One postcode's count over the window — the per-postcode
@@ -189,7 +237,7 @@ async function fetchJson(url) {
 // with its record count and fetch duration, so the caller
 // owns the tally, heartbeat and slow-fetch warning.
 /**
- * @param {{ client?: any, fixture?: any, fileDir?: string | null, pc: string, months: string[], latest: string, onMonth?: ((args: { pc: string, month: string, count: number, tookMs: number }) => void) | null }} options
+ * @param {{ client?: any, fixture?: any, fileDir?: string | null, pc: string, months: string[], latest: string, onMonth?: ((args: { pc: string, month: string, count: number, tookMs: number }) => void) | null, delaysMs?: number[], onRetry?: ((error: any, attempt: number, delayMs: number, what: string) => void) | null, retryBudgetMs?: number }} options
  */
 export async function countPostcodeAnswer({
   client = null,
@@ -199,6 +247,9 @@ export async function countPostcodeAnswer({
   months,
   latest,
   onMonth = null,
+  delaysMs = RETRY_DELAYS_MS,
+  onRetry = null,
+  retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
 }) {
   let point;
   if (fixture) {
@@ -225,7 +276,11 @@ export async function countPostcodeAnswer({
     const fetchStarted = Date.now();
     const records = fixture
       ? JSON.parse(await readFile(join(fileDir, `${point.prefix}-${month}.json`), "utf8"))
-      : await fetchJson(`${CRIMES_URL}?lat=${point.lat}&lng=${point.lng}&date=${month}`);
+      : await fetchJson(`${CRIMES_URL}?lat=${point.lat}&lng=${point.lng}&date=${month}`, {
+          delaysMs,
+          onRetry,
+          retryBudgetMs,
+        });
     const tookMs = Date.now() - fetchStarted;
     if (!Array.isArray(records))
       throw new Error(`${pc} ${month}: Police.uk response is not a list`);

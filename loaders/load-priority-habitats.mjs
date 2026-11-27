@@ -62,6 +62,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { createLoaderResume } from "./loader-resume.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -249,20 +250,45 @@ function versionAgeMonths(v, now = new Date()) {
 // --- the run ---------------------------------------------------------
 
 const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
-async function fetchJson(url, what, attempts = RETRY_DELAYS_MS.length + 1) {
-  let lastError = null;
-  for (let attempt = 1; attempt <= attempts; attempt++) {
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError).
+async function fetchResponse(
+  url,
+  what,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
     try {
       const response = await fetch(url);
-      if (!response.ok) throw new Error(`HTTP ${response.status} for ${what}`);
-      return await response.json();
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status} for ${what}`);
+        error.status = response.status;
+        throw error;
+      }
+      return response;
     } catch (error) {
-      lastError = error;
-      if (attempt < attempts)
-        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt - 1]));
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, what);
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
-  throw lastError;
+}
+
+export async function fetchJson(url, what, opts) {
+  // The body read stays outside the retry boundary, so a
+  // parse failure fails fast instead of re-requesting.
+  return (await fetchResponse(url, what, opts)).json();
 }
 
 // --- paging: the count is the contract -------------------------
@@ -331,7 +357,13 @@ function validatePhiPage(page, { want, isFinal, lastObjectId, offset }) {
   return previous;
 }
 
-async function fetchPhiPage(layerUrl, offset, expected, lastObjectId, delaysMs = RETRY_DELAYS_MS) {
+async function fetchPhiPage(
+  layerUrl,
+  offset,
+  expected,
+  lastObjectId,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+) {
   const want = Math.min(PAGE_SIZE, expected - offset);
   const isFinal = offset + want === expected;
   const q = new URLSearchParams({
@@ -344,11 +376,22 @@ async function fetchPhiPage(layerUrl, offset, expected, lastObjectId, delaysMs =
     orderByFields: "OBJECTID",
     f: "geojson",
   });
+  // Two retry levels, kept apart (the flood loaders' shape,
+  // BUG-384): the fetch retries transient TRANSPORT failures
+  // within the 30-minute budget (fetchResponse, BUG-385),
+  // while a page whose BODY fails the contract is
+  // re-requested in place within the delays budget. The
+  // transport call sits OUTSIDE the try: a non-transient
+  // fetch failure (a 404, an auth error) is not a bad body
+  // and is never re-requested here.
   let lastError = null;
   for (let attempt = 1; attempt <= delaysMs.length + 1; attempt++) {
+    const response = await fetchResponse(`${layerUrl}/query?${q}`, "the PHI features", {
+      delaysMs,
+      onRetry,
+      retryBudgetMs,
+    });
     try {
-      const response = await fetch(`${layerUrl}/query?${q}`);
-      if (!response.ok) throw new Error(`HTTP ${response.status} for the PHI features`);
       const page = await response.json();
       validatePhiPage(page, { want, isFinal, lastObjectId, offset });
       return page;
@@ -377,7 +420,7 @@ async function fetchPhiPage(layerUrl, offset, expected, lastObjectId, delaysMs =
  * @param {string} layerUrl
  * @param {number} expected
  * @param {(batch: any[]) => Promise<void>} onBatch
- * @param {{ delaysMs?: number[], log?: ((message: string) => void) | null, progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ * @param {{ delaysMs?: number[], onRetry?: ((error: any, attempt: number, delay: number, what: string) => void) | null, retryBudgetMs?: number, log?: ((message: string) => void) | null, progress?: import("./progress.mjs").ProgressLogger | null }} [options]
  */
 export async function readPhiPages(
   layerUrl,
@@ -385,6 +428,8 @@ export async function readPhiPages(
   onBatch,
   {
     delaysMs = RETRY_DELAYS_MS,
+    onRetry = null,
+    retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
     log = () => {},
     progress = null,
     // BUG-368: a resumed run starts paging at the
@@ -415,7 +460,11 @@ export async function readPhiPages(
   const heartbeatEvery = Math.max(1, Math.ceil(expected / 2));
   while (offset < expected) {
     const started = Date.now();
-    const page = await fetchPhiPage(layerUrl, offset, expected, lastObjectId, delaysMs);
+    const page = await fetchPhiPage(layerUrl, offset, expected, lastObjectId, {
+      delaysMs,
+      onRetry,
+      retryBudgetMs,
+    });
     await onBatch(page.features);
     lastObjectId = page.features[page.features.length - 1].properties.OBJECTID;
     offset += page.features.length;

@@ -95,6 +95,7 @@ import {
   formatCount,
   formatDuration,
 } from "./progress.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 
 const USER_AGENT = "CheckMyNextHome/1.0 (+https://checkmynexthome.co.uk)";
 
@@ -451,28 +452,55 @@ export async function fileMobile(
   }
 }
 
-async function fetchBinary(url) {
-  let lastError;
-  for (let attempt = 1; attempt <= 2; attempt++) {
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError).
+/**
+ * @param {string} url
+ * @param {object} [opts]
+ * @param {number[]} [opts.delaysMs]
+ * @param {((error: any, attempt: number, delay: number, what: string) => void) | null} [opts.onRetry]
+ * @param {number} [opts.retryBudgetMs]
+ */
+export async function fetchBinary(
+  url,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  let res;
+  for (;;) {
+    attempt += 1;
     try {
-      const res = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
-      if (res.ok) return Buffer.from(await res.arrayBuffer());
+      res = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
+      if (res.ok) break;
       if (res.status === 403) {
-        throw new Error(
+        const error = new Error(
           `Ofcom returned HTTP 403 for ${url.split("?")[0]} — this network is blocked by Ofcom's Cloudflare (known; the live pull runs from an unblocked network or via --file)`,
         );
+        error.status = 403;
+        throw error;
       }
-      if (res.status !== 429 && res.status < 500) {
-        throw new Error(`${url} returned HTTP ${res.status}`);
-      }
-      lastError = new Error(`${url} returned HTTP ${res.status}`);
-    } catch (err) {
-      lastError = err;
-      if (/returned HTTP|HTTP 403/.test(err.message)) throw err;
+      const error = new Error(`${url} returned HTTP ${res.status}`);
+      error.status = res.status;
+      throw error;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, url);
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
-    if (attempt < 2) await new Promise((r) => setTimeout(r, 3000));
   }
-  throw lastError;
+  // The body read stays outside the retry: a malformed body
+  // is a contract failure, not a transient fetch failure.
+  return Buffer.from(await res.arrayBuffer());
 }
 
 const LAUA_FILE = /_mobile_coverage_laua_r\d+\.csv$/i;
@@ -512,7 +540,7 @@ export function releaseFromLauaName(name) {
 /**
  * @param {{ fileDir?: string | null, progress?: import("./progress.mjs").ProgressLogger | null }} [options]
  */
-export async function loadMobileRows({ fileDir = null, progress = null } = {}) {
+export async function loadMobileRows({ fileDir = null, progress = null, fetchOpts } = {}) {
   let release;
   let text;
   // BUG-265: one stage line for the release read, one count
@@ -535,7 +563,7 @@ export async function loadMobileRows({ fileDir = null, progress = null } = {}) {
     if (!mobileZipUrl) {
       throw new Error("mobile: no mobile ZIP linked from the publication page");
     }
-    const entry = await readZipEntry(await fetchBinary(mobileZipUrl), (name) =>
+    const entry = await readZipEntry(await fetchBinary(mobileZipUrl, fetchOpts), (name) =>
       LAUA_FILE.test(name.split("/").pop()),
     );
     if (!entry) throw new Error("mobile: the release ZIP holds no laua file");

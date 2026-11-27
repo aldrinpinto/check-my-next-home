@@ -80,6 +80,7 @@ import {
   formatDuration,
 } from "./progress.mjs";
 import { createLoaderResume } from "./loader-resume.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 import pg from "pg";
 import yauzl from "yauzl";
 
@@ -750,35 +751,86 @@ export async function fileBroadband(
   }
 }
 
-async function fetchRetry(url, { binary = false } = {}) {
-  let lastError;
-  for (let attempt = 1; attempt <= 2; attempt++) {
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError).
+export async function fetchResponse(
+  url,
+  what,
+  {
+    delaysMs = RETRY_DELAYS_MS,
+    onRetry = null,
+    retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
+    init = undefined,
+  } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
     try {
-      const res = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
-      if (res.ok) return binary ? Buffer.from(await res.arrayBuffer()) : await res.text();
-      if (res.status === 403) {
-        throw new Error(
-          `Ofcom returned HTTP 403 for ${url.split("?")[0]} — this network is blocked by Ofcom's Cloudflare (known; the live pull runs from an unblocked network or via --file)`,
-        );
+      const response = await fetch(url, init);
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status} for ${what}`);
+        error.status = response.status;
+        throw error;
       }
-      if (res.status !== 429 && res.status < 500) {
-        throw new Error(`${url} returned HTTP ${res.status}`);
-      }
-      lastError = new Error(`${url} returned HTTP ${res.status}`);
-    } catch (err) {
-      lastError = err;
-      if (/returned HTTP|HTTP 403/.test(err.message)) throw err;
+      return response;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, what);
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
-    if (attempt < 2) await new Promise((r) => setTimeout(r, 3000));
   }
-  throw lastError;
+}
+
+// BUG-385: the retry lives in fetchResponse now — this helper
+// keeps its old shape (text, or a Buffer with binary) and its
+// old error messages, including the Ofcom 403 wording. The
+// body read sits outside fetchResponse's try, so a parse
+// failure fails fast instead of retrying.
+export async function fetchRetry(
+  url,
+  {
+    binary = false,
+    delaysMs = RETRY_DELAYS_MS,
+    onRetry = null,
+    retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
+  } = {},
+) {
+  let response;
+  try {
+    response = await fetchResponse(url, "the broadband download", {
+      init: { headers: { "User-Agent": USER_AGENT } },
+      delaysMs,
+      onRetry,
+      retryBudgetMs,
+    });
+  } catch (err) {
+    if (err.status === 403) {
+      throw new Error(
+        `Ofcom returned HTTP 403 for ${url.split("?")[0]} — this network is blocked by Ofcom's Cloudflare (known; the live pull runs from an unblocked network or via --file)`,
+      );
+    }
+    if (typeof err.status === "number") throw new Error(`${url} returned HTTP ${err.status}`);
+    throw err;
+  }
+  return binary ? Buffer.from(await response.arrayBuffer()) : await response.text();
 }
 
 // Resolve the current release's ZIPs from the publication page.
 // Returns {fixedZipUrl, mobileZipUrl} — either may be null if the
 // page does not link it (the caller decides whether that is fatal).
-export async function discoverReleaseZips(pageUrl = PUBLICATION_PAGE) {
-  const html = await fetchRetry(pageUrl);
+export async function discoverReleaseZips(pageUrl = PUBLICATION_PAGE, opts = {}) {
+  const html = await fetchRetry(pageUrl, opts);
   const hrefs = [...html.matchAll(/href="([^"]+\.zip(?:\?[^"]*)?)"/gi)].map((m) => m[1]);
   const absolute = hrefs.map((h) => new URL(h, pageUrl).toString());
   const fixed = absolute.find((u) => /fixed/i.test(u) && /broadband/i.test(u));
@@ -901,7 +953,14 @@ function createFileRowFeeder(release, emit) {
 // insert to detect duplicates with), the postcode set. A filing
 // run never sets it: the whole release is never held in memory.
 export async function streamBroadbandRows(
-  { fileDir = null, trackPostcodes = false, onRelease = null } = {},
+  {
+    fileDir = null,
+    trackPostcodes = false,
+    onRelease = null,
+    delaysMs = RETRY_DELAYS_MS,
+    onRetry = null,
+    retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
+  } = {},
   onRows,
 ) {
   const stats = { parsed: 0, goldensSeen: new Set(), postcodes: trackPostcodes ? new Set() : null };
@@ -946,11 +1005,20 @@ export async function streamBroadbandRows(
       await feeder.endFile();
     }
   } else {
-    const { fixedZipUrl } = await discoverReleaseZips();
+    const { fixedZipUrl } = await discoverReleaseZips(undefined, {
+      delaysMs,
+      onRetry,
+      retryBudgetMs,
+    });
     if (!fixedZipUrl) {
       throw new Error("broadband: no fixed-broadband ZIP linked from the publication page");
     }
-    const buffer = await fetchRetry(fixedZipUrl, { binary: true });
+    const buffer = await fetchRetry(fixedZipUrl, {
+      binary: true,
+      delaysMs,
+      onRetry,
+      retryBudgetMs,
+    });
     const names = await listZipEntryNames(buffer);
     const matched = names.filter((name) => POSTCODE_FILE.test(name));
     if (matched.length === 0) throw new Error("broadband: the release ZIP holds no postcode files");
@@ -978,11 +1046,19 @@ export async function streamBroadbandRows(
 // Load a release into answer rows: the collecting form over the
 // streaming read (the BUG-187 defences precedent — small inputs
 // and tests only; the filing run streams).
-export async function loadBroadbandRows({ fileDir = null } = {}) {
+export async function loadBroadbandRows({
+  fileDir = null,
+  delaysMs = RETRY_DELAYS_MS,
+  onRetry = null,
+  retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
+} = {}) {
   const rows = [];
-  const { release } = await streamBroadbandRows({ fileDir }, async (batch) => {
-    rows.push(...batch);
-  });
+  const { release } = await streamBroadbandRows(
+    { fileDir, delaysMs, onRetry, retryBudgetMs },
+    async (batch) => {
+      rows.push(...batch);
+    },
+  );
   return { release, rows };
 }
 

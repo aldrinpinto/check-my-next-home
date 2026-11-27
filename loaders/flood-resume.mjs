@@ -85,6 +85,14 @@ export const FLOOD_RESUME_WINDOW_METRES = GOLDEN_WINDOW_MILES * 1609.344;
 // fetch for tests (retryBudgetMs).
 export const TRANSIENT_RETRY_BUDGET_MS = 30 * 60 * 1000;
 
+/**
+ * Options for a fetch with the BUG-384/385 transient retry.
+ * @typedef {Object} FetchRetryOptions
+ * @property {number[]} [delaysMs] - retry delays in ms; the last entry repeats. Pass [] for instant retries in tests.
+ * @property {((error: any, attempt: number, delay: number, what: string) => void) | null} [onRetry] - called before each retry (the visible retry line); null by default.
+ * @property {number} [retryBudgetMs] - total retry budget in ms; defaults to TRANSIENT_RETRY_BUDGET_MS (30 minutes).
+ */
+
 // BUG-384: which fetch failures are worth retrying. A connection
 // blip — the service not answering, a reset, a 5xx or a 429 —
 // is transient: the read retries it for up to 30 minutes

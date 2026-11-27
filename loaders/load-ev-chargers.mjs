@@ -109,6 +109,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { createLoaderResume } from "./loader-resume.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -753,48 +754,114 @@ export function callOcmViaHelper(path, params, workDir) {
   });
 }
 
-async function callOcmDirect(path, params) {
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError).
+export async function fetchResponse(
+  url,
+  what,
+  {
+    delaysMs = RETRY_DELAYS_MS,
+    onRetry = null,
+    retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
+    init = undefined,
+  } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
+    try {
+      const response = await fetch(url, init);
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status} for ${what}`);
+        error.status = response.status;
+        throw error;
+      }
+      return response;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, what);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
+async function callOcmDirect(
+  path,
+  params,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+) {
   const url = new URL(`${API_BASE}/${path}/`);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));
-  const res = await fetch(url, {
-    headers: {
-      Accept: "application/json",
-      "User-Agent": USER_AGENT,
-      "X-API-Key": process.env.OPEN_CHARGE_MAP_API_KEY,
-    },
-  });
-  if (!res.ok)
-    throw new Error(
-      `Open Charge Map ${path} returned HTTP ${res.status} — with the key sent as the X-API-Key header (a 403 means the credential did not reach the API or is not accepted)`,
-    );
+  // BUG-385: the retry lives in fetchResponse now — this
+  // keeps the old error message, and the body read sits
+  // outside fetchResponse's try so a malformed body fails
+  // fast instead of retrying.
+  let res;
+  try {
+    res = await fetchResponse(url, `Open Charge Map ${path}`, {
+      init: {
+        headers: {
+          Accept: "application/json",
+          "User-Agent": USER_AGENT,
+          "X-API-Key": process.env.OPEN_CHARGE_MAP_API_KEY,
+        },
+      },
+      delaysMs,
+      onRetry,
+      retryBudgetMs,
+    });
+  } catch (err) {
+    if (typeof err.status === "number") {
+      throw new Error(
+        `Open Charge Map ${path} returned HTTP ${err.status} — with the key sent as the X-API-Key header (a 403 means the credential did not reach the API or is not accepted)`,
+      );
+    }
+    throw err;
+  }
   return res.json();
 }
 
-export async function callOcm(path, params, workDir) {
-  const attempt = () => {
-    if (process.env.OPEN_CHARGE_MAP_API_KEY) return callOcmDirect(path, params);
-    if (!existsSync(helperPath()))
-      throw new Error(
-        "no Open Charge Map credential route: OPEN_CHARGE_MAP_API_KEY is not set and the connector helper was not found (Key K17 lives in the Secure Vault — see .env.example)",
-      );
-    return callOcmViaHelper(path, params, workDir);
-  };
-  // One retry on a transient failure — the house habit
-  // (the Greenspace download and the canary both retry
-  // once); a credential refusal fails twice and surfaces.
-  try {
-    return await attempt();
-  } catch {
-    await new Promise((r) => setTimeout(r, 3000));
-    return attempt();
-  }
+export async function callOcm(path, params, workDir, opts = {}) {
+  // BUG-385: the direct route retries inside fetchResponse
+  // (up to 30 minutes on a transient failure; a credential
+  // refusal fails at once instead of twice, as before).
+  // The helper route is a local child process, not a fetch,
+  // so it still fails at once.
+  if (process.env.OPEN_CHARGE_MAP_API_KEY) return callOcmDirect(path, params, opts);
+  if (!existsSync(helperPath()))
+    throw new Error(
+      "no Open Charge Map credential route: OPEN_CHARGE_MAP_API_KEY is not set and the connector helper was not found (Key K17 lives in the Secure Vault — see .env.example)",
+    );
+  return callOcmViaHelper(path, params, workDir);
 }
 
 // Pull one bounding-box tile; subdivide adaptively when the
 // tile comes back at the result cap (assumed truncated).
 // Returns the tile's records plus the pull statistics the
 // log line reports.
-async function pullTile(tile, depth, workDir, stats, { progress = null, watch = null } = {}) {
+async function pullTile(
+  tile,
+  depth,
+  workDir,
+  stats,
+  {
+    progress = null,
+    watch = null,
+    delaysMs = RETRY_DELAYS_MS,
+    onRetry = null,
+    retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
+  } = {},
+) {
   const bbox = `(${tile.north},${tile.west}),(${tile.south},${tile.east})`;
   // BUG-265: a stage marker per tile — the pull is the
   // run's long phase — and a warning for a tile that takes
@@ -805,6 +872,7 @@ async function pullTile(tile, depth, workDir, stats, { progress = null, watch = 
     "poi",
     { boundingbox: bbox, countrycode: "GB", opendata: "true", maxresults: TILE_CAP },
     workDir,
+    { delaysMs, onRetry, retryBudgetMs },
   );
   const { tookMs, averageMs, slow } = watch?.observe(Date.now() - started) ?? {};
   if (slow && tookMs >= 1000) {
@@ -834,7 +902,15 @@ async function pullTile(tile, depth, workDir, stats, { progress = null, watch = 
     const merged = [];
     for (const quad of quads) {
       await new Promise((r) => setTimeout(r, 1500));
-      merged.push(...(await pullTile(quad, depth + 1, workDir, stats, { progress, watch })));
+      merged.push(
+        ...(await pullTile(quad, depth + 1, workDir, stats, {
+          progress,
+          watch,
+          delaysMs,
+          onRetry,
+          retryBudgetMs,
+        })),
+      );
     }
     return merged;
   }
@@ -843,7 +919,15 @@ async function pullTile(tile, depth, workDir, stats, { progress = null, watch = 
 
 // The full GB pull: the four initial tiles, merged by POI
 // id (tiles overlap at their edges by design).
-export async function pullGb(workDir, { progress = null } = {}) {
+export async function pullGb(
+  workDir,
+  {
+    progress = null,
+    delaysMs = RETRY_DELAYS_MS,
+    onRetry = null,
+    retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
+  } = {},
+) {
   const stats = { calls: 0, subdivisions: 0 };
   const merged = new Map();
   // BUG-265: the tile pull is the run's long phase — a
@@ -854,7 +938,13 @@ export async function pullGb(workDir, { progress = null } = {}) {
   const tileWatch = createBatchWatch();
   progress?.stage("pulling the four GB tiles");
   for (const tile of INITIAL_TILES) {
-    const pois = await pullTile(tile, 0, workDir, stats, { progress, watch: tileWatch });
+    const pois = await pullTile(tile, 0, workDir, stats, {
+      progress,
+      watch: tileWatch,
+      delaysMs,
+      onRetry,
+      retryBudgetMs,
+    });
     for (const poi of pois) if (poi?.ID != null) merged.set(poi.ID, poi);
     progress?.count({
       label: "pull",

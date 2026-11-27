@@ -57,6 +57,7 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import proj4 from "proj4";
 import { createLoaderResume } from "./loader-resume.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -395,32 +396,62 @@ export async function fileAirGrid(client, rows, { progress = null, restart = fal
   }
 }
 
-async function fetchText(url) {
-  let lastError;
-  for (let attempt = 1; attempt <= 2; attempt++) {
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError).
+async function fetchResponse(
+  url,
+  what,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
     try {
-      const res = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
-      if (res.ok) return await res.text();
-      if (res.status !== 429 && res.status < 500) {
-        throw new Error(`${url} returned HTTP ${res.status}`);
+      const response = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status} for ${what}`);
+        error.status = response.status;
+        throw error;
       }
-      lastError = new Error(`${url} returned HTTP ${res.status}`);
-    } catch (err) {
-      lastError = err;
-      if (/returned HTTP 4/.test(err.message)) throw err;
+      return response;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, what);
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
-    if (attempt < 2) await new Promise((r) => setTimeout(r, 3000));
   }
-  throw lastError;
 }
 
-export async function loadAirRows({ fileDir = null, year = PCM_YEAR, progress = null } = {}) {
+export async function fetchText(url, opts) {
+  // The body read stays outside the retry boundary, so a
+  // parse failure fails fast instead of re-requesting.
+  return (await fetchResponse(url, url, opts)).text();
+}
+
+export async function loadAirRows({
+  fileDir = null,
+  year = PCM_YEAR,
+  progress = null,
+  delaysMs = RETRY_DELAYS_MS,
+  onRetry = null,
+  retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
+} = {}) {
   const texts = {};
   for (const pollutant of Object.keys(POLLUTANTS)) {
     const name = POLLUTANTS[pollutant].file(year);
     texts[pollutant] = fileDir
       ? await readFile(join(fileDir, name), "utf8")
-      : await fetchText(`${PCM_BASE}/${name}`);
+      : await fetchText(`${PCM_BASE}/${name}`, { delaysMs, onRetry, retryBudgetMs });
   }
   const maps = {};
   for (const pollutant of Object.keys(POLLUTANTS)) {

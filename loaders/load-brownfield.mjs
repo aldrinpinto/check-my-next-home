@@ -57,6 +57,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { createLoaderResume } from "./loader-resume.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -589,6 +590,48 @@ export function brownfieldEdition(sourceDate, text) {
   return `${sourceDate}:${createHash("sha256").update(text).digest("hex").slice(0, 16)}`;
 }
 
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError).
+async function fetchResponse(
+  url,
+  what,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status} for ${what}`);
+        error.status = response.status;
+        throw error;
+      }
+      return response;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, what);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
+export async function fetchText(url, what, opts) {
+  // The body read stays outside the retry boundary, so a
+  // parse failure fails fast instead of re-requesting.
+  return (await fetchResponse(url, what, opts)).text();
+}
+
 async function main() {
   const startedAt = Date.now();
   const args = process.argv.slice(2);
@@ -612,9 +655,7 @@ async function main() {
       text = await readFile(join(fixtureDir, "brownfield-land.csv"), "utf8");
       sourceDate = JSON.parse(await readFile(join(fixtureDir, "fixture.json"), "utf8")).captured;
     } else {
-      const response = await fetch(FILE_URL);
-      if (!response.ok) throw new Error(`HTTP ${response.status} for the brownfield-land download`);
-      text = await response.text();
+      text = await fetchText(FILE_URL, "the brownfield-land download");
       sourceDate = new Date().toISOString().slice(0, 10);
     }
 

@@ -55,6 +55,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { createLoaderResume } from "./loader-resume.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -263,20 +264,83 @@ function minimise(stub, doc) {
   };
 }
 
-async function apiGet(path, token) {
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    const response = await fetch(`${API_BASE}${path}`, {
-      headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
-    });
-    if (response.status === 404) return null;
-    if (response.ok) return response.json();
-    if (response.status === 429 && attempt === 1) {
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-      continue;
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError). `init`
+// is the fetch init, or a function returning a fresh one
+// per attempt (a caller passing an AbortSignal.timeout
+// needs a new signal each retry — a fired one stays
+// aborted).
+/**
+ * @param {string} url
+ * @param {string} what
+ * @param {{ delaysMs?: number[], onRetry?: ((error: Error, attempt: number, delay: number, what: string) => void) | null, retryBudgetMs?: number, init?: any }} [opts]
+ */
+export async function fetchResponse(
+  url,
+  what,
+  {
+    delaysMs = RETRY_DELAYS_MS,
+    onRetry = null,
+    retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
+    init = undefined,
+  } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
+    try {
+      const response = await fetch(url, typeof init === "function" ? init() : init);
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status} for ${what}`);
+        error.status = response.status;
+        throw error;
+      }
+      return response;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, what);
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
-    throw new Error(`EPC API request failed: HTTP ${response.status} (${path})`);
   }
-  throw new Error("unreachable");
+}
+
+/**
+ * @param {string} path
+ * @param {string} token
+ * @param {{ delaysMs?: number[], onRetry?: ((error: Error, attempt: number, delay: number, what: string) => void) | null, retryBudgetMs?: number }} [opts]
+ */
+export async function apiGet(path, token, { delaysMs, onRetry, retryBudgetMs } = {}) {
+  let response;
+  try {
+    response = await fetchResponse(`${API_BASE}${path}`, `the EPC API request (${path})`, {
+      delaysMs,
+      onRetry,
+      retryBudgetMs,
+      init: { headers: { Accept: "application/json", Authorization: `Bearer ${token}` } },
+    });
+  } catch (error) {
+    // A 404 is the register saying "no such certificate" —
+    // the caller's null, not a failure. Any other HTTP
+    // failure keeps the helper's own message (with the
+    // status carried, as fetchResponse stamps it).
+    if (error?.status === 404) return null;
+    if (typeof error?.status === "number")
+      throw Object.assign(new Error(`EPC API request failed: HTTP ${error.status} (${path})`), {
+        status: error.status,
+      });
+    throw error;
+  }
+  return response.json();
 }
 
 // The certificate fetches run CONCURRENTLY, bounded
@@ -297,18 +361,24 @@ const CERT_FETCH_CONCURRENCY = 8;
 /**
  * @param {string} postcode
  * @param {string} token
- * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, delaysMs?: number[], onRetry?: ((error: Error, attempt: number, delay: number, what: string) => void) | null, retryBudgetMs?: number }} [options]
  */
-export async function liveCertificates(postcode, token, { progress = null } = {}) {
+export async function liveCertificates(
+  postcode,
+  token,
+  { progress = null, delaysMs, onRetry, retryBudgetMs } = {},
+) {
   // BUG-265: the search is the run's first step — a stage
   // marker naming the postcode.
   progress?.stage(`searching the register for ${postcode}`);
+  const retryOpts = { delaysMs, onRetry, retryBudgetMs };
   const stubs = [];
   let page = 1;
   for (;;) {
     const result = await apiGet(
       `/api/domestic/search?postcode=${encodeURIComponent(postcode)}&current_page=${page}&page_size=5000`,
       token,
+      retryOpts,
     );
     if (result === null) return { certificates: [], skipped: 0 };
     stubs.push(...(result.data ?? []));
@@ -341,6 +411,7 @@ export async function liveCertificates(postcode, token, { progress = null } = {}
       const doc = await apiGet(
         `/api/certificate?certificate_number=${encodeURIComponent(stub.certificateNumber)}`,
         token,
+        retryOpts,
       );
       const { tookMs, averageMs, slow } = fetchWatch.observe(Date.now() - started);
       fetched += 1;
@@ -399,7 +470,7 @@ async function fixtureCertificates(postcode, fileDir, fixture) {
 // rich postcode), and the staged answer is what a resumed
 // run reuses instead of fetching again.
 /**
- * @param {{ fixture?: any, fileDir?: string | null, token?: string | null, pc: string, progress?: import("./progress.mjs").ProgressLogger | null }} options
+ * @param {{ fixture?: any, fileDir?: string | null, token?: string | null, pc: string, progress?: import("./progress.mjs").ProgressLogger | null, delaysMs?: number[], onRetry?: ((error: Error, attempt: number, delay: number, what: string) => void) | null, retryBudgetMs?: number }} options
  */
 export async function fetchPostcodeAnswer({
   fixture = null,
@@ -407,10 +478,13 @@ export async function fetchPostcodeAnswer({
   token = null,
   pc,
   progress = null,
+  delaysMs,
+  onRetry,
+  retryBudgetMs,
 }) {
   const { certificates, skipped } = fixture
     ? { certificates: await fixtureCertificates(pc, fileDir, fixture), skipped: 0 }
-    : await liveCertificates(pc, token, { progress });
+    : await liveCertificates(pc, token, { progress, delaysMs, onRetry, retryBudgetMs });
   checkGolden(pc, certificates);
   return {
     answer: {

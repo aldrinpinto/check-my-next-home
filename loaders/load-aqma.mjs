@@ -83,6 +83,7 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { createGoldenSift, GOLDEN_WINDOW_MILES } from "./flood-stream.mjs";
 import { createLoaderResume } from "./loader-resume.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 import { createProgressLogger, formatCount } from "./progress.mjs";
 
 const SERVICE_BASE =
@@ -409,9 +410,47 @@ export function checkGolden(processed) {
   if (fails.length > 0) throw new Error(`golden checks failed:\n - ${fails.join("\n - ")}`);
 }
 
-async function fetchJson(url, what) {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`HTTP ${response.status} for ${what}`);
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError).
+async function fetchResponse(
+  url,
+  what,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status} for ${what}`);
+        error.status = response.status;
+        throw error;
+      }
+      return response;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, what);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
+export async function fetchJson(url, what, opts) {
+  // The body read and the error-envelope check stay outside
+  // the retry boundary, so a bad body fails fast instead of
+  // re-requesting.
+  const response = await fetchResponse(url, what, opts);
   const body = await response.json();
   if (body?.error)
     throw new Error(
@@ -467,8 +506,16 @@ async function driveRead(
   };
 }
 
-export async function readLive({ onItems = null, progress = null, onEdition = null } = {}) {
-  const meta = await fetchJson(SERVICE_META_URL, "the AQMA service metadata");
+export async function readLive({
+  onItems = null,
+  progress = null,
+  onEdition = null,
+  delaysMs = RETRY_DELAYS_MS,
+  onRetry = null,
+  retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
+} = {}) {
+  const fetchOpts = { delaysMs, onRetry, retryBudgetMs };
+  const meta = await fetchJson(SERVICE_META_URL, "the AQMA service metadata", fetchOpts);
   const edition = parseEdition(meta);
   // BUG-368: the edition fires the resume decision — the
   // runner returns the offset the read starts from, the
@@ -486,7 +533,11 @@ export async function readLive({ onItems = null, progress = null, onEdition = nu
         orderByFields: "AQMA_REF",
         geometryPrecision: "6",
       });
-      const page = await fetchJson(`${QUERY_URL}?${params}`, "the AQMA boundaries download");
+      const page = await fetchJson(
+        `${QUERY_URL}?${params}`,
+        "the AQMA boundaries download",
+        fetchOpts,
+      );
       const batch = page.features ?? [];
       yield batch;
       if (batch.length < PAGE_SIZE) break;

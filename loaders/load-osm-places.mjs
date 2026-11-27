@@ -122,6 +122,7 @@ import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { createLoaderResume } from "./loader-resume.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -770,10 +771,111 @@ const DEFAULT_FIXTURE_DIR = fileURLToPath(
   new URL("../../tests/fixtures/osm-places/", import.meta.url),
 );
 
-async function fetchText(url, what) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`${what}: HTTP ${res.status} from ${url}`);
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError).
+/**
+ * @param {string} url
+ * @param {string} what
+ * @param {object} [opts]
+ * @param {number[]} [opts.delaysMs]
+ * @param {((error: any, attempt: number, delay: number, what: string) => void) | null} [opts.onRetry]
+ * @param {number} [opts.retryBudgetMs]
+ * @param {RequestInit} [opts.init]
+ */
+export async function fetchResponse(
+  url,
+  what,
+  {
+    delaysMs = RETRY_DELAYS_MS,
+    onRetry = null,
+    retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
+    init = undefined,
+  } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
+    try {
+      const response = await fetch(url, init);
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status} for ${what}`);
+        error.status = response.status;
+        throw error;
+      }
+      return response;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, what);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
+// BUG-385: the retry lives in fetchResponse now — this helper
+// keeps its old shape and its old error message. The body
+// read sits outside fetchResponse's try, so a malformed body
+// fails fast instead of retrying.
+export async function fetchText(
+  url,
+  what,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+) {
+  let res;
+  try {
+    res = await fetchResponse(url, what, { delaysMs, onRetry, retryBudgetMs });
+  } catch (err) {
+    if (typeof err.status === "number") throw new Error(`${what}: HTTP ${err.status} from ${url}`);
+    throw err;
+  }
   return res.text();
+}
+
+// BUG-385: the whole-download retry for a country extract
+// (these are the largest downloads in the project — England
+// is ~1.7 GB). A transient failure — at the fetch or
+// mid-stream — restarts the download from scratch for up to
+// 30 minutes (TRANSIENT_RETRY_BUDGET_MS); every attempt opens
+// a fresh write stream, so a partial file from a cut attempt
+// is truncated, never resumed or appended to. Non-transient
+// failures throw at once, with the old error message.
+export async function downloadExtract(
+  country,
+  latestUrl,
+  dest,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
+    try {
+      const res = await fetch(latestUrl);
+      if (!res.ok || !res.body) {
+        const error = new Error(`${country}: download of ${latestUrl} returned HTTP ${res.status}`);
+        error.status = res.status;
+        throw error;
+      }
+      await pipeline(Readable.fromWeb(res.body), createWriteStream(dest));
+      return;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, `${country} extract download`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
 }
 
 async function md5OfFile(path) {
@@ -962,30 +1064,25 @@ async function main() {
         let published;
         try {
           progress.stage(`downloading the ${country} extract from Geofabrik...`);
-          const head = await fetch(latestUrl, { method: "HEAD" });
-          if (!head.ok)
-            throw new Error(`${country}: HEAD ${latestUrl} returned HTTP ${head.status}`);
+          // BUG-385: the HEAD read retries inside
+          // fetchResponse; the old failure wording is kept.
+          let head;
+          try {
+            head = await fetchResponse(latestUrl, `${country} extract HEAD`, {
+              init: { method: "HEAD" },
+            });
+          } catch (err) {
+            if (typeof err.status === "number")
+              throw new Error(`${country}: HEAD ${latestUrl} returned HTTP ${err.status}`);
+            throw err;
+          }
           dataDate = extractDataDate(head.url);
           published = parsePublishedMd5(await fetchText(`${latestUrl}.md5`, `${country} md5`));
-          // One retry on a network cut (these are the largest
-          // downloads in the project — England is ~1.7 GB); a
+          // BUG-385: the whole download retries from scratch
+          // inside downloadExtract (up to 30 minutes); a
           // partial file is always discarded, and the md5 below
           // remains the only acceptance test.
-          let downloadError = null;
-          for (let attempt = 0; attempt < 2; attempt++) {
-            try {
-              const res = await fetch(latestUrl);
-              if (!res.ok || !res.body)
-                throw new Error(`${country}: download of ${latestUrl} returned HTTP ${res.status}`);
-              await pipeline(Readable.fromWeb(res.body), createWriteStream(dest));
-              downloadError = null;
-              break;
-            } catch (err) {
-              downloadError = err;
-              if (attempt === 0) await new Promise((r) => setTimeout(r, 3000));
-            }
-          }
-          if (downloadError) throw downloadError;
+          await downloadExtract(country, latestUrl, dest);
           progress.stage(`verifying the ${country} download against Geofabrik's md5...`);
           const actual = await md5OfFile(dest);
           if (!md5Matches(actual, published))

@@ -80,6 +80,7 @@ import {
   formatCount,
   formatDuration,
 } from "./progress.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 
 const USER_AGENT = "CheckMyNextHome/1.0 (+https://checkmynexthome.co.uk)";
 
@@ -546,32 +547,62 @@ export async function fileNoise(client, rows, { progress = null, restart = false
 }
 
 // ------------------------------------------------------------------
-async function fetchRetry(url, { binary = false } = {}) {
-  // The DSP rate-limits bursts (a 24-sample verify run draws 429s):
-  // 429s and 5xx get up to three attempts with a growing backoff;
-  // any other 4xx is final. Tile fetches are naturally paced by
-  // their ~25 s generation time and never see the limit.
-  const delays = [3000, 10000];
-  let lastError;
-  for (let attempt = 1; attempt <= 3; attempt++) {
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError).
+/**
+ * @param {string} url
+ * @param {object} [opts]
+ * @param {boolean} [opts.binary]
+ * @param {number[]} [opts.delaysMs]
+ * @param {((error: any, attempt: number, delay: number, what: string) => void) | null} [opts.onRetry]
+ * @param {number} [opts.retryBudgetMs]
+ */
+export async function fetchRetry(
+  url,
+  {
+    binary = false,
+    delaysMs = RETRY_DELAYS_MS,
+    onRetry = null,
+    retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
+  } = {},
+) {
+  // The DSP rate-limits bursts (a 24-sample verify run draws
+  // 429s): 429s and 5xx retry for up to 30 minutes (BUG-385);
+  // any other 4xx is final. Tile fetches are naturally paced
+  // by their ~25 s generation time and never see the limit.
+  const startedAt = Date.now();
+  let attempt = 0;
+  let res;
+  for (;;) {
+    attempt += 1;
     try {
-      const res = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
-      if (res.ok) return binary ? new Uint8Array(await res.arrayBuffer()) : await res.text();
-      if (res.status !== 429 && res.status < 500) {
-        throw new Error(`${url.split("?")[0]} returned HTTP ${res.status}`);
-      }
-      lastError = new Error(`${url.split("?")[0]} returned HTTP ${res.status}`);
-    } catch (err) {
-      lastError = err;
-      if (/returned HTTP 4/.test(err.message) && !/429/.test(err.message)) throw err;
+      res = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
+      if (res.ok) break;
+      const error = new Error(`${url.split("?")[0]} returned HTTP ${res.status}`);
+      error.status = res.status;
+      throw error;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, url);
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
-    if (attempt < 3) await new Promise((r) => setTimeout(r, delays[attempt - 1]));
   }
-  throw lastError;
+  // The body read stays outside the retry: a malformed body
+  // is a contract failure, not a transient fetch failure.
+  return binary ? new Uint8Array(await res.arrayBuffer()) : await res.text();
 }
 
 // One WMS point sample (verify-only route; the prep's method).
-export async function sampleWms(sourceKind, metric, x, y) {
+export async function sampleWms(sourceKind, metric, x, y, fetchOpts) {
   const svc = SERVICES[sourceKind];
   const layer = svc.layer[metric];
   const url =
@@ -579,7 +610,7 @@ export async function sampleWms(sourceKind, metric, x, y) {
     `&layers=${layer}&query_layers=${layer}&crs=EPSG:27700` +
     `&bbox=${x - 50},${y - 50},${x + 50},${y + 50}&width=11&height=11&i=5&j=5` +
     `&info_format=application/json`;
-  const text = await fetchRetry(url);
+  const text = await fetchRetry(url, fetchOpts);
   const parsed = JSON.parse(text);
   const features = parsed.features ?? [];
   if (features.length === 0) return null;
@@ -615,14 +646,18 @@ export async function verifyGoldenSamples() {
 // Discover a source's coverage id + extent from its WCS — the ids
 // embed a dataset UUID that changes if Defra republishes, so they
 // are resolved, never hardcoded.
-async function describeCoverage(sourceKind, metric) {
+async function describeCoverage(sourceKind, metric, fetchOpts) {
   const svc = SERVICES[sourceKind];
-  const caps = await fetchRetry(`${svc.wcs}?service=WCS&version=2.0.1&request=GetCapabilities`);
+  const caps = await fetchRetry(
+    `${svc.wcs}?service=WCS&version=2.0.1&request=GetCapabilities`,
+    fetchOpts,
+  );
   const ids = [...caps.matchAll(/<wcs:CoverageId>([^<]+)<\/wcs:CoverageId>/g)].map((m) => m[1]);
   const id = ids.find((c) => c.endsWith(`__${svc.coverage[metric]}`));
   if (!id) throw new Error(`WCS ${sourceKind}: coverage ${svc.coverage[metric]} not offered`);
   const desc = await fetchRetry(
     `${svc.wcs}?service=WCS&version=2.0.1&request=DescribeCoverage&coverageId=${encodeURIComponent(id)}`,
+    fetchOpts,
   );
   const lower = desc.match(/<gml:lowerCorner>([\d.]+) ([\d.]+)<\/gml:lowerCorner>/);
   const upper = desc.match(/<gml:upperCorner>([\d.]+) ([\d.]+)<\/gml:upperCorner>/);
@@ -638,19 +673,19 @@ async function describeCoverage(sourceKind, metric) {
   };
 }
 
-async function fetchTile(sourceKind, metric, coverageId, x0, y0) {
+async function fetchTile(sourceKind, metric, coverageId, x0, y0, fetchOpts) {
   const svc = SERVICES[sourceKind];
   const url =
     `${svc.wcs}?service=WCS&version=2.0.1&request=GetCoverage` +
     `&coverageId=${encodeURIComponent(coverageId)}` +
     `&subset=E(${x0},${x0 + TILE})&subset=N(${y0},${y0 + TILE})&format=image/tiff`;
-  return parseGeotiff(await fetchRetry(url, { binary: true }));
+  return parseGeotiff(await fetchRetry(url, { binary: true, ...fetchOpts }));
 }
 
 // The live sample: resumable, per-tile sample files in the work
 // directory. Returns the complete sample set, or throws with the
 // progress made (the next run resumes).
-export async function sampleAll(pool, workDir, { progress = null } = {}) {
+export async function sampleAll(pool, workDir, { progress = null, fetchOpts } = {}) {
   await mkdir(workDir, { recursive: true });
   const { rows: postcodes } = await pool.query(
     `SELECT postcode, latitude, longitude FROM postcode_cache ORDER BY postcode`,
@@ -672,7 +707,7 @@ export async function sampleAll(pool, workDir, { progress = null } = {}) {
   // carries its own tally, heartbeat and slow-tile warning
   // (see sampleKind).
   progress?.stage(`sampling road coverage for ${formatCount(points.length)} postcodes...`);
-  const road = await sampleKind("road", points, workDir, { progress });
+  const road = await sampleKind("road", points, workDir, { progress, fetchOpts });
   pendingTotal += road.pending;
   byKind.set("road", road.samples);
   // England gate: only postcodes with a modelled road cell get rows.
@@ -682,7 +717,7 @@ export async function sampleAll(pool, workDir, { progress = null } = {}) {
   });
   for (const kind of ["rail", "airport"]) {
     progress?.stage(`sampling ${kind} coverage for ${formatCount(inEngland.length)} postcodes...`);
-    const part = await sampleKind(kind, inEngland, workDir, { progress });
+    const part = await sampleKind(kind, inEngland, workDir, { progress, fetchOpts });
     pendingTotal += part.pending;
     byKind.set(kind, part.samples);
   }
@@ -707,10 +742,10 @@ export async function sampleAll(pool, workDir, { progress = null } = {}) {
 // sample file already exists in the work directory are read, not
 // re-fetched (the resume mechanism); tiles outside the coverage
 // extent are answered nodata without a request.
-async function sampleKind(sourceKind, points, workDir, { progress = null } = {}) {
+async function sampleKind(sourceKind, points, workDir, { progress = null, fetchOpts } = {}) {
   const coverages = {
-    Lday: await describeCoverage(sourceKind, "Lday"),
-    Lnight: await describeCoverage(sourceKind, "Lnight"),
+    Lday: await describeCoverage(sourceKind, "Lday", fetchOpts),
+    Lnight: await describeCoverage(sourceKind, "Lnight", fetchOpts),
   };
   const extent = coverages.Lday.extent;
   const tiles = new Map();
@@ -761,9 +796,11 @@ async function sampleKind(sourceKind, points, workDir, { progress = null } = {})
       const [x0, y0] = tileKey.split("_").map(Number);
       const inside =
         x0 + TILE > extent.minX && x0 < extent.maxX && y0 + TILE > extent.minY && y0 < extent.maxY;
-      const day = inside ? await fetchTile(sourceKind, "Lday", coverages.Lday.id, x0, y0) : null;
+      const day = inside
+        ? await fetchTile(sourceKind, "Lday", coverages.Lday.id, x0, y0, fetchOpts)
+        : null;
       const night = inside
-        ? await fetchTile(sourceKind, "Lnight", coverages.Lnight.id, x0, y0)
+        ? await fetchTile(sourceKind, "Lnight", coverages.Lnight.id, x0, y0, fetchOpts)
         : null;
       const fresh = [];
       for (const p of tilePoints) {

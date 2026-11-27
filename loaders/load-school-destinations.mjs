@@ -107,6 +107,7 @@ import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { createLoaderResume } from "./loader-resume.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -984,10 +985,58 @@ export async function fileDestinations(
 // ---------------------------------------------------------------------------
 // Sources and main.
 // ---------------------------------------------------------------------------
-async function fetchText(url, what) {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`HTTP ${response.status} for ${what}`);
-  return response.text();
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError). `init`
+// is the fetch init, or a function returning a fresh one
+// per attempt (a caller passing an AbortSignal.timeout
+// needs a new signal each retry — a fired one stays
+// aborted).
+/**
+ * @param {string} url
+ * @param {string} what
+ * @param {{ delaysMs?: number[], onRetry?: ((error: Error, attempt: number, delay: number, what: string) => void) | null, retryBudgetMs?: number, init?: any }} [opts]
+ */
+export async function fetchResponse(
+  url,
+  what,
+  {
+    delaysMs = RETRY_DELAYS_MS,
+    onRetry = null,
+    retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
+    init = undefined,
+  } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
+    try {
+      const response = await fetch(url, typeof init === "function" ? init() : init);
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status} for ${what}`);
+        error.status = response.status;
+        throw error;
+      }
+      return response;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, what);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
+async function fetchText(url, what, opts = {}) {
+  return (await fetchResponse(url, what, opts)).text();
 }
 
 async function main() {
@@ -1023,9 +1072,10 @@ async function main() {
         `the ${key} data catalogue page`,
       );
       discoveries[key] = parseCatalogue(html, publication);
-      const response = await fetch(csvUrl(discoveries[key].dataSetId));
-      if (!response.ok)
-        throw new Error(`HTTP ${response.status} for the ${key} destinations CSV download`);
+      const response = await fetchResponse(
+        csvUrl(discoveries[key].dataSetId),
+        `the ${key} destinations CSV download`,
+      );
       streams[key] = Readable.fromWeb(response.body);
     }
   }

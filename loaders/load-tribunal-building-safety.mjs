@@ -176,6 +176,7 @@ import {
   formatCount,
   formatDuration,
 } from "./progress.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 import { createLoaderResume } from "./loader-resume.mjs";
 
 const { Pool } = pg;
@@ -853,21 +854,90 @@ export function selectItems(results) {
   return results.filter((r) => /\/(BSA|BSB)\//.test(r.title ?? ""));
 }
 
-async function fetchJson(url, what) {
-  const response = await fetch(url, {
-    headers: FETCH_HEADERS,
-    signal: AbortSignal.timeout(60_000),
-  });
-  if (!response.ok) throw new Error(`${what}: HTTP ${response.status} from ${url}`);
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError). `init`
+// is the fetch init, or a function returning a fresh one
+// per attempt (a caller passing an AbortSignal.timeout
+// needs a new signal each retry — a fired one stays
+// aborted).
+/**
+ * @param {string} url
+ * @param {string} what
+ * @param {{ delaysMs?: number[], onRetry?: ((error: Error, attempt: number, delay: number, what: string) => void) | null, retryBudgetMs?: number, init?: any }} [opts]
+ */
+export async function fetchResponse(
+  url,
+  what,
+  {
+    delaysMs = RETRY_DELAYS_MS,
+    onRetry = null,
+    retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
+    init = undefined,
+  } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
+    try {
+      const response = await fetch(url, typeof init === "function" ? init() : init);
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status} for ${what}`);
+        error.status = response.status;
+        throw error;
+      }
+      return response;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, what);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
+// The loader's own HTTP-error wording, kept: fetchResponse
+// throws `HTTP <status> for <what>`, this helper rewords a
+// status failure into the form its callers have always
+// seen (and keeps the status on the error, as
+// fetchResponse stamps it). A failure with no status —
+// the transport's own error — passes through untouched.
+function rewordHttpError(error, message) {
+  if (typeof error?.status !== "number") return error;
+  return Object.assign(new Error(message), { status: error.status });
+}
+
+async function fetchJson(url, what, opts = {}) {
+  let response;
+  try {
+    response = await fetchResponse(url, what, {
+      ...opts,
+      init: () => ({ headers: FETCH_HEADERS, signal: AbortSignal.timeout(60_000) }),
+    });
+  } catch (error) {
+    throw rewordHttpError(error, `${what}: HTTP ${error.status} from ${url}`);
+  }
   return response.json();
 }
 
-async function fetchBuffer(url, what) {
-  const response = await fetch(url, {
-    headers: FETCH_HEADERS,
-    signal: AbortSignal.timeout(120_000),
-  });
-  if (!response.ok) throw new Error(`${what}: HTTP ${response.status} from ${url}`);
+async function fetchBuffer(url, what, opts = {}) {
+  let response;
+  try {
+    response = await fetchResponse(url, what, {
+      ...opts,
+      init: () => ({ headers: FETCH_HEADERS, signal: AbortSignal.timeout(120_000) }),
+    });
+  } catch (error) {
+    throw rewordHttpError(error, `${what}: HTTP ${error.status} from ${url}`);
+  }
   return Buffer.from(await response.arrayBuffer());
 }
 

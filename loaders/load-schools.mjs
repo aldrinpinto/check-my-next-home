@@ -49,6 +49,7 @@ import {
   createLoaderResume,
   stagingCount,
 } from "./loader-resume.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -146,24 +147,82 @@ function ukDate(v) {
   return m ? `${m[3]}-${m[2]}-${m[1]}` : null;
 }
 
-async function fetchText(url) {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError). `init`
+// is the fetch init, or a function returning a fresh one
+// per attempt (a caller passing an AbortSignal.timeout
+// needs a new signal each retry — a fired one stays
+// aborted).
+/**
+ * @param {string} url
+ * @param {string} what
+ * @param {{ delaysMs?: number[], onRetry?: ((error: Error, attempt: number, delay: number, what: string) => void) | null, retryBudgetMs?: number, init?: any }} [opts]
+ */
+export async function fetchResponse(
+  url,
+  what,
+  {
+    delaysMs = RETRY_DELAYS_MS,
+    onRetry = null,
+    retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
+    init = undefined,
+  } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
+    try {
+      const response = await fetch(url, typeof init === "function" ? init() : init);
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status} for ${what}`);
+        error.status = response.status;
+        throw error;
+      }
+      return response;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, what);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
+async function fetchText(url, opts = {}) {
+  const response = await fetchResponse(url, url, opts);
   return response;
 }
 
-async function fetchGias() {
+async function fetchGias(opts = {}) {
   for (let back = 0; back < 7; back += 1) {
     const day = new Date(Date.now() - back * 86400000);
     const stamp = day.toISOString().slice(0, 10).replaceAll("-", "");
-    const response = await fetch(GIAS_URL(stamp));
-    if (response.ok) {
-      const buffer = Buffer.from(await response.arrayBuffer());
-      return {
-        text: new TextDecoder("windows-1252").decode(buffer),
-        edition: day.toISOString().slice(0, 10),
-      };
+    let response;
+    try {
+      // BUG-385: a 404 is the day's file not being
+      // published yet — walk back a day, as before. Any
+      // other failure (a transient past its budget, or a
+      // non-transient status) fails the run instead of
+      // silently filing an older extract.
+      response = await fetchResponse(GIAS_URL(stamp), GIAS_URL(stamp), opts);
+    } catch (error) {
+      if (error?.status === 404) continue;
+      throw error;
     }
+    const buffer = Buffer.from(await response.arrayBuffer());
+    return {
+      text: new TextDecoder("windows-1252").decode(buffer),
+      edition: day.toISOString().slice(0, 10),
+    };
   }
   throw new Error("no GIAS extract found for the last 7 days");
 }

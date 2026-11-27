@@ -126,6 +126,7 @@ import {
   readCheckpoint,
   writeCheckpoint,
 } from "./loader-resume.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -755,10 +756,73 @@ const DEFAULT_FIXTURE_DIR = fileURLToPath(
   new URL("../../tests/fixtures/streets/", import.meta.url),
 );
 
-async function fetchText(url, what) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`${what}: HTTP ${res.status} from ${url}`);
-  return res.text();
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError). `init`
+// is the fetch init, or a function returning a fresh one
+// per attempt (a caller passing an AbortSignal.timeout
+// needs a new signal each retry — a fired one stays
+// aborted).
+/**
+ * @param {string} url
+ * @param {string} what
+ * @param {{ delaysMs?: number[], onRetry?: ((error: Error, attempt: number, delay: number, what: string) => void) | null, retryBudgetMs?: number, init?: any }} [opts]
+ */
+export async function fetchResponse(
+  url,
+  what,
+  {
+    delaysMs = RETRY_DELAYS_MS,
+    onRetry = null,
+    retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
+    init = undefined,
+  } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
+    try {
+      const response = await fetch(url, typeof init === "function" ? init() : init);
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status} for ${what}`);
+        error.status = response.status;
+        throw error;
+      }
+      return response;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, what);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
+// The loader's own HTTP-error wording, kept: fetchResponse
+// throws `HTTP <status> for <what>`, this helper rewords a
+// status failure into the form its callers have always
+// seen (and keeps the status on the error, as
+// fetchResponse stamps it). A failure with no status —
+// the transport's own error — passes through untouched.
+function rewordHttpError(error, message) {
+  if (typeof error?.status !== "number") return error;
+  return Object.assign(new Error(message), { status: error.status });
+}
+
+async function fetchText(url, what, opts = {}) {
+  try {
+    return (await fetchResponse(url, what, opts)).text();
+  } catch (error) {
+    throw rewordHttpError(error, `${what}: HTTP ${error.status} from ${url}`);
+  }
 }
 
 async function md5OfFile(path) {
@@ -835,32 +899,62 @@ function goldenCandidates() {
   };
 }
 
-async function downloadCountry(country, workDir) {
+/**
+ * @param {string} country
+ * @param {string} workDir
+ * @param {{ delaysMs?: number[], onRetry?: ((error: Error, attempt: number, delay: number, what: string) => void) | null, retryBudgetMs?: number }} [opts]
+ */
+export async function downloadCountry(country, workDir, opts = {}) {
   const latestUrl = `${GEOFABRIK_BASE}/${country}/${country}-latest.osm.pbf`;
-  const head = await fetch(latestUrl, { method: "HEAD" });
-  if (!head.ok) throw new Error(`${country}: HEAD ${latestUrl} returned HTTP ${head.status}`);
+  let head;
+  try {
+    head = await fetchResponse(latestUrl, `${country}: HEAD ${latestUrl}`, {
+      ...opts,
+      init: { method: "HEAD" },
+    });
+  } catch (error) {
+    throw rewordHttpError(error, `${country}: HEAD ${latestUrl} returned HTTP ${error.status}`);
+  }
   const dataDate = extractDataDate(head.url);
-  const published = parsePublishedMd5(await fetchText(`${latestUrl}.md5`, `${country} md5`));
+  const published = parsePublishedMd5(await fetchText(`${latestUrl}.md5`, `${country} md5`, opts));
   const dest = join(workDir, `${country}.osm.pbf`);
-  // One retry on a network cut (these are the largest
-  // downloads in the project — England is ~1.7 GB); a
-  // partial file is always discarded, and the md5 below
-  // remains the only acceptance test.
-  let downloadError = null;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  // BUG-385: the whole download is the retried unit — a
+  // mid-transfer cut retries the download from scratch,
+  // never the processing — for up to 30 minutes
+  // (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+  // 2026), replacing the old one-retry-after-3s loop.
+  // Each attempt opens a fresh write stream, and
+  // createWriteStream truncates, so a cut-short attempt
+  // never leaves a partial file for the next attempt to
+  // extend; the md5 below remains the only acceptance
+  // test. A non-transient failure throws at once.
+  const {
+    delaysMs = RETRY_DELAYS_MS,
+    onRetry = null,
+    retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
+  } = opts;
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
     try {
       const res = await fetch(latestUrl);
-      if (!res.ok || !res.body)
-        throw new Error(`${country}: download of ${latestUrl} returned HTTP ${res.status}`);
+      if (!res.ok || !res.body) {
+        const error = new Error(`${country}: download of ${latestUrl} returned HTTP ${res.status}`);
+        error.status = res.status;
+        throw error;
+      }
       await pipeline(Readable.fromWeb(res.body), createWriteStream(dest));
-      downloadError = null;
       break;
-    } catch (err) {
-      downloadError = err;
-      if (attempt === 0) await new Promise((r) => setTimeout(r, 3000));
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, `${country} download`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
-  if (downloadError) throw downloadError;
   const actual = await md5OfFile(dest);
   if (!md5Matches(actual, published))
     throw new Error(

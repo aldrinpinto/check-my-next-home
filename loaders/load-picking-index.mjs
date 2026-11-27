@@ -71,6 +71,7 @@ import {
   COUNT_MOVEMENT_TOLERANCE,
 } from "./picking-index-filing.mjs";
 import { createProgressLogger, formatCount } from "./progress.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 
 // The same public endpoint the sold-prices loader uses.
 export const FULL_FILE_URL =
@@ -537,10 +538,49 @@ export async function loadPickingIndexFromFile(client, fileDir, { log, restart =
   });
 }
 
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError).
+export async function fetchResponse(
+  url,
+  what,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status} for ${what}`);
+        error.status = response.status;
+        throw error;
+      }
+      return response;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, what);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
 export async function loadPickingIndex({
   fileDir = null,
   restart = false,
   log = console.log,
+  delaysMs = RETRY_DELAYS_MS,
+  onRetry = null,
+  retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
 } = {}) {
   const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
   const client = await pool.connect();
@@ -548,8 +588,27 @@ export async function loadPickingIndex({
     if (fileDir !== null) {
       return await loadPickingIndexFromFile(client, fileDir, { log, restart });
     }
-    const response = await fetch(FULL_FILE_URL);
-    if (!response.ok || response.body === null) {
+    // BUG-385: the fetch retries inside fetchResponse; the
+    // old failure wording is kept. The body is streamed
+    // from the returned response (linesFromWeb), outside
+    // fetchResponse's try — a mid-stream cut fails the run
+    // rather than re-reading the 5 GB file silently.
+    let response;
+    try {
+      response = await fetchResponse(FULL_FILE_URL, "the Price Paid complete file", {
+        delaysMs,
+        onRetry,
+        retryBudgetMs,
+      });
+    } catch (err) {
+      if (typeof err.status === "number") {
+        throw new Error(
+          `load-picking-index: the Price Paid complete file could not be fetched (HTTP ${err.status})`,
+        );
+      }
+      throw err;
+    }
+    if (response.body === null) {
       throw new Error(
         `load-picking-index: the Price Paid complete file could not be fetched (HTTP ${response.status})`,
       );

@@ -175,6 +175,7 @@ import { StringDecoder } from "node:string_decoder";
 import yauzl from "yauzl";
 import pg from "pg";
 import { createLoaderResume } from "./loader-resume.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -1246,6 +1247,137 @@ function runHelper(helper, args) {
   });
 }
 
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError). `init`
+// is the fetch init, or a function returning a fresh one
+// per attempt (a caller passing an AbortSignal.timeout
+// needs a new signal each retry — a fired one stays
+// aborted).
+/**
+ * @param {string} url
+ * @param {string} what
+ * @param {{ delaysMs?: number[], onRetry?: ((error: Error, attempt: number, delay: number, what: string) => void) | null, retryBudgetMs?: number, init?: any }} [opts]
+ */
+export async function fetchResponse(
+  url,
+  what,
+  {
+    delaysMs = RETRY_DELAYS_MS,
+    onRetry = null,
+    retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
+    init = undefined,
+  } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
+    try {
+      const response = await fetch(url, typeof init === "function" ? init() : init);
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status} for ${what}`);
+        error.status = response.status;
+        throw error;
+      }
+      return response;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, what);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
+// Companies House: the current monthly snapshot, named
+// for the first of its month; probe this month, then walk
+// back up to three (publication lands within five working
+// days of month end). BUG-385: the probe and the download
+// both retry transient failures for up to 30 minutes
+// (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026), the same retry the flood loaders got in BUG-384.
+// A 404 on the probe is the month's file not being
+// published yet — walk back, as before. Any other probe
+// failure (a transient past its budget, or another
+// status) fails the run instead of silently filing an
+// older snapshot. The download retries whole from
+// scratch: each attempt opens a fresh write stream, and
+// createWriteStream truncates, so a cut-short attempt
+// never leaves a partial file for the next attempt to
+// extend.
+/**
+ * @param {string} dir
+ * @param {{ delaysMs?: number[], onRetry?: ((error: Error, attempt: number, delay: number, what: string) => void) | null, retryBudgetMs?: number }} [opts]
+ */
+export async function downloadCompaniesHouse(dir, opts = {}) {
+  const now = new Date();
+  const {
+    delaysMs = RETRY_DELAYS_MS,
+    onRetry = null,
+    retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
+  } = opts;
+  for (let back = 0; back <= 3; back += 1) {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - back, 1));
+    const stamp = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-01`;
+    const url = `https://download.companieshouse.gov.uk/BasicCompanyDataAsOneFile-${stamp}.zip`;
+    let probe;
+    try {
+      probe = await fetchResponse(url, `the Companies House snapshot probe for ${stamp}`, {
+        delaysMs,
+        onRetry,
+        retryBudgetMs,
+        init: {
+          method: "GET",
+          headers: { "User-Agent": USER_AGENT, Range: "bytes=0-99" },
+        },
+      });
+    } catch (error) {
+      if (error?.status === 404) continue;
+      throw error;
+    }
+    if (probe.status === 206 || probe.status === 200) {
+      await probe.arrayBuffer().catch(() => {});
+      const dest = join(dir, `BasicCompanyDataAsOneFile-${stamp}.zip`);
+      const startedAt = Date.now();
+      let attempt = 0;
+      for (;;) {
+        attempt += 1;
+        try {
+          const res = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
+          if (!res.ok) {
+            const error = new Error(`the Companies House download failed (HTTP ${res.status})`);
+            error.status = res.status;
+            throw error;
+          }
+          const { createWriteStream } = await import("node:fs");
+          const { pipeline } = await import("node:stream/promises");
+          await pipeline(Readable.fromWeb(res.body), createWriteStream(dest));
+          break;
+        } catch (error) {
+          if (!isTransientFetchError(error)) throw error;
+          if (Date.now() - startedAt >= retryBudgetMs) throw error;
+          const delay =
+            delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+          onRetry?.(error, attempt, delay, "the Companies House download");
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+      return { path: dest, edition: stamp.slice(0, 7) };
+    }
+  }
+  throw new Error(
+    "no Companies House snapshot file answered for this or the three previous months",
+  );
+}
+
 // The operator (live) acquisition: metadata + downloads
 // through the connector helper (the only credential
 // path), the Companies House snapshot from its public
@@ -1253,7 +1385,10 @@ function runHelper(helper, args) {
 // caller deletes. Downloaded ZIPs are verified against
 // the published CSV size before they are allowed to
 // parse — a cut-short transfer fails here, never files.
-export async function acquireLiveSources() {
+/**
+ * @param {{ delaysMs?: number[], onRetry?: ((error: Error, attempt: number, delay: number, what: string) => void) | null, retryBudgetMs?: number }} [opts]
+ */
+export async function acquireLiveSources(opts = {}) {
   const helper = process.env.CMNH_LRDATA_HELPER ?? DEFAULT_HELPER;
   if (!existsSync(helper))
     throw new Error(
@@ -1303,38 +1438,7 @@ export async function acquireLiveSources() {
       receiptBytes: receipt.bytes,
     };
   }
-  // Companies House: the current monthly snapshot, named
-  // for the first of its month; probe this month, then
-  // walk back up to three (publication lands within five
-  // working days of month end).
-  const now = new Date();
-  let chPath = null;
-  let chEdition = null;
-  for (let back = 0; back <= 3 && chPath === null; back += 1) {
-    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - back, 1));
-    const stamp = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-01`;
-    const url = `https://download.companieshouse.gov.uk/BasicCompanyDataAsOneFile-${stamp}.zip`;
-    const probe = await fetch(url, {
-      method: "GET",
-      headers: { "User-Agent": USER_AGENT, Range: "bytes=0-99" },
-    }).catch(() => null);
-    if (probe && (probe.status === 206 || probe.status === 200)) {
-      await probe.arrayBuffer().catch(() => {});
-      const dest = join(dir, `BasicCompanyDataAsOneFile-${stamp}.zip`);
-      const res = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
-      if (!res.ok) throw new Error(`the Companies House download failed (HTTP ${res.status})`);
-      const { createWriteStream } = await import("node:fs");
-      const { pipeline } = await import("node:stream/promises");
-      await pipeline(Readable.fromWeb(res.body), createWriteStream(dest));
-      chPath = dest;
-      chEdition = stamp.slice(0, 7);
-    }
-  }
-  if (chPath === null)
-    throw new Error(
-      "no Companies House snapshot file answered for this or the three previous months",
-    );
-  sources.companiesHouse = { path: chPath, edition: chEdition };
+  sources.companiesHouse = await downloadCompaniesHouse(dir, opts);
   return sources;
 }
 

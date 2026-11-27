@@ -86,6 +86,7 @@ import {
   formatCount,
   formatDuration,
 } from "./progress.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 import { createLoaderResume } from "./loader-resume.mjs";
 
 const USER_AGENT = "CheckMyNextHome/1.0 (+https://checkmynexthome.co.uk)";
@@ -862,22 +863,54 @@ export async function deletePollutionInventory(client) {
 // Sources
 // ------------------------------------------------------------------
 
-async function fetchRetry(url, { buffer = false } = {}) {
-  let lastError;
-  for (let attempt = 1; attempt <= 2; attempt++) {
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError).
+/**
+ * @param {string} url
+ * @param {object} [opts]
+ * @param {boolean} [opts.buffer]
+ * @param {number[]} [opts.delaysMs]
+ * @param {((error: any, attempt: number, delay: number, what: string) => void) | null} [opts.onRetry]
+ * @param {number} [opts.retryBudgetMs]
+ */
+export async function fetchRetry(
+  url,
+  {
+    buffer = false,
+    delaysMs = RETRY_DELAYS_MS,
+    onRetry = null,
+    retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
+  } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  let res;
+  for (;;) {
+    attempt += 1;
     try {
-      const res = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
-      if (res.ok) return buffer ? Buffer.from(await res.arrayBuffer()) : await res.json();
-      if (res.status !== 429 && res.status < 500)
-        throw new Error(`${url} returned HTTP ${res.status}`);
-      lastError = new Error(`${url} returned HTTP ${res.status}`);
-    } catch (err) {
-      lastError = err;
-      if (/returned HTTP 4/.test(err.message)) throw err;
+      res = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
+      if (res.ok) break;
+      const error = new Error(`${url} returned HTTP ${res.status}`);
+      error.status = res.status;
+      throw error;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, url);
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
-    if (attempt < 2) await new Promise((r) => setTimeout(r, 3000));
   }
-  throw lastError;
+  // The body read stays outside the retry: a malformed body
+  // is a contract failure, not a transient fetch failure.
+  return buffer ? Buffer.from(await res.arrayBuffer()) : res.json();
 }
 
 // The dataset record's yearly ZIP resources → the latest
@@ -908,7 +941,7 @@ export function latestResource(record) {
 }
 
 /** @param {{ fileDir?: string | null }} [options] @returns {Promise<{ rows: Map<string, string | number>[], sourceDate: string | null, year: number }>} */
-export async function loadPollutionInventoryRows({ fileDir = null } = {}) {
+export async function loadPollutionInventoryRows({ fileDir = null, fetchOpts } = {}) {
   if (fileDir) {
     const names = readdirSync(fileDir);
     const zipName = names.find((n) => n.toLowerCase().endsWith(".zip"));
@@ -946,9 +979,9 @@ export async function loadPollutionInventoryRows({ fileDir = null } = {}) {
     }
     throw new Error(`${fileDir} holds neither a Pollution Inventory ZIP nor a workbook (.xlsx)`);
   }
-  const record = await fetchRetry(PI_RECORD_URL);
+  const record = await fetchRetry(PI_RECORD_URL, fetchOpts);
   const resource = latestResource(record);
-  const zipBuffer = await fetchRetry(resource.url, { buffer: true });
+  const zipBuffer = await fetchRetry(resource.url, { buffer: true, ...fetchOpts });
   const { rows, sourceDate } = await readSubstancesRows(zipBuffer, { fromZip: true });
   return { rows, sourceDate, year: resource.year };
 }

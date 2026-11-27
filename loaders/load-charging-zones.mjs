@@ -108,6 +108,7 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import proj4 from "proj4";
 import { createLoaderResume } from "./loader-resume.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 import { createProgressLogger, formatCount } from "./progress.mjs";
 
 const USER_AGENT = "CheckMyNextHome/1.0 (+https://checkmynexthome.co.uk)";
@@ -880,9 +881,47 @@ export async function fileChargingZones(
   return { filedCount: filed.length, pendingCount: pending.length };
 }
 
-async function fetchJson(url, what) {
-  const response = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
-  if (!response.ok) throw new Error(`HTTP ${response.status} for ${what}`);
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError).
+async function fetchResponse(
+  url,
+  what,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
+    try {
+      const response = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status} for ${what}`);
+        error.status = response.status;
+        throw error;
+      }
+      return response;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, what);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
+export async function fetchJson(url, what, opts) {
+  // The body read and the error-envelope check stay outside
+  // the retry boundary, so a bad body fails fast instead of
+  // re-requesting.
+  const response = await fetchResponse(url, what, opts);
   const body = await response.json();
   if (body?.error)
     throw new Error(
@@ -891,7 +930,7 @@ async function fetchJson(url, what) {
   return body;
 }
 
-async function fetchSchemeBody(scheme) {
+async function fetchSchemeBody(scheme, opts) {
   if (scheme.source.kind === "arcgis") {
     const params = new URLSearchParams({
       where: "1=1",
@@ -899,9 +938,9 @@ async function fetchSchemeBody(scheme) {
       f: "geojson",
       outSR: "4326",
     });
-    return fetchJson(`${scheme.source.url}/query?${params}`, `the ${scheme.name} boundary`);
+    return fetchJson(`${scheme.source.url}/query?${params}`, `the ${scheme.name} boundary`, opts);
   }
-  return fetchJson(scheme.source.url, `the ${scheme.name} boundary`);
+  return fetchJson(scheme.source.url, `the ${scheme.name} boundary`, opts);
 }
 
 async function main() {

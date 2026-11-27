@@ -83,6 +83,7 @@ import {
   formatCount,
   formatDuration,
 } from "./progress.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 import { createLoaderResume } from "./loader-resume.mjs";
 
 const { Pool } = pg;
@@ -536,29 +537,63 @@ export function claimantUrl({ selector, codes, offset }) {
   return `${API_BASE}?${params.toString()}`;
 }
 
-async function fetchRetry(url) {
-  let lastError;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError).
+/**
+ * @param {string} url
+ * @param {object} [opts]
+ * @param {number[]} [opts.delaysMs]
+ * @param {((error: any, attempt: number, delay: number, what: string) => void) | null} [opts.onRetry]
+ * @param {number} [opts.retryBudgetMs]
+ */
+export async function fetchRetry(
+  url,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  let response;
+  for (;;) {
+    attempt += 1;
     try {
-      const response = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
-      if (response.status >= 500 || response.status === 429)
-        throw new Error(`HTTP ${response.status}`);
-      if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
-      return await response.text();
+      response = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
+      if (response.status >= 500 || response.status === 429) {
+        const error = new Error(`HTTP ${response.status}`);
+        error.status = response.status;
+        throw error;
+      }
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status} for ${url}`);
+        error.status = response.status;
+        throw error;
+      }
+      break;
     } catch (error) {
-      lastError = error;
-      if (attempt === 0) await new Promise((r) => setTimeout(r, 3000));
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, url);
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
-  throw lastError;
+  // The body read stays outside the retry: a malformed body
+  // is a contract failure, not a transient fetch failure.
+  return response.text();
 }
 
 export const GOLDEN_CODES = Object.keys(GOLDEN.rows);
 
 // One month for a named set of LSOAs (the verify-only pull
 // and the canary's recipe, at full size).
-export async function pullClaimantMonth(selector, codes) {
-  return parseClaimantCsv(await fetchRetry(claimantUrl({ selector, codes })));
+export async function pullClaimantMonth(selector, codes, fetchOpts) {
+  return parseClaimantCsv(await fetchRetry(claimantUrl({ selector, codes }), fetchOpts));
 }
 
 // One month nationally: page TYPE151 in guest-cap steps
@@ -566,7 +601,7 @@ export async function pullClaimantMonth(selector, codes) {
 // are assembled together, so a page boundary falling
 // between an LSOA's two measure rows is harmless, while a
 // duplicated or missing measure still fails the assembly.
-export async function pullClaimantNational(selector, { progress = null } = {}) {
+export async function pullClaimantNational(selector, { progress = null, fetchOpts } = {}) {
   const observations = [];
   // BUG-265: the paged pull is the run's long phase — a
   // line per page (25,000 rows), a heartbeat every 50,000
@@ -576,7 +611,7 @@ export async function pullClaimantNational(selector, { progress = null } = {}) {
   const pullWatch = createBatchWatch();
   for (let offset = 0; ; offset += PAGE_SIZE) {
     const started = Date.now();
-    const text = await fetchRetry(claimantUrl({ selector, offset }));
+    const text = await fetchRetry(claimantUrl({ selector, offset }), fetchOpts);
     const rawCount = parseCsvText(text).length - 1;
     observations.push(...parseClaimantObservations(text));
     const { tookMs, averageMs, slow } = pullWatch.observe(Date.now() - started);
@@ -606,7 +641,7 @@ export async function pullClaimantNational(selector, { progress = null } = {}) {
  * @param {{ kind: string, dir?: string, codes?: string[] }} source
  * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
  */
-export async function loadClaimantRows(source, { progress = null } = {}) {
+export async function loadClaimantRows(source, { progress = null, fetchOpts } = {}) {
   if (source.kind === "dir") {
     const files = readdirSync(source.dir)
       .filter((f) => f.startsWith("claimant-count-") && f.endsWith(".csv"))
@@ -636,8 +671,8 @@ export async function loadClaimantRows(source, { progress = null } = {}) {
     progress?.stage(`pulling ${selector} — Claimant Count month`);
     chunks.push(
       source.codes
-        ? await pullClaimantMonth(selector, source.codes)
-        : await pullClaimantNational(selector, { progress }),
+        ? await pullClaimantMonth(selector, source.codes, fetchOpts)
+        : await pullClaimantNational(selector, { progress, fetchOpts }),
     );
   }
   const seen = new Set();

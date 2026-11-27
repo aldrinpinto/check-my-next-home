@@ -130,6 +130,7 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { createLoaderResume } from "./loader-resume.mjs";
 import { createProgressLogger, formatCount } from "./progress.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 
 const { Pool } = pg;
 
@@ -503,13 +504,14 @@ export async function extendMonthList(dateValuesetNode, probeMonth) {
 // probe composes each candidate month's value address from
 // the assembled valueset id and reads a 404 as "not
 // published" (any other failure — a 401 included — throws).
-export async function fetchDiscovery(databaseEntry, routes = {}) {
-  const fetchNode = routes.fetchNode ?? ((id) => callStatXplore("schema", id));
+export async function fetchDiscovery(databaseEntry, routes = {}, fetchOpts) {
+  const fetchNode =
+    routes.fetchNode ?? ((id) => callStatXplore("schema", id, undefined, fetchOpts));
   const { tree, dateValuesetNode } = await assembleSchemaTree(databaseEntry, fetchNode);
   const probeMonth =
     routes.probeMonth ??
     (async (month) =>
-      (await fetchSchemaNodeOrNull(monthItemId(dateValuesetNode.id, month))) !== null);
+      (await fetchSchemaNodeOrNull(monthItemId(dateValuesetNode.id, month), fetchOpts)) !== null);
   await extendMonthList(dateValuesetNode, probeMonth);
   return discoverSchema(tree, databaseEntry);
 }
@@ -1166,32 +1168,83 @@ function callStatXploreViaHelper(command, arg, bodyJson) {
   });
 }
 
-async function callStatXploreDirect(path, { method = "GET", body } = {}) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      "User-Agent": USER_AGENT,
-      APIKey: process.env.STATXPLORE_API_KEY,
-    },
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError).
+/**
+ * @param {string} path
+ * @param {object} [opts]
+ * @param {string} [opts.method]
+ * @param {any} [opts.body]
+ * @param {number[]} [opts.delaysMs]
+ * @param {((error: any, attempt: number, delay: number, what: string) => void) | null} [opts.onRetry]
+ * @param {number} [opts.retryBudgetMs]
+ */
+export async function callStatXploreDirect(
+  path,
+  {
+    method = "GET",
     body,
-  });
-  if (!response.ok)
-    throw new Error(
-      `Stat-Xplore ${path} returned HTTP ${response.status} — with the key sent as the APIKey header (a 401 from a Muse-side network is the known DWP refusal: the same key answers 200 from the founder's browser)`,
-    );
+    delaysMs = RETRY_DELAYS_MS,
+    onRetry = null,
+    retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
+  } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  let response;
+  for (;;) {
+    attempt += 1;
+    try {
+      response = await fetch(`${API_BASE}${path}`, {
+        method,
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "User-Agent": USER_AGENT,
+          APIKey: process.env.STATXPLORE_API_KEY,
+        },
+        body,
+      });
+      if (!response.ok) {
+        const error = new Error(
+          `Stat-Xplore ${path} returned HTTP ${response.status} — with the key sent as the APIKey header (a 401 from a Muse-side network is the known DWP refusal: the same key answers 200 from the founder's browser)`,
+        );
+        error.status = response.status;
+        throw error;
+      }
+      break;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, `Stat-Xplore ${path}`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+  // The body read stays outside the retry: a malformed body
+  // is a contract failure, not a transient fetch failure.
   return response.json();
 }
 
-export async function callStatXplore(command, arg, bodyObject) {
+export async function callStatXplore(command, arg, bodyObject, fetchOpts) {
   const attempt = () => {
     if (process.env.STATXPLORE_API_KEY) {
       if (command === "schema")
-        return callStatXploreDirect(`/schema${arg ? `/${encodeURIComponent(arg)}` : ""}`);
+        return callStatXploreDirect(
+          `/schema${arg ? `/${encodeURIComponent(arg)}` : ""}`,
+          fetchOpts,
+        );
       return callStatXploreDirect("/table", {
         method: "POST",
         body: JSON.stringify(bodyObject),
+        ...fetchOpts,
       });
     }
     if (!existsSync(helperPath()))
@@ -1200,6 +1253,12 @@ export async function callStatXplore(command, arg, bodyObject) {
       );
     return callStatXploreViaHelper(command, arg, bodyObject ? JSON.stringify(bodyObject) : null);
   };
+  // The direct route retries transient fetch failures inside
+  // callStatXploreDirect (BUG-385), so it is attempted once
+  // here — a second attempt would restart the 30-minute
+  // budget. The helper route is not a fetch and keeps its
+  // single blind re-attempt.
+  if (process.env.STATXPLORE_API_KEY) return attempt();
   try {
     return await attempt();
   } catch {
@@ -1215,9 +1274,9 @@ export async function callStatXplore(command, arg, bodyObject) {
 // route's "returned HTTP 404"; the helper's stderr relay),
 // so the status is read back from the message; any other
 // failure — a 401 included — rethrows.
-export async function fetchSchemaNodeOrNull(id) {
+export async function fetchSchemaNodeOrNull(id, fetchOpts) {
   try {
-    return await callStatXplore("schema", id);
+    return await callStatXplore("schema", id, undefined, fetchOpts);
   } catch (err) {
     if (/HTTP 404/.test(err.message)) return null;
     throw err;
@@ -1229,10 +1288,10 @@ export async function fetchSchemaNodeOrNull(id) {
 // One series' filing rows for the given months. With
 // lsoaCodes set (the verify pull) the query is restricted
 // to those areas.
-export async function pullUcSeries(databaseEntry, { months, lsoaCodes, discovery }) {
-  const disc = discovery ?? (await fetchDiscovery(databaseEntry));
+export async function pullUcSeries(databaseEntry, { months, lsoaCodes, discovery, fetchOpts }) {
+  const disc = discovery ?? (await fetchDiscovery(databaseEntry, {}, fetchOpts));
   const query = buildTableQuery(disc, databaseEntry, { months, lsoaCodes });
-  const json = await callStatXplore("table", null, query);
+  const json = await callStatXplore("table", null, query, fetchOpts);
   return { rows: parseTableResponse(json, databaseEntry, disc), discovery: disc };
 }
 

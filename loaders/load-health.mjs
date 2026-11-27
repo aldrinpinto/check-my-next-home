@@ -63,6 +63,7 @@ import { Readable } from "node:stream";
 import pg from "pg";
 import yauzl from "yauzl";
 import { createLoaderResume } from "./loader-resume.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -344,10 +345,58 @@ async function readRatingsStream(webStream, { progress = null } = {}) {
 
 // -------------------------------------------------------------------
 
-async function fetchText(url) {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
-  return response.text();
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError). `init`
+// is the fetch init, or a function returning a fresh one
+// per attempt (a caller passing an AbortSignal.timeout
+// needs a new signal each retry — a fired one stays
+// aborted).
+/**
+ * @param {string} url
+ * @param {string} what
+ * @param {{ delaysMs?: number[], onRetry?: ((error: Error, attempt: number, delay: number, what: string) => void) | null, retryBudgetMs?: number, init?: any }} [opts]
+ */
+export async function fetchResponse(
+  url,
+  what,
+  {
+    delaysMs = RETRY_DELAYS_MS,
+    onRetry = null,
+    retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
+    init = undefined,
+  } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
+    try {
+      const response = await fetch(url, typeof init === "function" ? init() : init);
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status} for ${what}`);
+        error.status = response.status;
+        throw error;
+      }
+      return response;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, what);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
+async function fetchText(url, opts = {}) {
+  return (await fetchResponse(url, url, opts)).text();
 }
 
 async function discoverCqc() {
@@ -1047,9 +1096,7 @@ async function main() {
       directoryRows = dirParsed
         .slice(1)
         .map((r) => Object.fromEntries(header.map((h, i) => [h, (r[i] ?? "").trim()])));
-      const ratingsResponse = await fetch(ratingsPick.url);
-      if (!ratingsResponse.ok)
-        throw new Error(`HTTP ${ratingsResponse.status} for the CQC ratings file`);
+      const ratingsResponse = await fetchResponse(ratingsPick.url, "the CQC ratings file");
       progress.stage("reading the CQC ratings file");
       ratings = await streamRatings(
         Promise.resolve(Buffer.from(await ratingsResponse.arrayBuffer())),

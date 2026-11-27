@@ -112,6 +112,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -123,6 +124,7 @@ import pg from "pg";
 import proj4 from "proj4";
 import yauzl from "yauzl";
 import { createLoaderResume } from "./loader-resume.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -824,10 +826,88 @@ const DEFAULT_FIXTURE_DIR = fileURLToPath(
   new URL("../../tests/fixtures/os-greenspace/", import.meta.url),
 );
 
-async function fetchJson(url, what) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`${what}: HTTP ${res.status} from ${url}`);
-  return res.json();
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError).
+async function fetchResponse(
+  url,
+  what,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status} for ${what}`);
+        error.status = response.status;
+        throw error;
+      }
+      return response;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, what);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
+export async function fetchJson(url, what, opts) {
+  // The body read stays outside the retry boundary, so a
+  // parse failure fails fast instead of re-requesting.
+  return (await fetchResponse(url, what, opts)).json();
+}
+
+// The GeoPackage download, retried whole from scratch: the
+// fetch AND the body stream sit inside the retry boundary,
+// because a network cut mid-download (a 59 MB single-shot
+// download through a proxy does get cut — seen live
+// 13 Nov 2026) must restart the file, never resume a
+// partial one. Each attempt writes a FRESH temp file next
+// to the destination; a failed attempt's partial file is
+// discarded, and only a complete download is renamed into
+// place — the md5 below remains the only acceptance test.
+export async function downloadGreenspaceFile(
+  url,
+  destPath,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+) {
+  const what = "the OS Greenspace GeoPackage download";
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
+    const attemptPath = `${destPath}.attempt-${attempt}`;
+    try {
+      const res = await fetch(url);
+      if (!res.ok || !res.body) {
+        const error = new Error(`Greenspace download returned HTTP ${res.status}`);
+        error.status = res.status;
+        throw error;
+      }
+      await pipeline(Readable.fromWeb(res.body), createWriteStream(attemptPath));
+      await rename(attemptPath, destPath);
+      return destPath;
+    } catch (error) {
+      await rm(attemptPath, { force: true }).catch(() => {});
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, what);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
 }
 
 async function md5OfFile(path) {
@@ -946,26 +1026,12 @@ async function main() {
         return;
       }
       const zipPath = join(workDir, "opgrsp_gb.zip");
-      // One retry on a network cut (a 59 MB single-shot
-      // download through a proxy does get cut — seen live
-      // 13 Nov 2026); a partial file is always discarded, and
-      // the md5 below remains the only acceptance test.
+      // BUG-385: the download retries whole from scratch for
+      // up to 30 minutes (downloadGreenspaceFile) — a cut
+      // mid-download restarts the file, never resumes a
+      // partial one.
       progress.stage(`downloading the OS Open Greenspace ${version} GeoPackage...`);
-      let downloadError = null;
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          const res = await fetch(entry.url);
-          if (!res.ok || !res.body)
-            throw new Error(`Greenspace download returned HTTP ${res.status}`);
-          await pipeline(Readable.fromWeb(res.body), createWriteStream(zipPath));
-          downloadError = null;
-          break;
-        } catch (err) {
-          downloadError = err;
-          if (attempt === 0) await new Promise((r) => setTimeout(r, 3000));
-        }
-      }
-      if (downloadError) throw downloadError;
+      await downloadGreenspaceFile(entry.url, zipPath);
       progress.stage("verifying the download against the listing's md5...");
       const actual = await md5OfFile(zipPath);
       if (actual !== md5)

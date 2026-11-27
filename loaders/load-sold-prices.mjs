@@ -143,6 +143,7 @@ import {
   formatDuration,
 } from "./progress.mjs";
 import { createLoaderResume, writeCheckpoint } from "./loader-resume.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 import pg from "pg";
 
 const FULL_FILE_URL =
@@ -2016,6 +2017,58 @@ export async function nationalFileSources(fileDir) {
 // --file directory), the work run, the outcome stamped (gap 4 —
 // success and failure alike; a verify-only run stamps nothing,
 // as the legacy verify files nothing).
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError).
+export async function fetchResponse(
+  url,
+  what,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status} for ${what}`);
+        error.status = response.status;
+        throw error;
+      }
+      return response;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, what);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
+// BUG-385: the live-download fetch for this loader —
+// fetchResponse's retry plus this loader's old failure
+// wording (`<label> failed: HTTP <status>`). The body reads
+// and streams sit outside fetchResponse's try, so a
+// malformed body fails fast instead of retrying.
+async function fetchDownload(url, label, opts = {}) {
+  let response;
+  try {
+    response = await fetchResponse(url, label, opts);
+  } catch (err) {
+    if (typeof err.status === "number") throw new Error(`${label} failed: HTTP ${err.status}`);
+    throw err;
+  }
+  return response;
+}
+
 async function modeMain(args) {
   const parsed = parseModeArgs(args);
   if (parsed.mode === null)
@@ -2053,8 +2106,7 @@ async function modeMain(args) {
       if (parsed.fileDir) {
         ({ fullLines, updateLines, expectedFullBytes } = await nationalFileSources(parsed.fileDir));
       } else {
-        const response = await fetch(FULL_FILE_URL);
-        if (!response.ok) throw new Error(`the full file download failed: HTTP ${response.status}`);
+        const response = await fetchDownload(FULL_FILE_URL, "the full file download");
         const lastModified = response.headers.get("last-modified");
         if (lastModified && !context.sourceDate)
           context.sourceDate = new Date(lastModified).toISOString().slice(0, 10);
@@ -2066,9 +2118,7 @@ async function modeMain(args) {
           input: Readable.fromWeb(response.body),
           crlfDelay: Infinity,
         });
-        const updateResponse = await fetch(UPDATE_FILE_URL);
-        if (!updateResponse.ok)
-          throw new Error(`the monthly update download failed: HTTP ${updateResponse.status}`);
+        const updateResponse = await fetchDownload(UPDATE_FILE_URL, "the monthly update download");
         updateLines = (await updateResponse.text()).split(/\r?\n/);
       }
       runStarted = true;
@@ -2122,9 +2172,7 @@ async function modeMain(args) {
         /\r?\n/,
       );
     } else {
-      const response = await fetch(UPDATE_FILE_URL);
-      if (!response.ok)
-        throw new Error(`the monthly update download failed: HTTP ${response.status}`);
+      const response = await fetchDownload(UPDATE_FILE_URL, "the monthly update download");
       const lastModified = response.headers.get("last-modified");
       if (lastModified && !edition) edition = new Date(lastModified).toISOString().slice(0, 10);
       if (!edition)
@@ -2224,8 +2272,7 @@ async function legacyMain() {
     })();
     updateLines = (await readFile(join(fileDir, "pp-monthly-update.csv"), "utf8")).split(/\r?\n/);
   } else {
-    const response = await fetch(FULL_FILE_URL);
-    if (!response.ok) throw new Error(`the full file download failed: HTTP ${response.status}`);
+    const response = await fetchDownload(FULL_FILE_URL, "the full file download");
     const lastModified = response.headers.get("last-modified");
     if (lastModified) sourceDate = new Date(lastModified).toISOString().slice(0, 10);
     const contentEncoding = response.headers.get("content-encoding");
@@ -2236,7 +2283,13 @@ async function legacyMain() {
       input: Readable.fromWeb(response.body),
       crlfDelay: Infinity,
     });
-    updateLines = (await (await fetch(UPDATE_FILE_URL)).text()).split(/\r?\n/);
+    // BUG-385: the legacy update fetch now goes through
+    // fetchDownload, so a non-OK answer throws here instead
+    // of being read as text (the old code took whatever body
+    // came back, error page included).
+    updateLines = (
+      await (await fetchDownload(UPDATE_FILE_URL, "the monthly update download")).text()
+    ).split(/\r?\n/);
   }
   // BUG-368: the resume key is the full file's publication date
   // when the source gave one, else the declared file size — a

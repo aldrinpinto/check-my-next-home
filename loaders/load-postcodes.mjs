@@ -42,6 +42,7 @@ import {
   formatDuration,
 } from "./progress.mjs";
 import { createLoaderResume } from "./loader-resume.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 
 const SOURCE_NAME = "ONS Postcode Directory";
 
@@ -259,14 +260,68 @@ async function loadLookups(source) {
 // ---------------------------------------------------------------------------
 // Resolve the newest ONSPD edition on the Open Geography Portal.
 // ---------------------------------------------------------------------------
-async function resolveLatestEdition() {
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError).
+export async function fetchResponse(
+  url,
+  what,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status} for ${what}`);
+        error.status = response.status;
+        throw error;
+      }
+      return response;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, what);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
+export async function resolveLatestEdition({
+  delaysMs = RETRY_DELAYS_MS,
+  onRetry = null,
+  retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS,
+} = {}) {
   const query = 'tags:ONSPD AND owner:ONSGeography_data AND type:"CSV Collection"';
   const url =
     "https://www.arcgis.com/sharing/rest/search?q=" +
     encodeURIComponent(query) +
     "&f=json&num=50&sortField=modified&sortOrder=desc";
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`the geography portal search failed (HTTP ${res.status})`);
+  // BUG-385: the fetch retries inside fetchResponse; the old
+  // failure wording is kept. The body read sits outside
+  // fetchResponse's try, so a malformed body fails fast
+  // instead of retrying.
+  let res;
+  try {
+    res = await fetchResponse(url, "the geography portal search", {
+      delaysMs,
+      onRetry,
+      retryBudgetMs,
+    });
+  } catch (err) {
+    if (typeof err.status === "number")
+      throw new Error(`the geography portal search failed (HTTP ${err.status})`);
+    throw err;
+  }
   const data = await res.json();
   const items = (data.results ?? []).filter(
     (r) => /^ONS Postcode Directory \(/.test(r.title ?? "") && !/User Guide/.test(r.title),
@@ -285,7 +340,17 @@ async function resolveLatestEdition() {
   };
 }
 
-async function downloadEdition(edition) {
+// BUG-385: the edition download retries the WHOLE download
+// from scratch for up to 30 minutes (TRANSIENT_RETRY_BUDGET_MS)
+// — a transient failure at the fetch or mid-stream restarts
+// it, and every attempt opens a fresh write stream, so a
+// partial file from a cut attempt is truncated, never resumed
+// or appended to. The error message is unchanged; a
+// non-transient failure throws at once.
+export async function downloadEdition(
+  edition,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+) {
   const dest = join(tmpdir(), `onspd-${edition.itemId}.zip`);
   try {
     const info = await stat(dest);
@@ -293,10 +358,28 @@ async function downloadEdition(edition) {
   } catch {
     // not downloaded yet
   }
-  const res = await fetch(edition.downloadUrl);
-  if (!res.ok || !res.body) throw new Error(`the edition download failed (HTTP ${res.status})`);
-  await pipeline(Readable.fromWeb(res.body), createWriteStream(dest));
-  return dest;
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
+    try {
+      const res = await fetch(edition.downloadUrl);
+      if (!res.ok || !res.body) {
+        const error = new Error(`the edition download failed (HTTP ${res.status})`);
+        error.status = res.status;
+        throw error;
+      }
+      await pipeline(Readable.fromWeb(res.body), createWriteStream(dest));
+      return dest;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, "the edition download");
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
 }
 
 function editionFromFileName(name) {
@@ -739,7 +822,13 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(`load-postcodes FAILED: ${error.message}`);
-  process.exit(1);
-});
+// BUG-385: the main run is guarded like every other
+// loader's, so importing this module (as the retry tests
+// do) no longer starts a live run — only invoking it as a
+// script does.
+if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
+  main().catch((error) => {
+    console.error(`load-postcodes FAILED: ${error.message}`);
+    process.exit(1);
+  });
+}

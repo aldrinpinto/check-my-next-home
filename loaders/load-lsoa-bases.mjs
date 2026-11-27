@@ -42,6 +42,7 @@ import {
   formatCount,
   formatDuration,
 } from "./progress.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 
 const { Pool } = pg;
 
@@ -392,21 +393,51 @@ export function zipUrl(code) {
   return `${BULK_BASE}/census2021-${code}.zip`;
 }
 
-async function fetchRetry(url) {
-  let lastError;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError).
+/**
+ * @param {string} url
+ * @param {object} [opts]
+ * @param {number[]} [opts.delaysMs]
+ * @param {((error: any, attempt: number, delay: number, what: string) => void) | null} [opts.onRetry]
+ * @param {number} [opts.retryBudgetMs]
+ */
+export async function fetchRetry(
+  url,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
     try {
       const response = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
-      if (response.status >= 500 || response.status === 429)
-        throw new Error(`HTTP ${response.status}`);
-      if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
+      if (response.status >= 500 || response.status === 429) {
+        const error = new Error(`HTTP ${response.status}`);
+        error.status = response.status;
+        throw error;
+      }
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status} for ${url}`);
+        error.status = response.status;
+        throw error;
+      }
       return response;
     } catch (error) {
-      lastError = error;
-      if (attempt === 0) await new Promise((r) => setTimeout(r, 3000));
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, url);
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
-  throw lastError;
 }
 
 // The LSOA CSV out of one bulk zip buffer.
@@ -439,8 +470,8 @@ export function readLsoaCsvFromZip(buffer, code) {
   });
 }
 
-async function downloadDatasetCsv(code) {
-  const response = await fetchRetry(zipUrl(code));
+async function downloadDatasetCsv(code, fetchOpts) {
+  const response = await fetchRetry(zipUrl(code), fetchOpts);
   const buffer = Buffer.from(await response.arrayBuffer());
   return readLsoaCsvFromZip(buffer, code);
 }
@@ -463,7 +494,7 @@ export function readDatasetFromDir(dir, code) {
  * @param {{ kind: string, dir?: string }} source
  * @param {{ progress?: import("./progress.mjs").ProgressLogger | null }} [options]
  */
-export async function loadLsoaBaseRows(source, { progress = null } = {}) {
+export async function loadLsoaBaseRows(source, { progress = null, fetchOpts } = {}) {
   const parsedByCode = new Map();
   for (const dataset of BASE_DATASETS) {
     // BUG-265: one line per dataset as it is read and parsed;
@@ -473,7 +504,7 @@ export async function loadLsoaBaseRows(source, { progress = null } = {}) {
     const text =
       source.kind === "dir"
         ? await readDatasetFromDir(source.dir, dataset.code)
-        : await downloadDatasetCsv(dataset.code);
+        : await downloadDatasetCsv(dataset.code, fetchOpts);
     const parsed = parseLsoaCsv(text, dataset);
     progress?.count({
       label: `parse ${dataset.code}`,

@@ -104,6 +104,7 @@ import {
   formatCount,
   formatDuration,
 } from "./progress.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 
 const { Pool } = pg;
 
@@ -1208,29 +1209,112 @@ export async function fileAllRows(
 // ------------------------------------------------------------------
 // Live discovery + main.
 
-async function fetchBuffer(url, what) {
-  const response = await fetch(url, {
-    headers: { "user-agent": "check-my-next-home council-tax loader" },
-    signal: AbortSignal.timeout(120_000),
-  });
-  if (!response.ok) throw new Error(`${what}: HTTP ${response.status} from ${url}`);
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError).
+/**
+ * @param {string} url
+ * @param {string} what
+ * @param {object} [opts]
+ * @param {number[]} [opts.delaysMs]
+ * @param {((error: any, attempt: number, delay: number, what: string) => void) | null} [opts.onRetry]
+ * @param {number} [opts.retryBudgetMs]
+ */
+export async function fetchBuffer(
+  url,
+  what,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  let response;
+  for (;;) {
+    attempt += 1;
+    try {
+      // A fresh timeout signal per attempt: a signal that
+      // fired cannot be reused for the retry.
+      response = await fetch(url, {
+        headers: { "user-agent": "check-my-next-home council-tax loader" },
+        signal: AbortSignal.timeout(120_000),
+      });
+      if (!response.ok) {
+        const error = new Error(`${what}: HTTP ${response.status} from ${url}`);
+        error.status = response.status;
+        throw error;
+      }
+      break;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, url);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+  // The body read stays outside the retry: a malformed body
+  // is a contract failure, not a transient fetch failure.
   return Buffer.from(await response.arrayBuffer());
 }
 
-async function fetchJson(url, what) {
-  const response = await fetch(url, {
-    headers: { "user-agent": "check-my-next-home council-tax loader" },
-    signal: AbortSignal.timeout(60_000),
-  });
-  if (response.status === 404) return null;
-  if (!response.ok) throw new Error(`${what}: HTTP ${response.status} from ${url}`);
+/**
+ * @param {string} url
+ * @param {string} what
+ * @param {object} [opts]
+ * @param {number[]} [opts.delaysMs]
+ * @param {((error: any, attempt: number, delay: number, what: string) => void) | null} [opts.onRetry]
+ * @param {number} [opts.retryBudgetMs]
+ */
+export async function fetchJson(
+  url,
+  what,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  let response;
+  for (;;) {
+    attempt += 1;
+    try {
+      // A fresh timeout signal per attempt: a signal that
+      // fired cannot be reused for the retry.
+      response = await fetch(url, {
+        headers: { "user-agent": "check-my-next-home council-tax loader" },
+        signal: AbortSignal.timeout(60_000),
+      });
+      // A 404 is the live "release not landed yet" answer,
+      // not a failure: it returns null at once, unretried.
+      if (response.status === 404) return null;
+      if (!response.ok) {
+        const error = new Error(`${what}: HTTP ${response.status} from ${url}`);
+        error.status = response.status;
+        throw error;
+      }
+      break;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, url);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+  // The body read stays outside the retry: a malformed body
+  // is a contract failure, not a transient fetch failure.
   return response.json();
 }
 
-export async function englandReleaseInfo(taxYear) {
+export async function englandReleaseInfo(taxYear, fetchOpts) {
   const doc = await fetchJson(
     `https://www.gov.uk/api/content/government/statistics/${englandReleaseSlug(taxYear)}`,
     `the MHCLG ${taxYear} release page`,
+    fetchOpts,
   );
   if (!doc) return null;
   const attachments = doc.details?.attachments ?? [];
@@ -1262,7 +1346,7 @@ export async function readFixtureOds(dir, name) {
   }
 }
 
-async function loadInputs(args, { progress = null } = {}) {
+async function loadInputs(args, { progress = null, fetchOpts } = {}) {
   if (args.fileDir) {
     progress?.stage("reading the fixture release");
     const tables = await readFixtureOds(args.fileDir, "Tables_1-9.ods");
@@ -1289,10 +1373,10 @@ async function loadInputs(args, { progress = null } = {}) {
   // Live: the current tax year, falling back one year when
   // its release has not landed yet (early April).
   let taxYear = currentTaxYear();
-  let info = await englandReleaseInfo(taxYear);
+  let info = await englandReleaseInfo(taxYear, fetchOpts);
   if (!info) {
     taxYear = previousTaxYear(taxYear);
-    info = await englandReleaseInfo(taxYear);
+    info = await englandReleaseInfo(taxYear, fetchOpts);
     if (!info)
       throw new Error(
         `neither the ${currentTaxYear()} nor the ${taxYear} MHCLG release is reachable`,
@@ -1301,8 +1385,8 @@ async function loadInputs(args, { progress = null } = {}) {
   }
   progress?.stage(`fetching the MHCLG ${taxYear} release (Tables 1–9 and Table 10)`);
   const [tables, table10] = await Promise.all([
-    fetchBuffer(info.tablesUrl, `Tables 1 to 9 for ${taxYear}`),
-    fetchBuffer(info.table10Url, `Table 10 for ${taxYear}`),
+    fetchBuffer(info.tablesUrl, `Tables 1 to 9 for ${taxYear}`, fetchOpts),
+    fetchBuffer(info.table10Url, `Table 10 for ${taxYear}`, fetchOpts),
   ]);
   const england = await parseEnglandRelease(tables, table10);
   if (england.taxYear !== taxYear)
@@ -1312,11 +1396,13 @@ async function loadInputs(args, { progress = null } = {}) {
   const walesMeta = await fetchJson(
     `https://api.stats.gov.wales/v2/${STATSWALES_DATASET_ID}`,
     "the StatsWales composition dataset metadata",
+    fetchOpts,
   );
   progress?.stage("fetching the StatsWales composition export");
   const walesCsv = await fetchBuffer(
     `https://api.stats.gov.wales/v2/${STATSWALES_DATASET_ID}/data?format=csv&page_size=10000&page_number=1`,
     "the StatsWales composition export",
+    fetchOpts,
   );
   return {
     england,

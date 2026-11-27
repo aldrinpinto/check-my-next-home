@@ -92,6 +92,7 @@ import { pipeline } from "node:stream/promises";
 import pg from "pg";
 import proj4 from "proj4";
 import { createLoaderResume } from "./loader-resume.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -450,24 +451,52 @@ function checkGolden(filed) {
   if (fails.length > 0) throw new Error(`golden checks failed:\n - ${fails.join("\n - ")}`);
 }
 
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+
 // The national download, with patient retries (the M5.3
 // transport lesson): one 97 MB GET, streamed to a temp file
 // so a mid-transfer failure retries the download, never the
-// processing.
-async function downloadNational(tmpPath) {
-  let lastError;
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
+// processing. BUG-385: the retry now runs for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384,
+// replacing the old 3-attempt loop — and past the budget
+// the original error fails the run and it waits. The delay
+// caps at the last schedule entry; a test may pass
+// delaysMs: [] for instant retries. Non-transient failures
+// throw at once (see isTransientFetchError). Each attempt
+// opens a fresh write stream, and createWriteStream
+// truncates, so a cut-short attempt never leaves a partial
+// file for the next attempt to extend.
+/**
+ * @param {string} tmpPath
+ * @param {{ delaysMs?: number[], onRetry?: ((error: Error, attempt: number, delay: number, what: string) => void) | null, retryBudgetMs?: number }} [opts]
+ */
+export async function downloadNational(
+  tmpPath,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
     try {
       const response = await fetch(API_URL);
-      if (!response.ok) throw new Error(`HTTP ${response.status} for the NaPTAN download`);
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status} for the NaPTAN download`);
+        error.status = response.status;
+        throw error;
+      }
       await pipeline(Readable.fromWeb(response.body), createWriteStream(tmpPath));
       return;
     } catch (error) {
-      lastError = error;
-      if (attempt < 3) await new Promise((r) => setTimeout(r, attempt * 10000));
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, "the NaPTAN download");
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
-  throw lastError;
 }
 
 // A fixture file too large for one connector push is held as

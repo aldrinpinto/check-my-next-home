@@ -64,6 +64,7 @@ import yauzl from "yauzl";
 
 import { monthIndex, nationalForWindow, windowMonths } from "./load-crime.mjs";
 import { createLoaderResume } from "./loader-resume.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 import {
   createBatchWatch,
   createProgressLogger,
@@ -214,22 +215,100 @@ export function countArchiveEnglandTotal(zipPath, month) {
   });
 }
 
-async function fetchJson(url) {
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    const response = await fetch(url);
-    if (response.ok) return response.json();
-    if (attempt === 2)
-      throw new Error(`Police.uk request failed: HTTP ${response.status} (${url})`);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError).
+export async function fetchResponse(
+  url,
+  what,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status} for ${what}`);
+        error.status = response.status;
+        throw error;
+      }
+      return response;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, what);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
   }
-  throw new Error("unreachable");
 }
 
-async function downloadArchive(month, dest) {
-  const response = await fetch(ARCHIVE_URL(month));
-  if (!response.ok || !response.body)
-    throw new Error(`Police.uk archive download failed: HTTP ${response.status} (${month})`);
-  await pipeline(Readable.fromWeb(response.body), createWriteStream(dest));
+// BUG-385: the retry lives in fetchResponse now — this helper
+// keeps its old shape and its old error message. The body
+// read sits outside fetchResponse's try, so a malformed body
+// fails fast instead of retrying. Note the behaviour change
+// the retry brings: the old 2-attempt loop retried every
+// HTTP failure once, including a 404; a non-transient
+// failure now throws at once, with a single attempt.
+export async function fetchJson(
+  url,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+) {
+  let response;
+  try {
+    response = await fetchResponse(url, "Police.uk", { delaysMs, onRetry, retryBudgetMs });
+  } catch (err) {
+    if (typeof err.status === "number")
+      throw new Error(`Police.uk request failed: HTTP ${err.status} (${url})`);
+    throw err;
+  }
+  return response.json();
+}
+
+// BUG-385: the archive download retries the WHOLE download
+// from scratch for up to 30 minutes (TRANSIENT_RETRY_BUDGET_MS)
+// — a transient failure at the fetch or mid-stream restarts
+// it, and every attempt opens a fresh write stream, so a
+// partial file from a cut attempt is truncated, never resumed
+// or appended to. The error message is unchanged; a
+// non-transient failure throws at once.
+export async function downloadArchive(
+  month,
+  dest,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
+    try {
+      const response = await fetch(ARCHIVE_URL(month));
+      if (!response.ok || !response.body) {
+        const error = new Error(
+          `Police.uk archive download failed: HTTP ${response.status} (${month})`,
+        );
+        error.status = response.status;
+        throw error;
+      }
+      await pipeline(Readable.fromWeb(response.body), createWriteStream(dest));
+      return;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, `the Police.uk ${month} archive`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
 }
 
 // The months an artefact's window spans, from its filed

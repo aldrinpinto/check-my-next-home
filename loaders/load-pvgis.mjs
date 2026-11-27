@@ -79,6 +79,7 @@ import {
   formatCount,
   formatDuration,
 } from "./progress.mjs";
+import { isTransientFetchError, TRANSIENT_RETRY_BUDGET_MS } from "./flood-resume.mjs";
 
 const USER_AGENT = "CheckMyNextHome/1.0 (+https://checkmynexthome.co.uk)";
 
@@ -202,23 +203,48 @@ export function pvgisUrl(lat, lng) {
   return `${PVGIS_API}?${q}`;
 }
 
-async function fetchJson(url) {
-  let lastError;
-  for (let attempt = 1; attempt <= 3; attempt++) {
+const RETRY_DELAYS_MS = [5000, 15000, 30000, 60000];
+// BUG-385: a transient fetch failure is retried for up to 30
+// minutes (TRANSIENT_RETRY_BUDGET_MS, founder-ordered 27 Nov
+// 2026) — the same retry the flood loaders got in BUG-384.
+// Past the budget the original error fails the run and it
+// waits. The delay caps at the last schedule entry; a test
+// may pass delaysMs: [] for instant retries. Non-transient
+// failures throw at once (see isTransientFetchError).
+/**
+ * @param {string} url
+ * @param {object} [opts]
+ * @param {number[]} [opts.delaysMs]
+ * @param {((error: any, attempt: number, delay: number, what: string) => void) | null} [opts.onRetry]
+ * @param {number} [opts.retryBudgetMs]
+ */
+export async function fetchJson(
+  url,
+  { delaysMs = RETRY_DELAYS_MS, onRetry = null, retryBudgetMs = TRANSIENT_RETRY_BUDGET_MS } = {},
+) {
+  const startedAt = Date.now();
+  let attempt = 0;
+  let res;
+  for (;;) {
+    attempt += 1;
     try {
-      const res = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
-      if (res.ok) return await res.json();
-      if (res.status !== 429 && res.status < 500) {
-        throw new Error(`${url} returned HTTP ${res.status}`);
-      }
-      lastError = new Error(`${url} returned HTTP ${res.status}`);
-    } catch (err) {
-      lastError = err;
-      if (/returned HTTP 4/.test(err.message)) throw err;
+      res = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
+      if (res.ok) break;
+      const error = new Error(`${url} returned HTTP ${res.status}`);
+      error.status = res.status;
+      throw error;
+    } catch (error) {
+      if (!isTransientFetchError(error)) throw error;
+      if (Date.now() - startedAt >= retryBudgetMs) throw error;
+      const delay =
+        delaysMs.length === 0 ? 0 : delaysMs[Math.min(attempt - 1, delaysMs.length - 1)];
+      onRetry?.(error, attempt, delay, url);
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
-    if (attempt < 3) await new Promise((r) => setTimeout(r, 2000 * attempt));
   }
-  throw lastError;
+  // The body read stays outside the retry: a malformed body
+  // is a contract failure, not a transient fetch failure.
+  return res.json();
 }
 
 // Sample every cell, three at a time (the concurrency the API
@@ -231,12 +257,12 @@ async function fetchJson(url) {
 /**
  * @param {any[]} cells
  * @param {(url: string) => Promise<any>} fetchOne
- * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, onSampled?: ((row: any) => Promise<void>) | null, resumeNote?: (() => string) | null }} [options]
+ * @param {{ progress?: import("./progress.mjs").ProgressLogger | null, onSampled?: ((row: any) => Promise<void>) | null, resumeNote?: (() => string) | null, fetchOpts?: import("./flood-resume.mjs").FetchRetryOptions | null }} [options]
  */
 export async function sampleCells(
   cells,
   fetchOne = fetchJson,
-  { progress = null, onSampled = null, resumeNote = null } = {},
+  { progress = null, onSampled = null, resumeNote = null, fetchOpts = null } = {},
 ) {
   const rows = [];
   let next = 0;
@@ -252,6 +278,7 @@ export async function sampleCells(
   // The heartbeat stays coarse on a run of thousands of
   // cells: every tenth of the run at least, never per cell.
   const heartbeatEvery = Math.max(HEARTBEAT_EVERY_BATCHES, Math.ceil(cells.length / 10));
+  const fetchCell = fetchOpts ? (url) => fetchOne(url, fetchOpts) : fetchOne;
   const worker = async () => {
     try {
       // BUG-368: a worker that fails stops the others —
@@ -261,7 +288,7 @@ export async function sampleCells(
       while (!stopped && next < cells.length) {
         const cell = cells[next++];
         const started = Date.now();
-        const json = await fetchOne(pvgisUrl(cell.latitude, cell.longitude));
+        const json = await fetchCell(pvgisUrl(cell.latitude, cell.longitude));
         const { tookMs, averageMs, slow } = sampleWatch.observe(Date.now() - started);
         const row = parsePvcalcResponse(json, cell);
         rows.push(row);
