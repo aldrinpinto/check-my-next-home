@@ -952,11 +952,14 @@ make a re-seed safe at any time):
 2. Extend the loader as the pass requires: add the new
    year to `RELEASES` with its publication dates; roll
    the `GOLDENS` registry to the new year's verified
-   seed figures; extend `AREA_PRECEPTORS` (the release
-   prints no district-to-county membership, so membership
-   is operator reference data — work county by county
-   from the county set in Table 8b, with the identity
-   assertion as the safety net) toward full coverage.
+   seed figures; check `AREA_PRECEPTORS` still covers
+   every billing authority in the release (the map has
+   been complete since 28 Nov 2026 — 263 non-London
+   English entries, built from the ONS lookups against
+   the 2026-27 release — so the pass now only adds
+   whatever a new release introduces: new authorities,
+   boundary changes) and re-verify with
+   `--all --verify-only` before filing.
 3. File the seed with `npm run load:council-tax`; when
    `AREA_PRECEPTORS` covers every billing authority in
    the release, file the whole nation with

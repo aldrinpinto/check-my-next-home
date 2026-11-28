@@ -133,3 +133,36 @@ council tax is a different system with water charges
 bundled into the bill, and Northern Ireland levies
 domestic rates, not council tax — serving names those
 as not-covered states (M6), it does not file zeros.
+
+**The national pass itself is built and verified**
+(28 Nov 2026): the loader's `AREA_PRECEPTORS` covers
+all 263 non-London English authorities, and `--all
+--verify-only` reconciles 318/318 (296 England, 22
+Wales) — the live filing itself awaits the founder's
+word.
+
+## Two things the 2026-27 release forced (28 Nov 2026)
+
+**Spelthorne (E07000213) — the named ±10p exception.**
+The release disagrees with itself by 5p: Table 8 prints
+the uniform Surrey £1,938.42 + Surrey Police £352.57,
+but Table 10 line 16 prints county £1,938.38 + police
+£352.56 in Spelthorne's area, and Table 9's area
+£2,526.44 follows Table 10. The penny gate stands for
+every other authority; Spelthorne alone is allowed
+±10p, and the run logs it loudly whenever the
+exception is used (founder ruling 28 Nov 2026).
+
+**Greater Manchester and York and North Yorkshire —
+the split, filed properly.** Table 8f prints each
+mayoral combined authority's total followed by its "Of
+which general functions" sub-row; the loader keys
+each sub-row by its own CA ("<CA> — general
+functions"), so Greater Manchester files police
+£285.30 + CA general £153.95 (total £439.25) and York
+and North Yorkshire files police £335.86 + CA general
+£116.62 (total £452.48), police and combined authority
+as separate components. South Yorkshire and West
+Yorkshire are unaffected: their CA general element is
+£0.00, so they stay police-only (founder ruling
+28 Nov 2026: "FIX THE SPLIT PROPERLY").

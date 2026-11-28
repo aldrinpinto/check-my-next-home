@@ -49,6 +49,10 @@
 // with Table 8's printed averages to the penny (both are
 // roundings of the same unrounded quotients, so a penny
 // of tolerance covers the rounding and nothing else).
+// One named exception: Spelthorne (E07000213) in 2026-27
+// is allowed ±10p (founder ruling 28 Nov 2026 — the
+// release disagrees with itself by 5p; the exception is
+// logged loudly whenever it is used).
 // London is asserted as a set: every borough's area
 // figure minus its own including-parish element is the
 // SAME number — the GLA element — except the City of
@@ -58,14 +62,15 @@
 // SEED SCOPE (the step's own terms): the three golden
 // areas plus ten further authorities verified the same
 // way — the spot-check set, recorded in
-// loaders/council-tax-spot-check.md. Every other
-// authority stays UNFILED, which serving reads as the
-// honest "not published" state; the spring pass extends
-// AREA_PRECEPTORS below (the release prints no
-// district-to-county membership, so membership is
-// operator reference data) and files the rest. --all
-// refuses, listing the unmapped authorities, until the
-// map covers every billing authority in the release.
+// loaders/council-tax-spot-check.md. The seed pass files
+// those 13 only; the national pass (--all) files every
+// authority in the release, now that AREA_PRECEPTORS
+// covers the whole nation (28 Nov 2026 — built from the
+// ONS lookups against the 2026-27 release, not by hand).
+// An authority with no map entry stays UNFILED, which
+// serving reads as the honest "not published" state, and
+// --all refuses, listing the unmapped authorities, until
+// the map covers every billing authority in the release.
 //
 // BANDS ARE NEVER DATA: no band column beyond Band D
 // exists in the table, and none is computed here. The
@@ -158,7 +163,7 @@ function englandReleaseSlug(taxYear) {
 // The 22 Welsh unitary authorities, name as printed by
 // StatsWales → ONS code (the stable W060000xx series).
 // Cardiff W06000015 and Swansea W06000011 are golden
-// authorities; the rest serve the spring pass.
+// authorities; the rest file in the national pass (--all).
 export const WALES_CODES = {
   "Isle of Anglesey": "W06000001",
   Gwynedd: "W06000002",
@@ -184,18 +189,331 @@ export const WALES_CODES = {
   Newport: "W06000022",
 };
 
-// Which precepting bodies' elements make up each seeded
-// English billing authority's area figure — names
-// VERBATIM as Tables 8b/8d/8e/8f print them (the loader
-// fails loudly if a name here is not in the release).
-// London boroughs are absent by design: the GLA element
-// comes from the per-borough identity, asserted uniform
-// across the release. A combined authority whose printed
-// element is £0.00 levies no general charge that year and
-// files as no component. The spring pass extends this map
-// county by county; --all lists whatever is still missing.
+// Which precepting bodies' elements make up each
+// non-London English billing authority's area figure —
+// names VERBATIM as Tables 8b/8d/8e/8f print them (the
+// loader fails loudly if a name here is not in the
+// release), with one deliberate exception: Table 8f's
+// "Of which general functions" rows share one printed
+// name, so the loader keys each one by its own CA
+// ("<CA> — general functions") and the map names that
+// key. London boroughs are absent by design: the GLA
+// element comes from the per-borough identity, asserted
+// uniform across the release. A combined authority whose
+// printed element is £0.00 levies no general charge that
+// year and files as no component. The map covers all 263
+// non-London authorities (28 Nov 2026); --all lists
+// whatever a future release adds that is still missing.
 export const AREA_PRECEPTORS = {
+  E06000001: {
+    police: "Cleveland Police",
+    fire: "Cleveland Fire Authority",
+    combinedAuthority: "Tees Valley",
+  },
+  E06000002: {
+    police: "Cleveland Police",
+    fire: "Cleveland Fire Authority",
+    combinedAuthority: "Tees Valley",
+  },
+  E06000003: {
+    police: "Cleveland Police",
+    fire: "Cleveland Fire Authority",
+    combinedAuthority: "Tees Valley",
+  },
+  E06000004: {
+    police: "Cleveland Police",
+    fire: "Cleveland Fire Authority",
+    combinedAuthority: "Tees Valley",
+  },
+  E06000005: {
+    police: "Durham Police",
+    fire: "Durham and Darlington Fire and Rescue Authority",
+    combinedAuthority: "Tees Valley",
+  },
+  E06000006: {
+    police: "Cheshire Police",
+    fire: "Cheshire Fire Authority",
+    combinedAuthority: "Liverpool City Region",
+  },
+  E06000007: { police: "Cheshire Police", fire: "Cheshire Fire Authority" },
+  E06000008: { police: "Lancashire Police", fire: "Lancashire Combined Fire Authority" },
+  E06000009: { police: "Lancashire Police", fire: "Lancashire Combined Fire Authority" },
+  E06000010: {
+    police: "Humberside Police",
+    fire: "Humberside Fire Authority",
+    combinedAuthority: "Hull and East Yorkshire",
+  },
+  E06000011: {
+    police: "Humberside Police",
+    fire: "Humberside Fire Authority",
+    combinedAuthority: "Hull and East Yorkshire",
+  },
+  E06000012: {
+    police: "Humberside Police",
+    fire: "Humberside Fire Authority",
+    combinedAuthority: "Greater Lincolnshire",
+  },
+  E06000013: {
+    police: "Humberside Police",
+    fire: "Humberside Fire Authority",
+    combinedAuthority: "Greater Lincolnshire",
+  },
+  E06000014: {
+    police: "York and North Yorkshire CA - Police Functions",
+    combinedAuthority: "York and North Yorkshire — general functions",
+  },
+  E06000015: {
+    police: "Derbyshire Police",
+    fire: "Derbyshire Fire and Rescue Authority",
+    combinedAuthority: "East Midlands",
+  },
+  E06000016: { police: "Leicestershire Police", fire: "Leicestershire Combined Fire Authority" },
+  E06000017: { police: "Leicestershire Police", fire: "Leicestershire Combined Fire Authority" },
+  E06000018: {
+    police: "Nottinghamshire Police",
+    fire: "Nottinghamshire and City of Nottingham Fire Authority",
+    combinedAuthority: "East Midlands",
+  },
+  E06000019: { police: "West Mercia Police", fire: "Hereford and Worcester Fire Authority" },
+  E06000020: {
+    police: "West Mercia Police",
+    fire: "Shropshire and Wrekin Fire and Rescue Authority",
+  },
+  E06000021: {
+    police: "Staffordshire Police",
+    fire: "Staffordshire Police, Fire and Crime Commissioner - Fire",
+  },
+  E06000022: { police: "Avon and Somerset Police", fire: "Avon Fire Authority" },
+  E06000023: { police: "Avon and Somerset Police", fire: "Avon Fire Authority" },
+  E06000024: { police: "Avon and Somerset Police", fire: "Avon Fire Authority" },
+  E06000025: { police: "Avon and Somerset Police", fire: "Avon Fire Authority" },
+  E06000026: {
+    police: "Devon and Cornwall Police",
+    fire: "Devon and Somerset Fire and Rescue Authority",
+  },
+  E06000027: {
+    police: "Devon and Cornwall Police",
+    fire: "Devon and Somerset Fire and Rescue Authority",
+  },
+  E06000030: { police: "Wiltshire Police", fire: "Dorset and Wiltshire Fire and Rescue Authority" },
+  E06000031: {
+    police: "Cambridgeshire Police",
+    fire: "Cambridgeshire and Peterborough Fire Authority",
+    combinedAuthority: "Cambridgeshire and Peterborough",
+  },
+  E06000032: { police: "Bedfordshire Police", fire: "Bedfordshire Fire and Rescue Authority" },
+  E06000033: { police: "Essex Police", fire: "Essex Police, Fire and Crime Commissioner - Fire" },
+  E06000034: { police: "Essex Police", fire: "Essex Police, Fire and Crime Commissioner - Fire" },
+  E06000035: { police: "Kent Police", fire: "Kent and Medway Fire Authority" },
+  E06000036: { police: "Thames Valley Police", fire: "Berkshire Combined Fire Authority" },
+  E06000037: { police: "Thames Valley Police", fire: "Berkshire Combined Fire Authority" },
+  E06000038: { police: "Thames Valley Police", fire: "Berkshire Combined Fire Authority" },
+  E06000039: { police: "Thames Valley Police", fire: "Berkshire Combined Fire Authority" },
+  E06000040: { police: "Thames Valley Police", fire: "Berkshire Combined Fire Authority" },
+  E06000041: { police: "Thames Valley Police", fire: "Berkshire Combined Fire Authority" },
+  E06000042: {
+    police: "Thames Valley Police",
+    fire: "Buckinghamshire and Milton Keynes Fire Authority",
+  },
+  E06000043: { police: "Sussex Police", fire: "East Sussex Fire Authority" },
+  E06000044: {
+    police: "Hampshire Police",
+    fire: "Hampshire and Isle of Wight Fire and Rescue Authority",
+  },
+  E06000045: {
+    police: "Hampshire Police",
+    fire: "Hampshire and Isle of Wight Fire and Rescue Authority",
+  },
+  E06000046: {
+    police: "Hampshire Police",
+    fire: "Hampshire and Isle of Wight Fire and Rescue Authority",
+  },
+  E06000047: {
+    police: "Durham Police",
+    fire: "Durham and Darlington Fire and Rescue Authority",
+    combinedAuthority: "North East Mayoral",
+  },
+  E06000049: { police: "Cheshire Police", fire: "Cheshire Fire Authority" },
+  E06000050: { police: "Cheshire Police", fire: "Cheshire Fire Authority" },
+  E06000051: {
+    police: "West Mercia Police",
+    fire: "Shropshire and Wrekin Fire and Rescue Authority",
+  },
+  E06000052: { police: "Devon and Cornwall Police" },
+  E06000053: { police: "Devon and Cornwall Police" },
+  E06000054: { police: "Wiltshire Police", fire: "Dorset and Wiltshire Fire and Rescue Authority" },
+  E06000055: { police: "Bedfordshire Police", fire: "Bedfordshire Fire and Rescue Authority" },
+  E06000056: { police: "Bedfordshire Police", fire: "Bedfordshire Fire and Rescue Authority" },
+  E06000057: { police: "Northumbria Police", combinedAuthority: "North East Mayoral" },
+  E06000058: { police: "Dorset Police", fire: "Dorset and Wiltshire Fire and Rescue Authority" },
+  E06000059: { police: "Dorset Police", fire: "Dorset and Wiltshire Fire and Rescue Authority" },
+  E06000060: {
+    police: "Thames Valley Police",
+    fire: "Buckinghamshire and Milton Keynes Fire Authority",
+  },
+  E06000061: {
+    police: "Northamptonshire Police",
+    fire: "Northamptonshire Police, Fire and Crime Commissioner - Fire",
+  },
+  E06000062: {
+    police: "Northamptonshire Police",
+    fire: "Northamptonshire Police, Fire and Crime Commissioner - Fire",
+  },
+  E06000063: {
+    police: "Cumbria Police",
+    fire: "Cumbria Police, Fire and Crime Commissioner - Fire",
+  },
+  E06000064: {
+    police: "Cumbria Police",
+    fire: "Cumbria Police, Fire and Crime Commissioner - Fire",
+  },
+  E06000065: {
+    police: "York and North Yorkshire CA - Police Functions",
+    combinedAuthority: "York and North Yorkshire — general functions",
+  },
+  E06000066: {
+    police: "Avon and Somerset Police",
+    fire: "Devon and Somerset Fire and Rescue Authority",
+  },
+  E07000008: {
+    county: "Cambridgeshire",
+    police: "Cambridgeshire Police",
+    fire: "Cambridgeshire and Peterborough Fire Authority",
+    combinedAuthority: "Cambridgeshire and Peterborough",
+  },
+  E07000009: {
+    county: "Cambridgeshire",
+    police: "Cambridgeshire Police",
+    fire: "Cambridgeshire and Peterborough Fire Authority",
+    combinedAuthority: "Cambridgeshire and Peterborough",
+  },
+  E07000010: {
+    county: "Cambridgeshire",
+    police: "Cambridgeshire Police",
+    fire: "Cambridgeshire and Peterborough Fire Authority",
+    combinedAuthority: "Cambridgeshire and Peterborough",
+  },
+  E07000011: {
+    county: "Cambridgeshire",
+    police: "Cambridgeshire Police",
+    fire: "Cambridgeshire and Peterborough Fire Authority",
+    combinedAuthority: "Cambridgeshire and Peterborough",
+  },
+  E07000012: {
+    county: "Cambridgeshire",
+    police: "Cambridgeshire Police",
+    fire: "Cambridgeshire and Peterborough Fire Authority",
+    combinedAuthority: "Cambridgeshire and Peterborough",
+  },
+  E07000032: {
+    county: "Derbyshire",
+    police: "Derbyshire Police",
+    fire: "Derbyshire Fire and Rescue Authority",
+    combinedAuthority: "East Midlands",
+  },
+  E07000033: {
+    county: "Derbyshire",
+    police: "Derbyshire Police",
+    fire: "Derbyshire Fire and Rescue Authority",
+    combinedAuthority: "East Midlands",
+  },
+  E07000034: {
+    county: "Derbyshire",
+    police: "Derbyshire Police",
+    fire: "Derbyshire Fire and Rescue Authority",
+    combinedAuthority: "East Midlands",
+  },
+  E07000035: {
+    county: "Derbyshire",
+    police: "Derbyshire Police",
+    fire: "Derbyshire Fire and Rescue Authority",
+    combinedAuthority: "East Midlands",
+  },
+  E07000036: {
+    county: "Derbyshire",
+    police: "Derbyshire Police",
+    fire: "Derbyshire Fire and Rescue Authority",
+    combinedAuthority: "East Midlands",
+  },
+  E07000037: {
+    county: "Derbyshire",
+    police: "Derbyshire Police",
+    fire: "Derbyshire Fire and Rescue Authority",
+    combinedAuthority: "East Midlands",
+  },
+  E07000038: {
+    county: "Derbyshire",
+    police: "Derbyshire Police",
+    fire: "Derbyshire Fire and Rescue Authority",
+    combinedAuthority: "East Midlands",
+  },
+  E07000039: {
+    county: "Derbyshire",
+    police: "Derbyshire Police",
+    fire: "Derbyshire Fire and Rescue Authority",
+    combinedAuthority: "East Midlands",
+  },
+  E07000040: {
+    county: "Devon",
+    police: "Devon and Cornwall Police",
+    fire: "Devon and Somerset Fire and Rescue Authority",
+  },
+  E07000041: {
+    county: "Devon",
+    police: "Devon and Cornwall Police",
+    fire: "Devon and Somerset Fire and Rescue Authority",
+  },
+  E07000042: {
+    county: "Devon",
+    police: "Devon and Cornwall Police",
+    fire: "Devon and Somerset Fire and Rescue Authority",
+  },
+  E07000043: {
+    county: "Devon",
+    police: "Devon and Cornwall Police",
+    fire: "Devon and Somerset Fire and Rescue Authority",
+  },
+  E07000044: {
+    county: "Devon",
+    police: "Devon and Cornwall Police",
+    fire: "Devon and Somerset Fire and Rescue Authority",
+  },
+  E07000045: {
+    county: "Devon",
+    police: "Devon and Cornwall Police",
+    fire: "Devon and Somerset Fire and Rescue Authority",
+  },
+  E07000046: {
+    county: "Devon",
+    police: "Devon and Cornwall Police",
+    fire: "Devon and Somerset Fire and Rescue Authority",
+  },
+  E07000047: {
+    county: "Devon",
+    police: "Devon and Cornwall Police",
+    fire: "Devon and Somerset Fire and Rescue Authority",
+  },
+  E07000061: { county: "East Sussex", police: "Sussex Police", fire: "East Sussex Fire Authority" },
+  E07000062: { county: "East Sussex", police: "Sussex Police", fire: "East Sussex Fire Authority" },
+  E07000063: { county: "East Sussex", police: "Sussex Police", fire: "East Sussex Fire Authority" },
+  E07000064: { county: "East Sussex", police: "Sussex Police", fire: "East Sussex Fire Authority" },
+  E07000065: { county: "East Sussex", police: "Sussex Police", fire: "East Sussex Fire Authority" },
+  E07000066: {
+    county: "Essex",
+    police: "Essex Police",
+    fire: "Essex Police, Fire and Crime Commissioner - Fire",
+  },
   E07000067: {
+    county: "Essex",
+    police: "Essex Police",
+    fire: "Essex Police, Fire and Crime Commissioner - Fire",
+  },
+  E07000068: {
+    county: "Essex",
+    police: "Essex Police",
+    fire: "Essex Police, Fire and Crime Commissioner - Fire",
+  },
+  E07000069: {
     county: "Essex",
     police: "Essex Police",
     fire: "Essex Police, Fire and Crime Commissioner - Fire",
@@ -205,19 +523,566 @@ export const AREA_PRECEPTORS = {
     police: "Essex Police",
     fire: "Essex Police, Fire and Crime Commissioner - Fire",
   },
+  E07000071: {
+    county: "Essex",
+    police: "Essex Police",
+    fire: "Essex Police, Fire and Crime Commissioner - Fire",
+  },
   E07000072: {
     county: "Essex",
     police: "Essex Police",
     fire: "Essex Police, Fire and Crime Commissioner - Fire",
   },
-  E07000208: { county: "Surrey", police: "Surrey Police" },
-  E07000207: { county: "Surrey", police: "Surrey Police" },
-  E07000210: { county: "Surrey", police: "Surrey Police" },
+  E07000073: {
+    county: "Essex",
+    police: "Essex Police",
+    fire: "Essex Police, Fire and Crime Commissioner - Fire",
+  },
+  E07000074: {
+    county: "Essex",
+    police: "Essex Police",
+    fire: "Essex Police, Fire and Crime Commissioner - Fire",
+  },
+  E07000075: {
+    county: "Essex",
+    police: "Essex Police",
+    fire: "Essex Police, Fire and Crime Commissioner - Fire",
+  },
+  E07000076: {
+    county: "Essex",
+    police: "Essex Police",
+    fire: "Essex Police, Fire and Crime Commissioner - Fire",
+  },
+  E07000077: {
+    county: "Essex",
+    police: "Essex Police",
+    fire: "Essex Police, Fire and Crime Commissioner - Fire",
+  },
+  E07000078: { county: "Gloucestershire", police: "Gloucestershire Police" },
+  E07000079: { county: "Gloucestershire", police: "Gloucestershire Police" },
+  E07000080: { county: "Gloucestershire", police: "Gloucestershire Police" },
+  E07000081: { county: "Gloucestershire", police: "Gloucestershire Police" },
+  E07000082: { county: "Gloucestershire", police: "Gloucestershire Police" },
+  E07000083: { county: "Gloucestershire", police: "Gloucestershire Police" },
+  E07000084: {
+    county: "Hampshire",
+    police: "Hampshire Police",
+    fire: "Hampshire and Isle of Wight Fire and Rescue Authority",
+  },
+  E07000085: {
+    county: "Hampshire",
+    police: "Hampshire Police",
+    fire: "Hampshire and Isle of Wight Fire and Rescue Authority",
+  },
+  E07000086: {
+    county: "Hampshire",
+    police: "Hampshire Police",
+    fire: "Hampshire and Isle of Wight Fire and Rescue Authority",
+  },
+  E07000087: {
+    county: "Hampshire",
+    police: "Hampshire Police",
+    fire: "Hampshire and Isle of Wight Fire and Rescue Authority",
+  },
+  E07000088: {
+    county: "Hampshire",
+    police: "Hampshire Police",
+    fire: "Hampshire and Isle of Wight Fire and Rescue Authority",
+  },
+  E07000089: {
+    county: "Hampshire",
+    police: "Hampshire Police",
+    fire: "Hampshire and Isle of Wight Fire and Rescue Authority",
+  },
+  E07000090: {
+    county: "Hampshire",
+    police: "Hampshire Police",
+    fire: "Hampshire and Isle of Wight Fire and Rescue Authority",
+  },
+  E07000091: {
+    county: "Hampshire",
+    police: "Hampshire Police",
+    fire: "Hampshire and Isle of Wight Fire and Rescue Authority",
+  },
+  E07000092: {
+    county: "Hampshire",
+    police: "Hampshire Police",
+    fire: "Hampshire and Isle of Wight Fire and Rescue Authority",
+  },
+  E07000093: {
+    county: "Hampshire",
+    police: "Hampshire Police",
+    fire: "Hampshire and Isle of Wight Fire and Rescue Authority",
+  },
+  E07000094: {
+    county: "Hampshire",
+    police: "Hampshire Police",
+    fire: "Hampshire and Isle of Wight Fire and Rescue Authority",
+  },
+  E07000095: { county: "Hertfordshire", police: "Hertfordshire Police" },
+  E07000096: { county: "Hertfordshire", police: "Hertfordshire Police" },
+  E07000098: { county: "Hertfordshire", police: "Hertfordshire Police" },
+  E07000099: { county: "Hertfordshire", police: "Hertfordshire Police" },
+  E07000102: { county: "Hertfordshire", police: "Hertfordshire Police" },
+  E07000103: { county: "Hertfordshire", police: "Hertfordshire Police" },
+  E07000105: { county: "Kent", police: "Kent Police", fire: "Kent and Medway Fire Authority" },
+  E07000106: { county: "Kent", police: "Kent Police", fire: "Kent and Medway Fire Authority" },
+  E07000107: { county: "Kent", police: "Kent Police", fire: "Kent and Medway Fire Authority" },
+  E07000108: { county: "Kent", police: "Kent Police", fire: "Kent and Medway Fire Authority" },
+  E07000109: { county: "Kent", police: "Kent Police", fire: "Kent and Medway Fire Authority" },
+  E07000110: { county: "Kent", police: "Kent Police", fire: "Kent and Medway Fire Authority" },
+  E07000111: { county: "Kent", police: "Kent Police", fire: "Kent and Medway Fire Authority" },
+  E07000112: { county: "Kent", police: "Kent Police", fire: "Kent and Medway Fire Authority" },
+  E07000113: { county: "Kent", police: "Kent Police", fire: "Kent and Medway Fire Authority" },
+  E07000114: { county: "Kent", police: "Kent Police", fire: "Kent and Medway Fire Authority" },
+  E07000115: { county: "Kent", police: "Kent Police", fire: "Kent and Medway Fire Authority" },
+  E07000116: { county: "Kent", police: "Kent Police", fire: "Kent and Medway Fire Authority" },
+  E07000117: {
+    county: "Lancashire",
+    police: "Lancashire Police",
+    fire: "Lancashire Combined Fire Authority",
+  },
+  E07000118: {
+    county: "Lancashire",
+    police: "Lancashire Police",
+    fire: "Lancashire Combined Fire Authority",
+  },
+  E07000119: {
+    county: "Lancashire",
+    police: "Lancashire Police",
+    fire: "Lancashire Combined Fire Authority",
+  },
+  E07000120: {
+    county: "Lancashire",
+    police: "Lancashire Police",
+    fire: "Lancashire Combined Fire Authority",
+  },
+  E07000121: {
+    county: "Lancashire",
+    police: "Lancashire Police",
+    fire: "Lancashire Combined Fire Authority",
+  },
+  E07000122: {
+    county: "Lancashire",
+    police: "Lancashire Police",
+    fire: "Lancashire Combined Fire Authority",
+  },
+  E07000123: {
+    county: "Lancashire",
+    police: "Lancashire Police",
+    fire: "Lancashire Combined Fire Authority",
+  },
+  E07000124: {
+    county: "Lancashire",
+    police: "Lancashire Police",
+    fire: "Lancashire Combined Fire Authority",
+  },
+  E07000125: {
+    county: "Lancashire",
+    police: "Lancashire Police",
+    fire: "Lancashire Combined Fire Authority",
+  },
+  E07000126: {
+    county: "Lancashire",
+    police: "Lancashire Police",
+    fire: "Lancashire Combined Fire Authority",
+  },
+  E07000127: {
+    county: "Lancashire",
+    police: "Lancashire Police",
+    fire: "Lancashire Combined Fire Authority",
+  },
+  E07000128: {
+    county: "Lancashire",
+    police: "Lancashire Police",
+    fire: "Lancashire Combined Fire Authority",
+  },
+  E07000129: {
+    county: "Leicestershire",
+    police: "Leicestershire Police",
+    fire: "Leicestershire Combined Fire Authority",
+  },
+  E07000130: {
+    county: "Leicestershire",
+    police: "Leicestershire Police",
+    fire: "Leicestershire Combined Fire Authority",
+  },
+  E07000131: {
+    county: "Leicestershire",
+    police: "Leicestershire Police",
+    fire: "Leicestershire Combined Fire Authority",
+  },
+  E07000132: {
+    county: "Leicestershire",
+    police: "Leicestershire Police",
+    fire: "Leicestershire Combined Fire Authority",
+  },
+  E07000133: {
+    county: "Leicestershire",
+    police: "Leicestershire Police",
+    fire: "Leicestershire Combined Fire Authority",
+  },
+  E07000134: {
+    county: "Leicestershire",
+    police: "Leicestershire Police",
+    fire: "Leicestershire Combined Fire Authority",
+  },
+  E07000135: {
+    county: "Leicestershire",
+    police: "Leicestershire Police",
+    fire: "Leicestershire Combined Fire Authority",
+  },
+  E07000136: {
+    county: "Lincolnshire",
+    police: "Lincolnshire Police",
+    combinedAuthority: "Greater Lincolnshire",
+  },
+  E07000137: {
+    county: "Lincolnshire",
+    police: "Lincolnshire Police",
+    combinedAuthority: "Greater Lincolnshire",
+  },
+  E07000138: {
+    county: "Lincolnshire",
+    police: "Lincolnshire Police",
+    combinedAuthority: "Greater Lincolnshire",
+  },
+  E07000139: {
+    county: "Lincolnshire",
+    police: "Lincolnshire Police",
+    combinedAuthority: "Greater Lincolnshire",
+  },
+  E07000140: {
+    county: "Lincolnshire",
+    police: "Lincolnshire Police",
+    combinedAuthority: "Greater Lincolnshire",
+  },
+  E07000141: {
+    county: "Lincolnshire",
+    police: "Lincolnshire Police",
+    combinedAuthority: "Greater Lincolnshire",
+  },
+  E07000142: {
+    county: "Lincolnshire",
+    police: "Lincolnshire Police",
+    combinedAuthority: "Greater Lincolnshire",
+  },
+  E07000143: { county: "Norfolk", police: "Norfolk Police" },
+  E07000144: { county: "Norfolk", police: "Norfolk Police" },
+  E07000145: { county: "Norfolk", police: "Norfolk Police" },
+  E07000146: { county: "Norfolk", police: "Norfolk Police" },
+  E07000147: { county: "Norfolk", police: "Norfolk Police" },
+  E07000148: { county: "Norfolk", police: "Norfolk Police" },
+  E07000149: { county: "Norfolk", police: "Norfolk Police" },
+  E07000170: {
+    county: "Nottinghamshire",
+    police: "Nottinghamshire Police",
+    fire: "Nottinghamshire and City of Nottingham Fire Authority",
+    combinedAuthority: "East Midlands",
+  },
+  E07000171: {
+    county: "Nottinghamshire",
+    police: "Nottinghamshire Police",
+    fire: "Nottinghamshire and City of Nottingham Fire Authority",
+    combinedAuthority: "East Midlands",
+  },
+  E07000172: {
+    county: "Nottinghamshire",
+    police: "Nottinghamshire Police",
+    fire: "Nottinghamshire and City of Nottingham Fire Authority",
+    combinedAuthority: "East Midlands",
+  },
+  E07000173: {
+    county: "Nottinghamshire",
+    police: "Nottinghamshire Police",
+    fire: "Nottinghamshire and City of Nottingham Fire Authority",
+    combinedAuthority: "East Midlands",
+  },
+  E07000174: {
+    county: "Nottinghamshire",
+    police: "Nottinghamshire Police",
+    fire: "Nottinghamshire and City of Nottingham Fire Authority",
+    combinedAuthority: "East Midlands",
+  },
+  E07000175: {
+    county: "Nottinghamshire",
+    police: "Nottinghamshire Police",
+    fire: "Nottinghamshire and City of Nottingham Fire Authority",
+    combinedAuthority: "East Midlands",
+  },
+  E07000176: {
+    county: "Nottinghamshire",
+    police: "Nottinghamshire Police",
+    fire: "Nottinghamshire and City of Nottingham Fire Authority",
+    combinedAuthority: "East Midlands",
+  },
+  E07000177: { county: "Oxfordshire", police: "Thames Valley Police" },
   E07000178: { county: "Oxfordshire", police: "Thames Valley Police" },
+  E07000179: { county: "Oxfordshire", police: "Thames Valley Police" },
+  E07000180: { county: "Oxfordshire", police: "Thames Valley Police" },
+  E07000181: { county: "Oxfordshire", police: "Thames Valley Police" },
+  E07000192: {
+    county: "Staffordshire",
+    police: "Staffordshire Police",
+    fire: "Staffordshire Police, Fire and Crime Commissioner - Fire",
+  },
+  E07000193: {
+    county: "Staffordshire",
+    police: "Staffordshire Police",
+    fire: "Staffordshire Police, Fire and Crime Commissioner - Fire",
+  },
+  E07000194: {
+    county: "Staffordshire",
+    police: "Staffordshire Police",
+    fire: "Staffordshire Police, Fire and Crime Commissioner - Fire",
+  },
+  E07000195: {
+    county: "Staffordshire",
+    police: "Staffordshire Police",
+    fire: "Staffordshire Police, Fire and Crime Commissioner - Fire",
+  },
+  E07000196: {
+    county: "Staffordshire",
+    police: "Staffordshire Police",
+    fire: "Staffordshire Police, Fire and Crime Commissioner - Fire",
+  },
+  E07000197: {
+    county: "Staffordshire",
+    police: "Staffordshire Police",
+    fire: "Staffordshire Police, Fire and Crime Commissioner - Fire",
+  },
+  E07000198: {
+    county: "Staffordshire",
+    police: "Staffordshire Police",
+    fire: "Staffordshire Police, Fire and Crime Commissioner - Fire",
+  },
+  E07000199: {
+    county: "Staffordshire",
+    police: "Staffordshire Police",
+    fire: "Staffordshire Police, Fire and Crime Commissioner - Fire",
+  },
+  E07000200: { county: "Suffolk", police: "Suffolk Police" },
+  E07000202: { county: "Suffolk", police: "Suffolk Police" },
+  E07000203: { county: "Suffolk", police: "Suffolk Police" },
+  E07000207: { county: "Surrey", police: "Surrey Police" },
+  E07000208: { county: "Surrey", police: "Surrey Police" },
+  E07000209: { county: "Surrey", police: "Surrey Police" },
+  E07000210: { county: "Surrey", police: "Surrey Police" },
+  E07000211: { county: "Surrey", police: "Surrey Police" },
+  E07000212: { county: "Surrey", police: "Surrey Police" },
+  E07000213: { county: "Surrey", police: "Surrey Police" },
+  E07000214: { county: "Surrey", police: "Surrey Police" },
+  E07000215: { county: "Surrey", police: "Surrey Police" },
+  E07000216: { county: "Surrey", police: "Surrey Police" },
+  E07000217: { county: "Surrey", police: "Surrey Police" },
+  E07000218: { county: "Warwickshire", police: "Warwickshire Police" },
+  E07000219: { county: "Warwickshire", police: "Warwickshire Police" },
+  E07000220: { county: "Warwickshire", police: "Warwickshire Police" },
+  E07000221: { county: "Warwickshire", police: "Warwickshire Police" },
+  E07000222: { county: "Warwickshire", police: "Warwickshire Police" },
+  E07000223: { county: "West Sussex", police: "Sussex Police" },
+  E07000224: { county: "West Sussex", police: "Sussex Police" },
+  E07000225: { county: "West Sussex", police: "Sussex Police" },
+  E07000226: { county: "West Sussex", police: "Sussex Police" },
+  E07000227: { county: "West Sussex", police: "Sussex Police" },
+  E07000228: { county: "West Sussex", police: "Sussex Police" },
+  E07000229: { county: "West Sussex", police: "Sussex Police" },
+  E07000234: {
+    county: "Worcestershire",
+    police: "West Mercia Police",
+    fire: "Hereford and Worcester Fire Authority",
+  },
+  E07000235: {
+    county: "Worcestershire",
+    police: "West Mercia Police",
+    fire: "Hereford and Worcester Fire Authority",
+  },
+  E07000236: {
+    county: "Worcestershire",
+    police: "West Mercia Police",
+    fire: "Hereford and Worcester Fire Authority",
+  },
+  E07000237: {
+    county: "Worcestershire",
+    police: "West Mercia Police",
+    fire: "Hereford and Worcester Fire Authority",
+  },
+  E07000238: {
+    county: "Worcestershire",
+    police: "West Mercia Police",
+    fire: "Hereford and Worcester Fire Authority",
+  },
+  E07000239: {
+    county: "Worcestershire",
+    police: "West Mercia Police",
+    fire: "Hereford and Worcester Fire Authority",
+  },
+  E07000240: { county: "Hertfordshire", police: "Hertfordshire Police" },
+  E07000241: { county: "Hertfordshire", police: "Hertfordshire Police" },
+  E07000242: { county: "Hertfordshire", police: "Hertfordshire Police" },
+  E07000243: { county: "Hertfordshire", police: "Hertfordshire Police" },
+  E07000244: { county: "Suffolk", police: "Suffolk Police" },
+  E07000245: { county: "Suffolk", police: "Suffolk Police" },
+  E08000001: {
+    police: "Greater Manchester CA - Police Functions",
+    combinedAuthority: "Greater Manchester — general functions",
+  },
+  E08000002: {
+    police: "Greater Manchester CA - Police Functions",
+    combinedAuthority: "Greater Manchester — general functions",
+  },
+  E08000003: {
+    police: "Greater Manchester CA - Police Functions",
+    combinedAuthority: "Greater Manchester — general functions",
+  },
+  E08000004: {
+    police: "Greater Manchester CA - Police Functions",
+    combinedAuthority: "Greater Manchester — general functions",
+  },
+  E08000005: {
+    police: "Greater Manchester CA - Police Functions",
+    combinedAuthority: "Greater Manchester — general functions",
+  },
+  E08000006: {
+    police: "Greater Manchester CA - Police Functions",
+    combinedAuthority: "Greater Manchester — general functions",
+  },
+  E08000007: {
+    police: "Greater Manchester CA - Police Functions",
+    combinedAuthority: "Greater Manchester — general functions",
+  },
+  E08000008: {
+    police: "Greater Manchester CA - Police Functions",
+    combinedAuthority: "Greater Manchester — general functions",
+  },
+  E08000009: {
+    police: "Greater Manchester CA - Police Functions",
+    combinedAuthority: "Greater Manchester — general functions",
+  },
+  E08000010: {
+    police: "Greater Manchester CA - Police Functions",
+    combinedAuthority: "Greater Manchester — general functions",
+  },
+  E08000011: {
+    police: "Merseyside Police",
+    fire: "Merseyside Fire and Rescue Authority",
+    combinedAuthority: "Liverpool City Region",
+  },
+  E08000012: {
+    police: "Merseyside Police",
+    fire: "Merseyside Fire and Rescue Authority",
+    combinedAuthority: "Liverpool City Region",
+  },
+  E08000013: {
+    police: "Merseyside Police",
+    fire: "Merseyside Fire and Rescue Authority",
+    combinedAuthority: "Liverpool City Region",
+  },
+  E08000014: {
+    police: "Merseyside Police",
+    fire: "Merseyside Fire and Rescue Authority",
+    combinedAuthority: "Liverpool City Region",
+  },
+  E08000015: {
+    police: "Merseyside Police",
+    fire: "Merseyside Fire and Rescue Authority",
+    combinedAuthority: "Liverpool City Region",
+  },
+  E08000017: {
+    police: "South Yorkshire Mayoral CA - Police Functions",
+    fire: "South Yorkshire Fire and Rescue Authority",
+  },
+  E08000018: {
+    police: "South Yorkshire Mayoral CA - Police Functions",
+    fire: "South Yorkshire Fire and Rescue Authority",
+  },
+  E08000021: {
+    police: "Northumbria Police",
+    fire: "Tyne and Wear Fire and Rescue Authority",
+    combinedAuthority: "North East Mayoral",
+  },
+  E08000022: {
+    police: "Northumbria Police",
+    fire: "Tyne and Wear Fire and Rescue Authority",
+    combinedAuthority: "North East Mayoral",
+  },
+  E08000023: {
+    police: "Northumbria Police",
+    fire: "Tyne and Wear Fire and Rescue Authority",
+    combinedAuthority: "North East Mayoral",
+  },
+  E08000024: {
+    police: "Northumbria Police",
+    fire: "Tyne and Wear Fire and Rescue Authority",
+    combinedAuthority: "North East Mayoral",
+  },
   E08000025: {
     police: "West Midlands Police",
     fire: "West Midlands Fire and Rescue Authority",
     combinedAuthority: "West Midlands",
+  },
+  E08000026: {
+    police: "West Midlands Police",
+    fire: "West Midlands Fire and Rescue Authority",
+    combinedAuthority: "West Midlands",
+  },
+  E08000027: {
+    police: "West Midlands Police",
+    fire: "West Midlands Fire and Rescue Authority",
+    combinedAuthority: "West Midlands",
+  },
+  E08000028: {
+    police: "West Midlands Police",
+    fire: "West Midlands Fire and Rescue Authority",
+    combinedAuthority: "West Midlands",
+  },
+  E08000029: {
+    police: "West Midlands Police",
+    fire: "West Midlands Fire and Rescue Authority",
+    combinedAuthority: "West Midlands",
+  },
+  E08000030: {
+    police: "West Midlands Police",
+    fire: "West Midlands Fire and Rescue Authority",
+    combinedAuthority: "West Midlands",
+  },
+  E08000031: {
+    police: "West Midlands Police",
+    fire: "West Midlands Fire and Rescue Authority",
+    combinedAuthority: "West Midlands",
+  },
+  E08000032: {
+    police: "West Yorkshire CA - Police Functions",
+    fire: "West Yorkshire Fire and Rescue Authority",
+  },
+  E08000033: {
+    police: "West Yorkshire CA - Police Functions",
+    fire: "West Yorkshire Fire and Rescue Authority",
+  },
+  E08000034: {
+    police: "West Yorkshire CA - Police Functions",
+    fire: "West Yorkshire Fire and Rescue Authority",
+  },
+  E08000035: {
+    police: "West Yorkshire CA - Police Functions",
+    fire: "West Yorkshire Fire and Rescue Authority",
+  },
+  E08000036: {
+    police: "West Yorkshire CA - Police Functions",
+    fire: "West Yorkshire Fire and Rescue Authority",
+  },
+  E08000037: {
+    police: "Northumbria Police",
+    fire: "Tyne and Wear Fire and Rescue Authority",
+    combinedAuthority: "North East Mayoral",
+  },
+  E08000038: {
+    police: "South Yorkshire Mayoral CA - Police Functions",
+    fire: "South Yorkshire Fire and Rescue Authority",
+  },
+  E08000039: {
+    police: "South Yorkshire Mayoral CA - Police Functions",
+    fire: "South Yorkshire Fire and Rescue Authority",
   },
 };
 
@@ -743,9 +1608,38 @@ export async function parseEnglandRelease(tablesBuffer, table10Buffer) {
     const h = headerRowIndex(rows, ["ONS Code", "Average council tax"]);
     const nameAt = columnIndex(rows[h], "Authority");
     const valueAt = columnIndex(rows[h], "Average council tax");
+    // Table 8f prints each mayoral combined authority's
+    // total followed by its "Of which general functions"
+    // sub-row — all four sub-rows share one printed name, so
+    // a flat map would collapse them into one key (last
+    // wins: York and North Yorkshire's £116.62). Each
+    // sub-row is keyed by its own CA instead, so the police
+    // and general elements file as separate components
+    // (28 Nov 2026).
+    let currentCa = null;
     for (const row of rows.slice(h + 1)) {
       const name = row[nameAt];
       if (typeof name !== "string" || name === "" || typeof row[valueAt] !== "number") continue;
+      if (sheet === "Table_8f" && name === "Of which general functions") {
+        if (!currentCa)
+          throw new Error(
+            `Table 8f: an "Of which general functions" row has no combined authority above it — the release shape has moved`,
+          );
+        const general = pence(row[valueAt]);
+        preceptors.set(`${currentCa} — general functions`, general);
+        // The sub-rows are the general element of a total
+        // that is general + police: assert the split sums,
+        // so a release that changes the shape fails here
+        // instead of filing a quietly wrong split.
+        const police = preceptors.get(`${currentCa} CA - Police Functions`);
+        const total = preceptors.get(currentCa);
+        if (police !== undefined && total !== undefined && general + police !== total)
+          throw new Error(
+            `Table 8f: ${currentCa}'s "Of which general functions" (${general}p) + police functions (${police}p) do not sum to its total (${total}p) — the release shape has moved`,
+          );
+        continue;
+      }
+      if (sheet === "Table_8f") currentCa = name;
       preceptors.set(name, pence(row[valueAt]));
     }
   }
@@ -847,6 +1741,27 @@ const sumComponents = (row) =>
   (row.gla ?? 0) +
   (row.combinedAuthority ?? 0);
 
+// The reconciliation gate is a penny for every authority —
+// except the named exceptions below. Spelthorne (E07000213)
+// in 2026-27: the release disagrees with itself by 5p —
+// Table 8 prints the uniform Surrey £1,938.42 + Surrey
+// Police £352.57, but Table 10 line 16 prints county
+// £1,938.38 + police £352.56 in Spelthorne's area, and
+// Table 9's area £2,526.44 follows Table 10. The penny
+// gate would stop the whole national pass on this one
+// authority, so the founder ruled (28 Nov 2026) that
+// Spelthorne alone is allowed up to ±10p, named loudly in
+// the log whenever the exception is used (the BUG-387
+// "log loudly" precedent). Nothing else is widened: a 5p
+// gap on any other authority still fails the run.
+const RECONCILIATION_TOLERANCE_PENCE = 1;
+const RECONCILIATION_TOLERANCE_EXCEPTIONS = {
+  E07000213: {
+    tolerancePence: 10,
+    note: "Table 8 prints the uniform Surrey £1,938.42 + Surrey Police £352.57; Table 10 line 16 prints county £1,938.38 + police £352.56 in Spelthorne's area, and Table 9's area £2,526.44 follows Table 10",
+  },
+};
+
 function englandRow(code, england) {
   const area = england.area.get(code);
   const own = england.own.get(code);
@@ -880,7 +1795,7 @@ function englandRow(code, england) {
     row.gla = area.bandD - own.incl;
   } else {
     const map = AREA_PRECEPTORS[code];
-    if (!map) return null; // membership not yet mapped — the spring pass's work
+    if (!map) return null; // no map entry — a future release's new authority; --all reports it unfiled
     const pick = (name, role) => {
       if (name === undefined) return null;
       const value = england.preceptors.get(name);
@@ -896,10 +1811,24 @@ function englandRow(code, england) {
     const ca = pick(map.combinedAuthority, "combined authority");
     row.combinedAuthority = ca !== null && ca > 0 ? ca : null;
   }
-  if (Math.abs(sumComponents(row) + parish - area.bandD) > 1)
+  const diff = sumComponents(row) + parish - area.bandD;
+  const exception = RECONCILIATION_TOLERANCE_EXCEPTIONS[code];
+  const tolerance = exception?.tolerancePence ?? RECONCILIATION_TOLERANCE_PENCE;
+  if (Math.abs(diff) > tolerance)
     throw new Error(
       `${code}: components (${sumComponents(row)}p) + parish average (${parish}p) do not reconcile to the area Band D (${area.bandD}p) — nothing filed`,
     );
+  if (exception && Math.abs(diff) > RECONCILIATION_TOLERANCE_PENCE)
+    // Carried for the caller to log loudly; buildRows lifts
+    // it off before the row is filed, so it never reaches
+    // the database.
+    row.toleranceException = {
+      code,
+      name: area.name,
+      diff,
+      tolerancePence: exception.tolerancePence,
+      note: exception.note,
+    };
   return row;
 }
 
@@ -932,10 +1861,16 @@ function assertGlaUniformity(england) {
 // buildable). mode "all": build every authority in the
 // releases; English authorities whose precept membership
 // is not yet mapped are collected and reported, unfiled.
+/**
+ * @param {any} england
+ * @param {any[]} walesRows
+ * @param {{ mode: "seed" | "all", codes?: string[] }} options
+ */
 export function buildRows(england, walesRows, { mode, codes }) {
   const glaElement = assertGlaUniformity(england);
   const rows = [];
   const unfiled = [];
+  const toleranceExceptions = [];
   const englandRowFor = (code) => {
     const row = englandRow(code, england);
     if (
@@ -948,6 +1883,10 @@ export function buildRows(england, walesRows, { mode, codes }) {
       throw new Error(
         `${code}: its GLA identity (${row.gla}p) is not the release's uniform GLA element (${glaElement}p) — nothing filed`,
       );
+    if (row?.toleranceException) {
+      toleranceExceptions.push(row.toleranceException);
+      delete row.toleranceException;
+    }
     return row;
   };
   if (mode === "seed") {
@@ -968,7 +1907,7 @@ export function buildRows(england, walesRows, { mode, codes }) {
         rows.push(row);
       }
     }
-    return { rows, unfiled };
+    return { rows, unfiled, toleranceExceptions };
   }
   for (const code of england.area.keys()) {
     const row = englandRowFor(code);
@@ -976,7 +1915,7 @@ export function buildRows(england, walesRows, { mode, codes }) {
     else unfiled.push(code);
   }
   for (const row of walesRows) rows.push(row);
-  return { rows, unfiled };
+  return { rows, unfiled, toleranceExceptions };
 }
 
 // ------------------------------------------------------------------
@@ -1443,6 +2382,7 @@ async function main() {
   let walesStamp;
   let rows;
   let unfiled = [];
+  let toleranceExceptions = [];
   let taxYear;
   let walesRows = [];
   try {
@@ -1454,22 +2394,32 @@ async function main() {
         `the StatsWales composition export carries no ${taxYear} rows yet — the Welsh release is lagging; re-run when it lands rather than filing England alone`,
       );
     if (args.all) {
-      ({ rows, unfiled } = buildRows(england, walesRows, { mode: "all" }));
+      ({ rows, unfiled, toleranceExceptions } = buildRows(england, walesRows, {
+        mode: "all",
+      }));
       if (unfiled.length > 0)
         throw new Error(
           `--all refuses: ${unfiled.length} billing authorities have no AREA_PRECEPTORS entry yet (${unfiled.slice(0, 8).join(", ")}…) — extend the map as the spring pass describes; nothing filed`,
         );
     } else {
-      const englandRows = buildRows(england, [], {
+      const englandSeed = buildRows(england, [], {
         mode: "seed",
         codes: SEED_CODES.filter((code) => code.startsWith("E")),
-      }).rows;
-      const welshRows = buildRows(england, walesRows, {
+      });
+      const welshSeed = buildRows(england, walesRows, {
         mode: "seed",
         codes: SEED_CODES.filter((code) => code.startsWith("W")),
-      }).rows;
-      rows = [...englandRows, ...welshRows];
+      });
+      rows = [...englandSeed.rows, ...welshSeed.rows];
+      toleranceExceptions = [...englandSeed.toleranceExceptions, ...welshSeed.toleranceExceptions];
     }
+    // A named tolerance exception is logged loudly, every
+    // run that uses it — the exception is the story, not a
+    // footnote (founder ruling 28 Nov 2026).
+    for (const used of toleranceExceptions)
+      progress.stage(
+        `tolerance exception · ${used.name} (${used.code}) · components + parish average exceed the area Band D by ${used.diff}p — over the 1p gate, within the named ±${used.tolerancePence}p exception · ${used.note} · filed at the published area figure`,
+      );
     for (const row of rows) Object.assign(row, row.nation === "wales" ? walesStamp : englandStamp);
     goldenChecks(rows, taxYear);
     // BUG-265: the parsed-authorities total is genuine
@@ -1498,7 +2448,7 @@ async function main() {
   const notYetFiled = england.area.size - englandCount + (walesRows.length - walesCount);
   const summary = args.all
     ? `${formatCount(rows.length)} authorities filed for ${taxYear} (${formatCount(englandCount)} England, ${formatCount(walesCount)} Wales)`
-    : `${formatCount(rows.length)} authorities filed for ${taxYear} (${formatCount(englandCount)} England, ${formatCount(walesCount)} Wales); ${formatCount(notYetFiled)} further authorities parsed but not yet filed — their state is "not published" until the spring pass`;
+    : `${formatCount(rows.length)} authorities filed for ${taxYear} (${formatCount(englandCount)} England, ${formatCount(walesCount)} Wales); ${formatCount(notYetFiled)} further authorities parsed but not yet filed — their state is "not published" until the national pass (--all)`;
   if (args.verifyOnly) {
     console.log(`Council tax verified for ${taxYear}: ${summary}. Nothing filed.`);
     return;

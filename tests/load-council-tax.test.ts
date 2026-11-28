@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  AREA_PRECEPTORS,
   ENGLAND_SOURCE_NAME,
   RELEASES,
   SEED_CODES,
@@ -325,6 +326,216 @@ describe("filing — statement order and the schema contract", () => {
       at("DELETE FROM council_tax_charges"),
     );
     expect(rec.statements.at(-1)).toBe("COMMIT");
+  });
+});
+
+async function allRows(): Promise<{
+  england: Awaited<ReturnType<typeof parseEnglandRelease>>;
+  walesRows: ReturnType<typeof parseWales>;
+}> {
+  const england = await parseEnglandRelease(
+    await readFixtureOds(FIXTURE_2026, "Tables_1-9.ods"),
+    await readFixtureOds(FIXTURE_2026, "Table_10.ods"),
+  );
+  const walesRows = parseWales(
+    await readFile(join(FIXTURE_2026, "wales-composition.csv"), "utf8"),
+    england.taxYear,
+  );
+  return { england, walesRows };
+}
+
+describe("the national map — all 263 non-London authorities (28 Nov 2026)", () => {
+  // The 8-entry seed map this replaces, verbatim from the pre-change loader.
+  const OLD_SEED_MAP: Record<string, unknown> = {
+    E07000067: {
+      county: "Essex",
+      police: "Essex Police",
+      fire: "Essex Police, Fire and Crime Commissioner - Fire",
+    },
+    E07000070: {
+      county: "Essex",
+      police: "Essex Police",
+      fire: "Essex Police, Fire and Crime Commissioner - Fire",
+    },
+    E07000072: {
+      county: "Essex",
+      police: "Essex Police",
+      fire: "Essex Police, Fire and Crime Commissioner - Fire",
+    },
+    E07000208: { county: "Surrey", police: "Surrey Police" },
+    E07000207: { county: "Surrey", police: "Surrey Police" },
+    E07000210: { county: "Surrey", police: "Surrey Police" },
+    E07000178: { county: "Oxfordshire", police: "Thames Valley Police" },
+    E08000025: {
+      police: "West Midlands Police",
+      fire: "West Midlands Fire and Rescue Authority",
+      combinedAuthority: "West Midlands",
+    },
+  };
+
+  it("covers every non-London English billing authority and keeps the 8 seed entries verbatim", () => {
+    expect(Object.keys(AREA_PRECEPTORS)).toHaveLength(263);
+    for (const [code, entry] of Object.entries(OLD_SEED_MAP))
+      expect((AREA_PRECEPTORS as Record<string, unknown>)[code]).toEqual(entry);
+    expect(
+      Object.keys(AREA_PRECEPTORS).every(
+        (c) => c.startsWith("E") && !c.startsWith("E09000") && !c.startsWith("W"),
+      ),
+    ).toBe(true);
+  });
+
+  it("names the GM/YNY police and general elements per combined authority", () => {
+    expect(AREA_PRECEPTORS["E08000002"]).toEqual({
+      police: "Greater Manchester CA - Police Functions",
+      combinedAuthority: "Greater Manchester — general functions",
+    });
+    expect(AREA_PRECEPTORS["E06000014"]).toEqual({
+      police: "York and North Yorkshire CA - Police Functions",
+      combinedAuthority: "York and North Yorkshire — general functions",
+    });
+  });
+
+  it("leaves South Yorkshire and West Yorkshire police-only", () => {
+    expect(AREA_PRECEPTORS["E08000039"]).toEqual({
+      police: "South Yorkshire Mayoral CA - Police Functions",
+      fire: "South Yorkshire Fire and Rescue Authority",
+    });
+    expect(AREA_PRECEPTORS["E08000035"]).toEqual({
+      police: "West Yorkshire CA - Police Functions",
+      fire: "West Yorkshire Fire and Rescue Authority",
+    });
+  });
+});
+
+describe("Spelthorne — the named ±10p exception (founder ruling 28 Nov 2026)", () => {
+  it("files Spelthorne at its published £2,526.44 and names the 5p gap", async () => {
+    const { england, walesRows } = await allRows();
+    const { rows, unfiled, toleranceExceptions } = buildRows(england, walesRows, {
+      mode: "all",
+    });
+    expect(unfiled).toEqual([]);
+    // 19 England authorities from Table 9 plus the 3 Welsh
+    // rows the fixture's composition file carries (Cardiff,
+    // Swansea, Newport) — the seed pass files only 13 of
+    // these, by code.
+    expect(rows).toHaveLength(22);
+    const spelthorne = rows.find((r: Row) => r.code === "E07000213")!;
+    expect(spelthorne).toMatchObject({
+      name: "Spelthorne",
+      bandD: 252644,
+      billing: 23550,
+      county: 193842,
+      police: 35257,
+      fire: null,
+      parishAveraged: false,
+    });
+    expect(toleranceExceptions).toHaveLength(1);
+    expect(toleranceExceptions[0]).toMatchObject({
+      code: "E07000213",
+      diff: 5,
+      tolerancePence: 10,
+    });
+    expect(toleranceExceptions[0].note).toMatch(/Table 8/);
+    expect(toleranceExceptions[0].note).toMatch(/Table 10/);
+  });
+
+  it("a 5p gap on any other authority still fails the run", async () => {
+    const { england } = await allRows();
+    england.preceptors.set("Essex Police", england.preceptors.get("Essex Police")! + 5);
+    expect(() => buildRows(england, [], { mode: "seed", codes: SEED_CODES })).toThrow(
+      /do not reconcile/,
+    );
+  });
+
+  it("the 13 golden checks still pass exactly over the full pass", async () => {
+    const { england, walesRows } = await allRows();
+    const { rows } = buildRows(england, walesRows, { mode: "all" });
+    expect(() => goldenChecks(rows, "2026-27")).not.toThrow();
+  });
+});
+
+describe("Greater Manchester / York and North Yorkshire — the split, filed properly", () => {
+  it("Table 8f keeps each 'Of which general functions' value under its own CA", async () => {
+    const { england } = await allRows();
+    expect(england.preceptors.get("Greater Manchester — general functions")).toBe(15395);
+    expect(england.preceptors.get("York and North Yorkshire — general functions")).toBe(11662);
+    expect(england.preceptors.get("South Yorkshire Mayoral — general functions")).toBe(0);
+    expect(england.preceptors.get("West Yorkshire — general functions")).toBe(0);
+    expect(england.preceptors.has("Of which general functions")).toBe(false);
+  });
+
+  it("a GM borough and a YNY authority file police and CA general as separate components", async () => {
+    const { england } = await allRows();
+    const { rows } = buildRows(england, [], {
+      mode: "seed",
+      codes: ["E08000002", "E06000014"],
+    });
+    expect(rows.find((r: Row) => r.code === "E08000002")).toMatchObject({
+      name: "Bury",
+      bandD: 255515,
+      billing: 211590,
+      police: 28530,
+      combinedAuthority: 15395,
+      parishAveraged: false,
+    });
+    expect(rows.find((r: Row) => r.code === "E06000014")).toMatchObject({
+      name: "York",
+      bandD: 228715,
+      billing: 181743,
+      police: 33586,
+      combinedAuthority: 11662,
+      parishAveraged: true,
+    });
+  });
+
+  it("South Yorkshire and West Yorkshire still file police-only, unchanged", async () => {
+    const { england } = await allRows();
+    const { rows } = buildRows(england, [], {
+      mode: "seed",
+      codes: ["E08000039", "E08000035"],
+    });
+    expect(rows.find((r: Row) => r.code === "E08000039")).toMatchObject({
+      name: "Sheffield",
+      bandD: 251016,
+      billing: 213023,
+      police: 28004,
+      combinedAuthority: null,
+      fire: 9505,
+      parishAveraged: true,
+    });
+    expect(rows.find((r: Row) => r.code === "E08000035")).toMatchObject({
+      name: "Leeds",
+      bandD: 228373,
+      billing: 190374,
+      police: 27828,
+      combinedAuthority: null,
+      fire: 8949,
+      parishAveraged: true,
+    });
+  });
+
+  it("the full pass files all 22 fixture authorities and leaves the 13 seed rows unchanged", async () => {
+    const { england, walesRows } = await allRows();
+    const { rows: seed } = await seedRows(FIXTURE_2026);
+    const { rows: all, unfiled } = buildRows(england, walesRows, { mode: "all" });
+    expect(unfiled).toEqual([]);
+    // 19 England authorities from Table 9 plus the 3 Welsh
+    // rows the fixture's composition file carries.
+    expect(all).toHaveLength(22);
+    const byCode = new Map(all.map((r: Row) => [r.code, r]));
+    for (const s of seed) {
+      const row = byCode.get(s.code)!;
+      expect(row).toMatchObject({
+        bandD: s.bandD,
+        billing: s.billing,
+        county: s.county,
+        police: s.police,
+        fire: s.fire,
+        gla: s.gla,
+        combinedAuthority: s.combinedAuthority,
+        parishAveraged: s.parishAveraged,
+      });
+    }
   });
 });
 

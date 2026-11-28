@@ -1266,7 +1266,9 @@ describe("BUG-265 group B — progress logging on the loader CLIs", () => {
       expect.stringMatching(/progress · reading the fixture release$/),
     );
     expect(progress).toContainEqual(
-      expect.stringMatching(/progress · authorities 13\/17 authorities \(76%\) · for 2026-27$/),
+      // 13 seed rows filed of the 22 authorities the
+      // extended fixture parses (19 England + 3 Wales).
+      expect.stringMatching(/progress · authorities 13\/22 authorities \(59%\) · for 2026-27$/),
     );
     for (const line of progress) {
       expect(line).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z /);
