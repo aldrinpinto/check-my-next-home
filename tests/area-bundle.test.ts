@@ -1999,7 +1999,7 @@ describe("constraints", () => {
     const ca = sections.constraints.conservationArea;
     expect(ca.state).toBe("none-found");
     expect(ca.line).toContain(
-      "no conservation area found in the national data, checked 10 November 2026",
+      "No conservation area found in the national data, checked 10 November 2026",
     );
     expect(ca.nearest).toEqual({ name: "Chelmer and Blackwater Navigation", miles: 1.473 });
   });
@@ -2184,7 +2184,7 @@ describe("heritage", () => {
   it("Hilgay: zero listed within 2 miles, the beyond form names the nearest", async () => {
     const { sections } = await bundle(C9);
     expect(sections.heritage.listed.countWithin).toBe(0);
-    expect(sections.heritage.listed.beyondLine).toContain("none within 2 miles");
+    expect(sections.heritage.listed.beyondLine).toContain("None within 2 miles");
     expect(sections.constraints.conservationArea.beyondNearest?.miles).toBe(3.572);
   });
 });
@@ -2260,7 +2260,7 @@ describe("nature", () => {
     const birkdale = await bundle(BIRKDALE);
     const aw = birkdale.sections.nature.ancientWoodland;
     expect(aw.state).toBe("none-found");
-    expect(aw.line).toContain("no ancient woodland recorded in the inventory");
+    expect(aw.line).toContain("No ancient woodland recorded in the inventory");
     expect(aw.nearest).toEqual({
       name: "Unnamed woodland (Ancient Woodland Inventory)",
       miles: 0.387,
@@ -2633,7 +2633,7 @@ describe("council tax", () => {
     );
     expect(reigate.sections.councilTax.state).toBe("not-filed");
     expect(reigate.sections.councilTax.line).toBe(
-      "this council's council tax charges are not filed yet — most councils are filed in the spring pass, and until then no figure can be given",
+      "This council's council tax charges are not filed yet — most councils are filed in the spring pass, and until then no figure can be given",
     );
     // No monthly figure exists where no annual figure does.
     expect(reigate.sections.councilTax.monthlyLine).toBeNull();
@@ -3050,7 +3050,7 @@ describe("planning applications — the hand-off", () => {
     expect(planning.state).toBe("handed-off");
     expect(planning.council).toBe("Belfast");
     expect(planning.line).toBe(
-      "planning applications for this area are published on the Northern Ireland Public Register — we do not hold a copy, so no applications are listed here; the link below takes you to the register, where you can search by postcode",
+      "Planning applications for this area are published on the Northern Ireland Public Register — we do not hold a copy, so no applications are listed here; the link below takes you to the register, where you can search by postcode",
     );
     expect(planning.link).toEqual(NI_LINK);
   });
@@ -3061,7 +3061,7 @@ describe("planning applications — the hand-off", () => {
     expect(planning.state).toBe("handed-off");
     expect(planning.council).toBe("Mid Ulster");
     expect(planning.line).toBe(
-      "planning applications for this area are published by Mid Ulster District Council on its own planning portal — it is the one Northern Ireland council not on the national register; we do not hold a copy, so no applications are listed here",
+      "Planning applications for this area are published by Mid Ulster District Council on its own planning portal — it is the one Northern Ireland council not on the national register; we do not hold a copy, so no applications are listed here",
     );
     expect(planning.link).toBeNull();
   });
@@ -3099,7 +3099,7 @@ describe("planning applications — the hand-off", () => {
     expect(planning.state).toBe("handed-off");
     expect(planning.council).toBeNull();
     expect(planning.line).toBe(
-      "planning applications are published by the local council on its planning register — we do not hold a copy, so no applications are listed here",
+      "Planning applications are published by the local council on its planning register — we do not hold a copy, so no applications are listed here",
     );
     expect(planning.link).toEqual(GOVUK_LINK);
   });
@@ -3203,7 +3203,7 @@ describe("company ownership — behind the flag", () => {
     if (!company) return;
     expect(company.state).toBe("not-company-owned");
     expect(company.line).toBe(
-      "this home's title is not in HM Land Registry's company-ownership data as at November 2026",
+      "This home's title is not in HM Land Registry's company-ownership data as at November 2026",
     );
     expect(company.ownTitles).toEqual([]);
     expect(company.buildingTitles).toEqual([]);
@@ -3261,7 +3261,7 @@ describe("company ownership — behind the flag", () => {
     if (!company) throw new Error("expected the section");
     expect(company.state).toBe("not-company-owned");
     expect(company.line).toBe(
-      "this home's title is not in HM Land Registry's company-ownership data as at November 2026",
+      "This home's title is not in HM Land Registry's company-ownership data as at November 2026",
     );
     expect(company.ownTitles).toEqual([]);
     expect(company.buildingLine).toBe(
@@ -3391,7 +3391,7 @@ describe("company ownership — behind the flag", () => {
       if (!company) throw new Error("expected the section");
       expect(company.state).toBe("not-filed");
       expect(company.line).toBe(
-        "the company-ownership data is not filed yet, so no company-ownership answer can be given yet",
+        "The company-ownership data is not filed yet, so no company-ownership answer can be given yet",
       );
       expect(company.ownTitles).toEqual([]);
     }
@@ -3402,13 +3402,13 @@ describe("company ownership — behind the flag", () => {
     if (!scotland) throw new Error("expected the section");
     expect(scotland.state).toBe("not-covered");
     expect(scotland.line).toBe(
-      "the company-ownership datasets cover England and Wales only — title information for Scotland is held by Registers of Scotland",
+      "The company-ownership datasets cover England and Wales only — title information for Scotland is held by Registers of Scotland",
     );
     const ni = (await bundleOn(BELFAST)).sections.companyOwnership;
     if (!ni) throw new Error("expected the section");
     expect(ni.state).toBe("not-covered");
     expect(ni.line).toBe(
-      "the company-ownership datasets cover England and Wales only — title information for Northern Ireland is held by Land & Property Services",
+      "The company-ownership datasets cover England and Wales only — title information for Northern Ireland is held by Land & Property Services",
     );
   });
 
@@ -3459,7 +3459,7 @@ describe("company ownership — behind the flag", () => {
     const no = (await bundleOn(BIRKDALE, noFresh)).sections.companyOwnership;
     if (!no) throw new Error("expected the section");
     expect(no.line).toBe(
-      "this home's title is not in HM Land Registry's company-ownership data as at October 2026",
+      "This home's title is not in HM Land Registry's company-ownership data as at October 2026",
     );
     expect(no.sourceLine).toBe(`${OCOD_SOURCE} — data to 1 October 2026`);
   });
@@ -4255,7 +4255,7 @@ describe("building safety — the tribunal half serves the filed corpus (D35)", 
       const tribunal = sections.buildingSafety.tribunal;
       expect(tribunal.state).toBe("none-filed");
       expect(tribunal.line).toBe(
-        "no published building-safety orders naming this postcode, as at 14 November 2026",
+        "No published building-safety orders naming this postcode, as at 14 November 2026",
       );
       expect(tribunal.decisionCount).toBe(0);
       expect(tribunal.groups).toEqual([]);
@@ -4266,7 +4266,7 @@ describe("building safety — the tribunal half serves the filed corpus (D35)", 
     const birkdale = await bundle(BIRKDALE);
     expect(birkdale.sections.buildingSafety.register.state).toBe("out-of-scope");
     expect(birkdale.sections.buildingSafety.register.line).toBe(
-      "the Building Safety Regulator's register covers high-rise residential buildings — buildings of 7 or more storeys or 18 metres or more, with 2 or more residential units; a house is outside what the register is for",
+      "The Building Safety Regulator's register covers high-rise residential buildings — buildings of 7 or more storeys or 18 metres or more, with 2 or more residential units; a house is outside what the register is for",
     );
     expect(birkdale.sections.buildingSafety.register.link).toBeNull();
     const exeter = await bundle(EXETER);
@@ -4288,7 +4288,7 @@ describe("building safety — the tribunal half serves the filed corpus (D35)", 
     const section = sections.buildingSafety;
     expect(section.tribunal.state).toBe("not-filed");
     expect(section.tribunal.line).toBe(
-      "the building-safety decisions data is not filed yet, so no building-safety answer can be given yet",
+      "The building-safety decisions data is not filed yet, so no building-safety answer can be given yet",
     );
     expect(section.sourceName).toBeNull();
     expect(section.sourceDate).toBeNull();
@@ -4540,7 +4540,7 @@ describe("broadband & mobile — the Ofcom answers (M6.17, D36)", () => {
     expect(sa.outdoor?.allOperatorsPct).toBeNull();
     expect(sa.outdoor?.allOperatorsPublished).toBe(false);
     expect(sa.outdoor?.allOperatorsLine).toBe(
-      "the share of premises in Newham where all four mobile networks have outdoor coverage is not published for this service",
+      "The share of premises in Newham where all four mobile networks have outdoor coverage is not published for this service",
     );
     const vhc = byKey.get("5g_very_high_confidence")!;
     expect(vhc.outdoor?.allOperatorsLine).toBe(
@@ -4647,7 +4647,7 @@ describe("broadband & mobile — the Ofcom answers (M6.17, D36)", () => {
     expect(hc.state).toBe("served");
     expect(hc.outdoor?.allOperatorsPublished).toBe(false);
     expect(hc.outdoor?.allOperatorsLine).toBe(
-      "the share of premises in Synthetic Borough where all four mobile networks have outdoor coverage is not published for this service",
+      "The share of premises in Synthetic Borough where all four mobile networks have outdoor coverage is not published for this service",
     );
   });
 
@@ -4657,12 +4657,12 @@ describe("broadband & mobile — the Ofcom answers (M6.17, D36)", () => {
     fresh.mobileOverride = null;
     const { sections } = await bundle(BIRKDALE, fresh);
     expect(sections.broadband.state).toBe("not-filed");
-    expect(sections.broadband.line).toBe("broadband coverage is not filed for this postcode yet");
+    expect(sections.broadband.line).toBe("Broadband coverage is not filed for this postcode yet");
     expect(sections.broadband.gigabitCapablePct).toBeNull();
     expect(sections.broadband.sourceLine).toBeNull();
     expect(sections.mobile.state).toBe("not-filed");
     expect(sections.mobile.line).toBe(
-      "mobile coverage is not filed for this postcode's council area yet",
+      "Mobile coverage is not filed for this postcode's council area yet",
     );
     expect(sections.mobile.services).toEqual([]);
     expect(sections.mobile.council).toBeNull();
@@ -4681,11 +4681,11 @@ describe("broadband & mobile — the Ofcom answers (M6.17, D36)", () => {
     if (rung3.kind !== "wider-area") throw new Error("expected wider-area");
     expect(rung3.area.sections.broadband).toEqual({
       state: "unavailable",
-      reason: "broadband answers need an exact postcode",
+      reason: "Broadband answers need an exact postcode",
     });
     expect(rung3.area.sections.mobile).toEqual({
       state: "unavailable",
-      reason: "mobile answers need an exact postcode",
+      reason: "Mobile answers need an exact postcode",
     });
   });
 
@@ -4885,10 +4885,10 @@ describe("brownfield land — points serving, gated absence", () => {
     expect(brownfield.state).toBe("none-found");
     expect(brownfield.countWithin).toBe(0);
     expect(brownfield.line).toBe(
-      "no brownfield sites are recorded within 5 miles of the postcode point on the national register",
+      "No brownfield sites are recorded within 5 miles of the postcode point on the national register",
     );
     expect(brownfield.beyondLine).toBe(
-      "none within 5 miles — the nearest recorded site is Etwell House and former coach, Station Approach, 2.41 miles away",
+      "None within 5 miles — the nearest recorded site is Etwell House and former coach, Station Approach, 2.41 miles away",
     );
   });
 
@@ -4922,7 +4922,7 @@ describe("brownfield land — points serving, gated absence", () => {
     expect(brownfield.beyondLine).toBeNull();
     expect(brownfield.beyondNearest).toBeNull();
     expect(brownfield.line).toBe(
-      "this council does not supply the national brownfield register, so no finding can be made from the data — the council's own brownfield register is the record",
+      "This council does not supply the national brownfield register, so no finding can be made from the data — the council's own brownfield register is the record",
     );
   });
 
@@ -4943,7 +4943,7 @@ describe("brownfield land — points serving, gated absence", () => {
     expect(brownfield.state).toBe("not-filed");
     expect(brownfield.countWithin).toBeNull();
     expect(brownfield.line).toBe(
-      "the brownfield land data is not filed yet, so no brownfield answer can be given yet",
+      "The brownfield land data is not filed yet, so no brownfield answer can be given yet",
     );
   });
 
@@ -4953,7 +4953,7 @@ describe("brownfield land — points serving, gated absence", () => {
     expect(brownfield.state).toBe("not-published");
     expect(brownfield.countWithin).toBeNull();
     expect(brownfield.line).toBe(
-      "the brownfield register filed covers England — brownfield registers in Scotland are held by its own councils and are not filed, so no finding can be made from the data",
+      "The brownfield register filed covers England — brownfield registers in Scotland are held by its own councils and are not filed, so no finding can be made from the data",
     );
   });
 });
@@ -4982,19 +4982,19 @@ describe("heritage — the four M6.21 layers", () => {
       const heritage = sections.heritage;
       expect(heritage.worldHeritageSites.state).toBe("none-found");
       expect(heritage.worldHeritageSites.line).toBe(
-        "no world heritage site covers this postcode point in the national data",
+        "No world heritage site covers this postcode point in the national data",
       );
       expect(heritage.battlefields.state).toBe("none-found");
       expect(heritage.battlefields.line).toBe(
-        "no registered battlefield covers this postcode point in the national data",
+        "No registered battlefield covers this postcode point in the national data",
       );
       expect(heritage.protectedWrecks.state).toBe("none-found");
       expect(heritage.protectedWrecks.line).toBe(
-        "no protected wreck site covers this postcode point in the national data",
+        "No protected wreck site covers this postcode point in the national data",
       );
       expect(heritage.worldHeritageBufferZones.state).toBe("none-found");
       expect(heritage.worldHeritageBufferZones.line).toBe(
-        "no world heritage site buffer zone covers this postcode point in the national data",
+        "No world heritage site buffer zone covers this postcode point in the national data",
       );
     }
   });
@@ -5049,7 +5049,7 @@ describe("heritage — registered parks & gardens (M8.10)", () => {
       const parks = sections.heritage.parksAndGardens;
       expect(parks.state).toBe("not-filed");
       expect(parks.line).toBe(
-        "the registered park and garden data is not filed yet, so no registered park and garden answer can be given yet",
+        "The registered park and garden data is not filed yet, so no registered park and garden answer can be given yet",
       );
       expect(parks.beyondLine).toBeNull();
     }
@@ -5090,10 +5090,10 @@ describe("heritage — registered parks & gardens (M8.10)", () => {
     const parks = sections.heritage.parksAndGardens;
     expect(parks.state).toBe("none-found");
     expect(parks.line).toBe(
-      "no registered park and garden covers this postcode point in the national data",
+      "No registered park and garden covers this postcode point in the national data",
     );
     expect(parks.beyondLine).toBe(
-      "none within 2 miles — the nearest is Nonsuch Park, 2.412 miles away",
+      "None within 2 miles — the nearest is Nonsuch Park, 2.412 miles away",
     );
   });
 });
@@ -5128,7 +5128,7 @@ describe("EPC suggested improvements — the register's modelled steps (M6.21)",
     const exeter = await bundle(EXETER);
     for (const cert of exeter.sections.epc.certificates) {
       expect(cert.improvements?.state).toBe("none-published");
-      expect(cert.improvements?.line).toBe("the certificate publishes no suggested improvements");
+      expect(cert.improvements?.line).toBe("The certificate publishes no suggested improvements");
       expect(cert.improvements?.steps).toEqual([]);
     }
     const minerva = await bundle(MINERVA);

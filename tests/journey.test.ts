@@ -411,7 +411,7 @@ describe("checking group derivation — the nearby part (schools & health)", () 
         category(
           "schools-primary",
           "none-within",
-          "no primary schools within 2 miles — nearest is St Andrew's, 6.1 miles away",
+          "No primary schools within 2 miles — nearest is St Andrew's, 6.1 miles away",
         ),
         category("schools-secondary", "none-within"),
         category("sixth-forms", "none-within"),
@@ -423,7 +423,7 @@ describe("checking group derivation — the nearby part (schools & health)", () 
     );
     expect(groups.schools).toEqual({
       state: "done",
-      line: "no primary schools within 2 miles — nearest is St Andrew's, 6.1 miles away",
+      line: "No primary schools within 2 miles — nearest is St Andrew's, 6.1 miles away",
     });
   });
 
@@ -476,7 +476,7 @@ describe("checking group derivation — the nearby part (schools & health)", () 
         category(
           "schools-primary",
           "none-within",
-          "none within 2 miles — nearest is Stamford Green Primary School and Nursery, 134.327 miles away",
+          "None within 2 miles — nearest is Stamford Green Primary School and Nursery, 134.327 miles away",
           {
             beyondNearest: { name: "Stamford Green Primary School and Nursery", miles: 134.327 },
           },
@@ -494,11 +494,11 @@ describe("checking group derivation — the nearby part (schools & health)", () 
       ]),
     );
     expect(groups.schools.state).toBe("done");
-    expect(groups.schools.line).toBe("no schools-primary within 2 miles of the postcode point");
+    expect(groups.schools.line).toBe("No schools-primary within 2 miles of the postcode point");
     expect(groups.schools.line).not.toContain("Stamford");
     expect(groups.schools.line).not.toContain("134");
     expect(groups.health.state).toBe("done");
-    expect(groups.health.line).toBe("no gp within 2 miles of the postcode point");
+    expect(groups.health.line).toBe("No gp within 2 miles of the postcode point");
     expect(groups.health.line).not.toContain("84");
   });
 
@@ -512,7 +512,7 @@ describe("checking group derivation — the nearby part (schools & health)", () 
         category(
           "schools-primary",
           "none-within",
-          "none within 2 miles — nearest is Cheam Fields Primary Academy, 14.671 miles away",
+          "None within 2 miles — nearest is Cheam Fields Primary Academy, 14.671 miles away",
           { beyondNearest: { name: "Cheam Fields Primary Academy", miles: 14.671 } },
         ),
         category("schools-secondary", "none-within"),
@@ -525,7 +525,7 @@ describe("checking group derivation — the nearby part (schools & health)", () 
     );
     expect(groups.schools).toEqual({
       state: "done",
-      line: "none within 2 miles — nearest is Cheam Fields Primary Academy, 14.7 miles away",
+      line: "None within 2 miles — nearest is Cheam Fields Primary Academy, 14.7 miles away",
     });
   });
 
@@ -617,14 +617,14 @@ describe("checking group derivation — the flood part (safety segments)", () =>
           "rofrs",
           "not-filed",
           null,
-          "this flood map is not filed yet, so no answer can be given from it",
+          "This flood map is not filed yet, so no answer can be given from it",
         ),
         floodLayer("rofsw", "below-lowest-band", null, "surface line"),
       ]),
     );
     expect(segments).toEqual([
       {
-        text: "this flood map is not filed yet, so no answer can be given from it",
+        text: "This flood map is not filed yet, so no answer can be given from it",
         prefix: "Environment Agency",
         named: true,
       },
@@ -931,7 +931,7 @@ describe("checking group derivation — the crime part (safety) and the area par
       sections: {
         councilTax: {
           state: "not-filed",
-          line: "this council's council tax charges are not filed yet — most councils are filed in the spring pass, and until then no figure can be given",
+          line: "This council's council tax charges are not filed yet — most councils are filed in the spring pass, and until then no figure can be given",
         },
         broadband: {
           state: "served",
@@ -947,7 +947,7 @@ describe("checking group derivation — the crime part (safety) and the area par
     const groups = areaCheckingGroups(areaNamed, soldServed);
     expect(groups.costs.state).toBe("unavailable");
     expect(groups.costs.line).toBe(
-      "Council & providers — this council's council tax charges are not filed yet — most councils are filed in the spring pass, and until then no figure can be given; gigabit-capable broadband (at least 1 Gbit/s) is available to 100% of premises in this postcode; the energy register is not filed for this postcode yet, so no energy answer can be given yet",
+      "Council & providers — This council's council tax charges are not filed yet — most councils are filed in the spring pass, and until then no figure can be given; gigabit-capable broadband (at least 1 Gbit/s) is available to 100% of premises in this postcode; the energy register is not filed for this postcode yet, so no energy answer can be given yet",
     );
   });
 
@@ -960,12 +960,12 @@ describe("checking group derivation — the crime part (safety) and the area par
         councilTax: { state: "served", line: "x", bandDAverageLabel: "£1" },
         broadband: { state: "served", line: "y" },
         epc: { state: "served", headlineBand: "B" },
-        air: { state: "not-filed", line: "no modelled air quality square is filed for this point" },
+        air: { state: "not-filed", line: "No modelled air quality square is filed for this point" },
       },
     } as unknown as AreaBundle;
     const safety = safetyCheckingSegments(crimeServed, areaAirNamed);
     expect(safety.air).toEqual({
-      text: "no modelled air quality square is filed for this point",
+      text: "No modelled air quality square is filed for this point",
       prefix: "Defra",
       named: true,
     });

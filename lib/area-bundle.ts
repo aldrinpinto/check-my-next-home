@@ -159,7 +159,7 @@ import { COMPANY_OWNERSHIP_ENABLED } from "./site";
 // cut from the short skim, which carries listed buildings
 // and the at-point line only.
 
-export const AREA_UNAVAILABLE_REASON = "area answers need an exact postcode";
+export const AREA_UNAVAILABLE_REASON = "Area answers need an exact postcode";
 
 const NEEDS_EXACT_HOME_EPC = "choose the exact home to see its energy certificates";
 const NEEDS_EXACT_HOME_LISTED =
@@ -1043,7 +1043,7 @@ function buildPolygonLayer(
   if (facts.filedCount <= 0) {
     return {
       ...base,
-      line: `the ${spec.label.toLowerCase()} data is not filed yet, so no ${spec.label.toLowerCase()} answer can be given yet`,
+      line: `The ${spec.label.toLowerCase()} data is not filed yet, so no ${spec.label.toLowerCase()} answer can be given yet`,
     };
   }
 
@@ -1073,7 +1073,7 @@ function buildPolygonLayer(
     const name = shapeName(beyond, spec.unnamedName);
     const miles = round3(beyond.miles);
     answer.beyondNearest = { name, miles };
-    answer.beyondLine = `none within ${RADIUS_MILES} miles — the nearest is ${name}, ${miles} miles away`;
+    answer.beyondLine = `None within ${RADIUS_MILES} miles — the nearest is ${name}, ${miles} miles away`;
   }
   return answer;
 }
@@ -1286,7 +1286,7 @@ function buildBrownfield(
       countWithin: null,
       beyondNearest: null,
       beyondLine: null,
-      line: "the brownfield land data is not filed yet, so no brownfield answer can be given yet",
+      line: "The brownfield land data is not filed yet, so no brownfield answer can be given yet",
     };
   }
   // The register covers England: a point elsewhere serves
@@ -1306,7 +1306,7 @@ function buildBrownfield(
   // prove the absence the line states.
   if (covered && councilPublishes && countWithin === 0 && facts.nearestBeyond) {
     beyondNearest = toBrownfieldSite(facts.nearestBeyond);
-    beyondLine = `none within ${BROWNFIELD_RADIUS_MILES} miles — the nearest recorded site is ${beyondNearest.label}, ${beyondNearest.miles} miles away`;
+    beyondLine = `None within ${BROWNFIELD_RADIUS_MILES} miles — the nearest recorded site is ${beyondNearest.label}, ${beyondNearest.miles} miles away`;
   }
   if (!covered) {
     return {
@@ -1316,7 +1316,7 @@ function buildBrownfield(
       countWithin: null,
       beyondNearest: null,
       beyondLine: null,
-      line: `the brownfield register filed covers England — brownfield registers in ${nationName(nation)} are held by its own councils and are not filed, so no finding can be made from the data`,
+      line: `The brownfield register filed covers England — brownfield registers in ${nationName(nation)} are held by its own councils and are not filed, so no finding can be made from the data`,
     };
   }
   if (countWithin !== null && countWithin > 0) {
@@ -1341,8 +1341,8 @@ function buildBrownfield(
     beyondNearest,
     beyondLine,
     line: councilPublishes
-      ? `no brownfield sites are recorded within ${BROWNFIELD_RADIUS_MILES} miles of the postcode point on the national register`
-      : "this council does not supply the national brownfield register, so no finding can be made from the data — the council's own brownfield register is the record",
+      ? `No brownfield sites are recorded within ${BROWNFIELD_RADIUS_MILES} miles of the postcode point on the national register`
+      : "This council does not supply the national brownfield register, so no finding can be made from the data — the council's own brownfield register is the record",
   };
 }
 
@@ -1353,8 +1353,8 @@ const CONSERVATION_AREA_SPEC: PolygonSpec = {
   insideLine: (name) => `the postcode point falls inside the ${name} conservation area`,
   absenceLine: (absence, facts) =>
     absence === "sparse-coverage"
-      ? "no conservation area is filed near this point — conservation areas are supplied by councils and coverage here is sparse, so this is not a proven none"
-      : `no conservation area found in the national data, checked ${facts.sourceDate ? dateLabel(facts.sourceDate) : "at the last filing"}`,
+      ? "No conservation area is filed near this point — conservation areas are supplied by councils and coverage here is sparse, so this is not a proven none"
+      : `No conservation area found in the national data, checked ${facts.sourceDate ? dateLabel(facts.sourceDate) : "at the last filing"}`,
 };
 
 const ARTICLE4_SPEC: PolygonSpec = {
@@ -1366,7 +1366,7 @@ const ARTICLE4_SPEC: PolygonSpec = {
   absenceLine: (absence) =>
     absence === "not-published"
       ? "Article 4 directions are not published by this council to the national dataset, so no finding can be made from the data — the answer lives on the council's own planning register"
-      : "no Article 4 direction area covers this postcode point in the national data",
+      : "No Article 4 direction area covers this postcode point in the national data",
 };
 
 const GREEN_BELT_SPEC: PolygonSpec = {
@@ -1378,8 +1378,8 @@ const GREEN_BELT_SPEC: PolygonSpec = {
   insideLine: (name) => `the postcode point falls inside the ${name} green belt`,
   absenceLine: (absence) =>
     absence === "sparse-coverage"
-      ? "the green belt data filed covers England and Wales, and no green belt is filed near this point"
-      : "no green belt covers this postcode point in the national data",
+      ? "The green belt data filed covers England and Wales, and no green belt is filed near this point"
+      : "No green belt covers this postcode point in the national data",
 };
 
 // Built-up areas (M6.21, D41): the ONS December 2024
@@ -1399,8 +1399,8 @@ const BUILT_UP_AREA_SPEC: PolygonSpec = {
   insideLine: (name) => `the postcode point falls inside the ${name} built-up area`,
   absenceLine: (absence) =>
     absence === "sparse-coverage"
-      ? "the built-up area data filed covers England and Wales, and no built-up area is filed near this point"
-      : "no built-up area covers this postcode point in the data filed",
+      ? "The built-up area data filed covers England and Wales, and no built-up area is filed near this point"
+      : "No built-up area covers this postcode point in the data filed",
 };
 
 function buildConstraints(
@@ -1544,8 +1544,8 @@ const MONUMENT_SPEC: PolygonSpec = {
   insideLine: (name) => `the postcode point falls inside the ${name} scheduled monument`,
   absenceLine: (absence) =>
     absence === "sparse-coverage"
-      ? "the scheduled monuments filed cover England, and none is filed near this point"
-      : "no scheduled monument covers this postcode point in the national data",
+      ? "The scheduled monuments filed cover England, and none is filed near this point"
+      : "No scheduled monument covers this postcode point in the national data",
 };
 
 // The M6.21 heritage layers' specs: the monument shape with
@@ -1558,8 +1558,8 @@ const WORLD_HERITAGE_SITE_SPEC: PolygonSpec = {
   insideLine: (name) => `the postcode point falls inside the ${name} world heritage site`,
   absenceLine: (absence) =>
     absence === "sparse-coverage"
-      ? "the world heritage sites filed cover England, and none is filed near this point"
-      : "no world heritage site covers this postcode point in the national data",
+      ? "The world heritage sites filed cover England, and none is filed near this point"
+      : "No world heritage site covers this postcode point in the national data",
 };
 
 const BATTLEFIELD_SPEC: PolygonSpec = {
@@ -1569,8 +1569,8 @@ const BATTLEFIELD_SPEC: PolygonSpec = {
   insideLine: (name) => `the postcode point falls inside the ${name} registered battlefield`,
   absenceLine: (absence) =>
     absence === "sparse-coverage"
-      ? "the registered battlefields filed cover England, and none is filed near this point"
-      : "no registered battlefield covers this postcode point in the national data",
+      ? "The registered battlefields filed cover England, and none is filed near this point"
+      : "No registered battlefield covers this postcode point in the national data",
 };
 
 const PROTECTED_WRECK_SPEC: PolygonSpec = {
@@ -1580,8 +1580,8 @@ const PROTECTED_WRECK_SPEC: PolygonSpec = {
   insideLine: (name) => `the postcode point falls inside the ${name} protected wreck site`,
   absenceLine: (absence) =>
     absence === "sparse-coverage"
-      ? "the protected wreck sites filed cover England, and none is filed near this point"
-      : "no protected wreck site covers this postcode point in the national data",
+      ? "The protected wreck sites filed cover England, and none is filed near this point"
+      : "No protected wreck site covers this postcode point in the national data",
 };
 
 const WORLD_HERITAGE_BUFFER_SPEC: PolygonSpec = {
@@ -1592,8 +1592,8 @@ const WORLD_HERITAGE_BUFFER_SPEC: PolygonSpec = {
     `the postcode point falls inside the buffer zone of the ${name} world heritage site`,
   absenceLine: (absence) =>
     absence === "sparse-coverage"
-      ? "the world heritage site buffer zones filed cover England, and none is filed near this point"
-      : "no world heritage site buffer zone covers this postcode point in the national data",
+      ? "The world heritage site buffer zones filed cover England, and none is filed near this point"
+      : "No world heritage site buffer zone covers this postcode point in the national data",
 };
 
 // Registered parks & gardens (M8.10): the Register of
@@ -1607,8 +1607,8 @@ const REGISTERED_PARK_AND_GARDEN_SPEC: PolygonSpec = {
   insideLine: (name) => `the postcode point falls inside the ${name} registered park and garden`,
   absenceLine: (absence) =>
     absence === "sparse-coverage"
-      ? "the registered parks and gardens filed cover England, and none is filed near this point"
-      : "no registered park and garden covers this postcode point in the national data",
+      ? "The registered parks and gardens filed cover England, and none is filed near this point"
+      : "No registered park and garden covers this postcode point in the national data",
 };
 
 function toListedPlace(row: ListedRow): ListedPlace {
@@ -1677,7 +1677,7 @@ function buildHeritage(
   let beyondLine: string | null = null;
   if (covered && countWithin === 0 && listed.nearestBeyond) {
     beyondNearest = toListedPlace(listed.nearestBeyond);
-    beyondLine = `none within ${RADIUS_MILES} miles — the nearest listed building is ${beyondNearest.name ? titleCaseName(beyondNearest.name) : "an unnamed listed building"} (grade ${beyondNearest.grade}), ${beyondNearest.miles} miles away`;
+    beyondLine = `None within ${RADIUS_MILES} miles — the nearest listed building is ${beyondNearest.name ? titleCaseName(beyondNearest.name) : "an unnamed listed building"} (grade ${beyondNearest.grade}), ${beyondNearest.miles} miles away`;
   }
 
   let atPoint: ListedAtPoint;
@@ -1713,12 +1713,12 @@ function buildHeritage(
       beyondLine,
       line:
         listed.filedCount <= 0
-          ? "the listed buildings data is not filed yet, so no listed buildings answer can be given yet"
+          ? "The listed buildings data is not filed yet, so no listed buildings answer can be given yet"
           : !covered
-            ? `the listed buildings filed are England's National Heritage List — listed buildings in ${nationName(nation)} sit on their own register, which is not filed, so no count can be given for this point`
+            ? `The listed buildings filed are England's National Heritage List — listed buildings in ${nationName(nation)} sit on their own register, which is not filed, so no count can be given for this point`
             : countWithin !== null && countWithin > 0
               ? `${countWithin} listed building${countWithin === 1 ? "" : "s"} within ${RADIUS_MILES} miles of the postcode point`
-              : `no listed buildings within ${RADIUS_MILES} miles of the postcode point`,
+              : `No listed buildings within ${RADIUS_MILES} miles of the postcode point`,
     },
     atPoint,
     monuments: buildPolygonLayer(
@@ -1752,7 +1752,7 @@ function buildHeritage(
       nation === "england" ? "none-found" : "sparse-coverage",
     ),
     localListsLine:
-      "buildings on councils' local lists are not included — local lists are held by each council and are not part of the national data",
+      "Buildings on councils' local lists are not included — local lists are held by each council and are not part of the national data",
   };
 }
 
@@ -1958,8 +1958,8 @@ const ANCIENT_WOODLAND_SPEC: PolygonSpec = {
     `the postcode point falls inside ${name}, recorded in the Ancient Woodland Inventory`,
   absenceLine: (absence) =>
     absence === "sparse-coverage"
-      ? "the ancient woodland inventory filed covers England, and no woodland in it is filed near this point"
-      : "no ancient woodland recorded in the inventory near this postcode point",
+      ? "The ancient woodland inventory filed covers England, and no woodland in it is filed near this point"
+      : "No ancient woodland recorded in the inventory near this postcode point",
 };
 
 export const ANCIENT_WOODLAND_INVENTORY_LINE =
@@ -2005,8 +2005,11 @@ function buildNature(
       ? null
       : unfiledTypes
           .map(
-            (type) =>
-              `the ${DESIGNATION_LABELS[type]} designation data is not filed yet, so no ${DESIGNATION_LABELS[type]} answer can be given yet`,
+            (type, index) =>
+              // BUG-395: the joined line starts with a capital —
+              // the first segment only; the segments after the
+              // semicolons are continuations and stay lowercase.
+              `${index === 0 ? "The" : "the"} ${DESIGNATION_LABELS[type]} designation data is not filed yet, so no ${DESIGNATION_LABELS[type]} answer can be given yet`,
           )
           .join("; ");
   const { within, beyond } = groupDesignations(guardedFacts);
@@ -2019,7 +2022,7 @@ function buildNature(
     phi.filedCount <= 0
       ? {
           state: "not-filed",
-          line: "priority habitat records are not filed yet, so no habitat answer can be given yet",
+          line: "Priority habitat records are not filed yet, so no habitat answer can be given yet",
         }
       : {
           state: "served",
@@ -2031,7 +2034,7 @@ function buildNature(
             ? round3(phi.nearest.miles) === 0
               ? `priority habitat recorded at this postcode point: ${phi.nearest.habitat}`
               : `nearest recorded priority habitat: ${phi.nearest.habitat}, ${round3(phi.nearest.miles)} miles away`
-            : "no priority habitat is recorded near this postcode point",
+            : "No priority habitat is recorded near this postcode point",
           sourceName: phi.sourceName,
           sourceDate: phi.sourceDate,
           sourceLine: sourceLineOf(phi.sourceName, phi.sourceDate),
@@ -2053,14 +2056,14 @@ function buildNature(
     placesWithinCount: within.length,
     beyondPlace: beyond,
     beyondLine: beyond
-      ? `no designated site within ${RADIUS_MILES} miles — the nearest is ${beyond.line}, ${beyond.miles} miles away`
+      ? `No designated site within ${RADIUS_MILES} miles — the nearest is ${beyond.line}, ${beyond.miles} miles away`
       : null,
     placesLine:
       unfiledTypes.length === DESIGNATION_ORDER.length
-        ? "nature designations are not filed yet, so no designation answer can be given yet"
+        ? "Nature designations are not filed yet, so no designation answer can be given yet"
         : within.length > 0
           ? `${within.length} designated site${within.length === 1 ? "" : "s"} at or within ${RADIUS_MILES} miles of the postcode point`
-          : `no designated site at or within ${RADIUS_MILES} miles of the postcode point`,
+          : `No designated site at or within ${RADIUS_MILES} miles of the postcode point`,
     designationsLine,
     ancientWoodland: buildPolygonLayer(
       ANCIENT_WOODLAND_SPEC,
@@ -2388,7 +2391,7 @@ function toServedImprovements(cert: EpcCertificate): ServedImprovements | null {
   if (cert.suggestedImprovements === null || cert.suggestedImprovements.length === 0) {
     return {
       state: "none-published",
-      line: "the certificate publishes no suggested improvements",
+      line: "The certificate publishes no suggested improvements",
       steps: [],
       closingLine: null,
     };
@@ -2723,7 +2726,7 @@ async function buildEpc(
       sourceDate: null,
       sourceLine: null,
       state: "not-filed",
-      line: "energy certificates could not be loaded for this postcode, so no certificate answer can be given",
+      line: "Energy certificates could not be loaded for this postcode, so no certificate answer can be given",
       certificates: [],
       certificateCountAtPostcode: null,
       headlineBand: null,
@@ -2736,7 +2739,7 @@ async function buildEpc(
       ...meta,
       ...sourceMeta,
       state: "filed-zero",
-      line: "no energy certificate is recorded for this postcode",
+      line: "No energy certificate is recorded for this postcode",
       certificates: [],
       certificateCountAtPostcode: 0,
       headlineBand: null,
@@ -2760,7 +2763,7 @@ async function buildEpc(
       ...meta,
       ...sourceMeta,
       state: "none-matching",
-      line: "certificates are recorded for this postcode; none is for this exact home",
+      line: "Certificates are recorded for this postcode; none is for this exact home",
       certificates: [],
       certificateCountAtPostcode: artefact.certificates.length,
       headlineBand: null,
@@ -2904,7 +2907,7 @@ function buildCouncilTax(facts: CouncilTaxFacts | null, nation: Nation): Council
       sourceDate: null,
       sourceLine: null,
       state: "not-filed",
-      line: "this council's council tax charges are not filed yet — most councils are filed in the spring pass, and until then no figure can be given",
+      line: "This council's council tax charges are not filed yet — most councils are filed in the spring pass, and until then no figure can be given",
       authority: null,
       taxYear: null,
       bandDAveragePence: null,
@@ -3074,13 +3077,13 @@ function buildPlanningApplications(
     if (council === MID_ULSTER_COUNCIL) {
       return {
         ...base,
-        line: "planning applications for this area are published by Mid Ulster District Council on its own planning portal — it is the one Northern Ireland council not on the national register; we do not hold a copy, so no applications are listed here",
+        line: "Planning applications for this area are published by Mid Ulster District Council on its own planning portal — it is the one Northern Ireland council not on the national register; we do not hold a copy, so no applications are listed here",
         link: null,
       };
     }
     return {
       ...base,
-      line: "planning applications for this area are published on the Northern Ireland Public Register — we do not hold a copy, so no applications are listed here; the link below takes you to the register, where you can search by postcode",
+      line: "Planning applications for this area are published on the Northern Ireland Public Register — we do not hold a copy, so no applications are listed here; the link below takes you to the register, where you can search by postcode",
       link: { ...PLANNING_REGISTER_NI },
     };
   }
@@ -3090,7 +3093,7 @@ function buildPlanningApplications(
       ...base,
       line: council
         ? `planning applications for this area are published by ${council} on its own website — we do not hold a copy, so no applications are listed here, and there is no single Scottish register to link to`
-        : "planning applications are published by the local council on its planning register — we do not hold a copy, so no applications are listed here",
+        : "Planning applications are published by the local council on its planning register — we do not hold a copy, so no applications are listed here",
       link: null,
     };
   }
@@ -3104,7 +3107,7 @@ function buildPlanningApplications(
     ...base,
     line: council
       ? `planning applications for this area are published on the planning register kept by ${council} — we do not hold a copy, so no applications are listed here${link ? "; the link below takes you to the official search, where you enter the postcode" : ""}`
-      : "planning applications are published by the local council on its planning register — we do not hold a copy, so no applications are listed here",
+      : "Planning applications are published by the local council on its planning register — we do not hold a copy, so no applications are listed here",
     link,
   };
 }
@@ -3464,7 +3467,7 @@ function buildCompanyOwnership(
       ...meta,
       ...noFacts,
       state: "not-covered",
-      line: `the company-ownership datasets cover England and Wales only — title information for ${nationName(nation)} is held by ${register}`,
+      line: `The company-ownership datasets cover England and Wales only — title information for ${nationName(nation)} is held by ${register}`,
     };
   }
   if (nation === "unknown") {
@@ -3472,7 +3475,7 @@ function buildCompanyOwnership(
       ...meta,
       ...noFacts,
       state: "not-covered",
-      line: "the company-ownership datasets cover England and Wales only, so no company-ownership answer can be given for this home",
+      line: "The company-ownership datasets cover England and Wales only, so no company-ownership answer can be given for this home",
     };
   }
 
@@ -3484,7 +3487,7 @@ function buildCompanyOwnership(
       ...meta,
       ...noFacts,
       state: "not-filed",
-      line: "the company-ownership data is not filed yet, so no company-ownership answer can be given yet",
+      line: "The company-ownership data is not filed yet, so no company-ownership answer can be given yet",
     };
   }
 
@@ -3540,8 +3543,8 @@ function buildCompanyOwnership(
     sourceLine: sourceLineOf(asAt?.sourceName ?? null, asAt?.sourceDate ?? null),
     state: "not-company-owned",
     line: asAt
-      ? `this home's title is not in HM Land Registry's company-ownership data as at ${monthLabel(asAt.sourceDate as string)}`
-      : "this home's title is not in HM Land Registry's company-ownership data",
+      ? `This home's title is not in HM Land Registry's company-ownership data as at ${monthLabel(asAt.sourceDate as string)}`
+      : "This home's title is not in HM Land Registry's company-ownership data",
     ownTitles,
     buildingLine,
     buildingTitles,
@@ -3810,10 +3813,10 @@ function buildTribunalBlock(
   if (nation === "scotland" || nation === "wales" || nation === "northern-ireland") {
     const line =
       nation === "scotland"
-        ? "the building-safety tribunal decisions filed here are for England — Scotland's own route is the Cladding Assurance Register, the Scottish Government's register of buildings assessed for cladding"
+        ? "The building-safety tribunal decisions filed here are for England — Scotland's own route is the Cladding Assurance Register, the Scottish Government's register of buildings assessed for cladding"
         : nation === "wales"
-          ? "the building-safety tribunal decisions filed here are for England — Wales's route is the Welsh Government's building safety route for high-rise residential buildings"
-          : "the building-safety tribunal decisions filed here are for England — Northern Ireland is outside the tribunal's building-safety jurisdiction and has no equivalent register";
+          ? "The building-safety tribunal decisions filed here are for England — Wales's route is the Welsh Government's building safety route for high-rise residential buildings"
+          : "The building-safety tribunal decisions filed here are for England — Northern Ireland is outside the tribunal's building-safety jurisdiction and has no equivalent register";
     return { ...base, ...noSource, state: "not-covered", line };
   }
   if (nation === "unknown") {
@@ -3821,7 +3824,7 @@ function buildTribunalBlock(
       ...base,
       ...noSource,
       state: "not-covered",
-      line: "the building-safety tribunal decisions filed here are for England, and this postcode's filed area code does not place it in England",
+      line: "The building-safety tribunal decisions filed here are for England, and this postcode's filed area code does not place it in England",
     };
   }
 
@@ -3834,7 +3837,7 @@ function buildTribunalBlock(
       ...base,
       ...noSource,
       state: "not-filed",
-      line: "the building-safety decisions data is not filed yet, so no building-safety answer can be given yet",
+      line: "The building-safety decisions data is not filed yet, so no building-safety answer can be given yet",
     };
   }
 
@@ -3864,7 +3867,7 @@ function buildTribunalBlock(
       // Everything it does NOT mean lives in the
       // explainer — selective publication, the unreadable
       // documents, the decisions naming no postcode.
-      line: `no published building-safety orders naming this postcode${asAt}`,
+      line: `No published building-safety orders naming this postcode${asAt}`,
     };
   }
 
@@ -3952,7 +3955,7 @@ function buildRegisterBlock(
     return {
       ...base,
       state: "not-covered",
-      line: "the Building Safety Regulator's register covers England, and this postcode's filed area code does not place it in England, so no register hand-off can be given",
+      line: "The Building Safety Regulator's register covers England, and this postcode's filed area code does not place it in England, so no register hand-off can be given",
       link: null,
     };
   }
@@ -3965,7 +3968,7 @@ function buildRegisterBlock(
     return {
       ...base,
       state: "out-of-scope",
-      line: "the Building Safety Regulator's register covers high-rise residential buildings — buildings of 7 or more storeys or 18 metres or more, with 2 or more residential units; a house is outside what the register is for",
+      line: "The Building Safety Regulator's register covers high-rise residential buildings — buildings of 7 or more storeys or 18 metres or more, with 2 or more residential units; a house is outside what the register is for",
       link: null,
     };
   }
@@ -3977,7 +3980,7 @@ function buildRegisterBlock(
   return {
     ...base,
     state: "handed-off",
-    line: "whether this building is on the Building Safety Regulator's register of high-rise residential buildings can only be checked on the register's own search service — we do not hold a copy of the register, so no register answer is given here; the link below takes you to the official search, where you enter the postcode",
+    line: "Whether this building is on the Building Safety Regulator's register of high-rise residential buildings can only be checked on the register's own search service — we do not hold a copy of the register, so no register answer is given here; the link below takes you to the official search, where you enter the postcode",
     link: { ...BSR_REGISTER_SEARCH },
   };
 }
@@ -4253,7 +4256,7 @@ function buildImd(facts: ImdFacts | null, lsoaCode: string | null, nation: Natio
       sourceDate: null,
       sourceLine: null,
       state: "not-covered",
-      line: `the English Indices of Deprivation do not cover ${nationName(nation)} — it publishes its own index on its own scale, which is not filed and is never compared with the English one`,
+      line: `The English Indices of Deprivation do not cover ${nationName(nation)} — it publishes its own index on its own scale, which is not filed and is never compared with the English one`,
       lsoaCode,
       lsoaName: null,
       decile: null,
@@ -4268,7 +4271,7 @@ function buildImd(facts: ImdFacts | null, lsoaCode: string | null, nation: Natio
       sourceDate: null,
       sourceLine: null,
       state: "not-filed",
-      line: "no deprivation index figure is filed for this area",
+      line: "No deprivation index figure is filed for this area",
       lsoaCode,
       lsoaName: null,
       decile: null,
@@ -4582,7 +4585,7 @@ function buildAir(facts: AirFacts | null, aqmaFacts: AqmaFacts): AirSection {
       sourceDate: null,
       sourceLine: null,
       state: "not-filed",
-      line: "no modelled air quality square is filed for this point",
+      line: "No modelled air quality square is filed for this point",
       year: null,
       no2: null,
       pm25: null,
@@ -4944,7 +4947,7 @@ function buildNoise(facts: NoiseFacts, nation: Nation): NoiseSection {
       sourceDate: null,
       sourceLine: null,
       state: "not-filed",
-      line: "modelled noise bands are not filed yet, so no noise answer can be given yet",
+      line: "Modelled noise bands are not filed yet, so no noise answer can be given yet",
       bands: [],
       headlineBand: null,
     };
@@ -4956,7 +4959,7 @@ function buildNoise(facts: NoiseFacts, nation: Nation): NoiseSection {
       sourceDate: facts.sourceDate,
       sourceLine: sourceLineOf(facts.sourceName, facts.sourceDate),
       state: "not-covered",
-      line: `the modelled noise mapping filed covers England only — ${nationName(nation)} is not covered`,
+      line: `The modelled noise mapping filed covers England only — ${nationName(nation)} is not covered`,
       bands: [],
       headlineBand: null,
     };
@@ -4971,7 +4974,7 @@ function buildNoise(facts: NoiseFacts, nation: Nation): NoiseSection {
       line:
         row.dayBand && row.nightBand
           ? `${label}: ${row.dayBand} by day, ${row.nightBand} by night`
-          : `no ${label} band is filed for this postcode`,
+          : `No ${label} band is filed for this postcode`,
     };
   });
   const road = facts.rows.find((row) => row.sourceKind === "road");
@@ -4984,7 +4987,7 @@ function buildNoise(facts: NoiseFacts, nation: Nation): NoiseSection {
     line:
       bands.length > 0
         ? "modelled noise bands for this postcode, in the publisher's bands"
-        : "no noise bands are filed for this postcode",
+        : "No noise bands are filed for this postcode",
     bands,
     headlineBand: road?.dayBand ? { sourceKind: "road", dayBand: road.dayBand } : null,
   };
@@ -5119,7 +5122,7 @@ function buildBenefits(
     sourceDate: null,
     sourceLine: null,
     state: anyFiled ? "served" : "not-filed",
-    line: anyFiled ? null : "benefit counts are not filed for this area",
+    line: anyFiled ? null : "Benefit counts are not filed for this area",
     lsoaCode,
     series,
     bases: facts.bases,
@@ -5187,8 +5190,8 @@ function buildSolar(facts: SolarFacts): SolarSection {
       state: "not-filed",
       line:
         facts.gridFiledCount <= 0
-          ? "solar modelling is not filed yet, so no solar answer can be given yet"
-          : "solar modelling is not filed for this area yet",
+          ? "Solar modelling is not filed yet, so no solar answer can be given yet"
+          : "Solar modelling is not filed for this area yet",
       cellRef: null,
       yieldKwhPerKwp: null,
       irradiationKwhM2: null,
@@ -5302,7 +5305,7 @@ function buildBroadband(facts: BroadbandAnswerFacts | null): BroadbandSection {
       sourceDate: null,
       sourceLine: null,
       state: "not-filed",
-      line: "broadband coverage is not filed for this postcode yet",
+      line: "Broadband coverage is not filed for this postcode yet",
       snapshot: null,
       gigabitCapablePct: null,
       superfast30Pct: null,
@@ -5440,10 +5443,10 @@ function toServedMobileSet(
     line:
       set.atLeastOneOperatorPct !== null
         ? `at least one mobile network is modelled to have ${placeWord} coverage at ${fmtPct(set.atLeastOneOperatorPct)}% of premises in ${council}`
-        : `the share of premises in ${council} where at least one mobile network has ${placeWord} coverage is not published for this service`,
+        : `The share of premises in ${council} where at least one mobile network has ${placeWord} coverage is not published for this service`,
     allOperatorsLine: allPublished
       ? `all four mobile networks are modelled to have ${placeWord} coverage at ${fmtPct(set.allOperatorsPct as number)}% of premises in ${council}`
-      : `the share of premises in ${council} where all four mobile networks have ${placeWord} coverage is not published for this service`,
+      : `The share of premises in ${council} where all four mobile networks have ${placeWord} coverage is not published for this service`,
   };
 }
 
@@ -5465,7 +5468,7 @@ function buildMobile(facts: MobileAnswerFacts | null): MobileSection {
       sourceDate: null,
       sourceLine: null,
       state: "not-filed",
-      line: "mobile coverage is not filed for this postcode's council area yet",
+      line: "Mobile coverage is not filed for this postcode's council area yet",
       council: null,
       snapshot: null,
       services: [],
@@ -5573,22 +5576,22 @@ export type AreaBundle =
     };
 
 const RUNG3_SECTION_REASONS: Record<string, string> = {
-  constraints: "planning constraints need an exact postcode",
-  heritage: "heritage answers need an exact postcode",
-  nature: "nature answers need an exact postcode",
-  epc: "energy certificates need an exact postcode",
-  councilTax: "council tax needs an exact postcode",
-  planningApplications: "planning applications need an exact postcode",
-  buildingSafety: "building safety answers need an exact postcode",
+  constraints: "Planning constraints need an exact postcode",
+  heritage: "Heritage answers need an exact postcode",
+  nature: "Nature answers need an exact postcode",
+  epc: "Energy certificates need an exact postcode",
+  councilTax: "Council tax needs an exact postcode",
+  planningApplications: "Planning applications need an exact postcode",
+  buildingSafety: "Building safety answers need an exact postcode",
   census: "Census figures need an exact postcode",
-  imd: "area statistics need an exact postcode",
-  air: "air quality needs an exact postcode",
-  noise: "noise bands need an exact postcode",
-  benefits: "benefit counts need an exact postcode",
-  solar: "solar modelling needs an exact postcode",
-  broadband: "broadband answers need an exact postcode",
-  mobile: "mobile answers need an exact postcode",
-  chargingZones: "charging zones need an exact postcode",
+  imd: "Area statistics need an exact postcode",
+  air: "Air quality needs an exact postcode",
+  noise: "Noise bands need an exact postcode",
+  benefits: "Benefit counts need an exact postcode",
+  solar: "Solar modelling needs an exact postcode",
+  broadband: "Broadband answers need an exact postcode",
+  mobile: "Mobile answers need an exact postcode",
+  chargingZones: "Charging zones need an exact postcode",
 };
 
 // The company-ownership rung-3 reason joins the record

@@ -185,7 +185,7 @@ const FLOOD_BIRKDALE = {
     floodLayer({
       layer: "rofsw",
       pointState: "below-lowest-band",
-      line: "no surface-water band reaches this point — below the lowest band this product publishes",
+      line: "No surface-water band reaches this point — below the lowest band this product publishes",
     }),
   ],
 };
@@ -247,13 +247,17 @@ function birkdaleNearby(): NearbyBundle {
       nearestSelective: null,
       nearestSelectiveLine: "No — none in Braintree",
     }),
-    category({ category: "nurseries", line: "no nursery filed near", state: "empty" }),
+    category({
+      category: "nurseries",
+      line: "No nursery within 2 miles of the postcode point in the childcare register we hold.",
+      state: "empty",
+    }),
     category({
       category: "gp",
       places: [],
       beyondNearest: { latitude: 51.7, longitude: 0.6, name: "Birkdale Surgery", miles: 1.9 },
       state: "none-within",
-      line: "no GP surgery within 1 mile; the nearest is Birkdale Surgery, 1.9 miles away",
+      line: "No GP surgery within 1 mile; the nearest is Birkdale Surgery, 1.9 miles away",
     }),
     category({
       category: "ae",
@@ -538,7 +542,11 @@ describe("card assembly", () => {
     // nearest, exactly as the results page leads with it.
     expect(card?.comparison.gp).toEqual({ kind: "distance", name: "Birkdale Surgery", miles: 1.9 });
     expect(card?.comparison.grammar).toEqual({ kind: "line", text: "No — none in Braintree" });
-    expect(card?.comparison.nursery).toEqual({ kind: "line", text: "no nursery filed near" });
+    // BUG-392: the nursery register line never shows on
+    // the shortlist — with no nursery filed within 25
+    // miles there is nothing to name, so the cell is a
+    // dash (the rung-3 card's BUG-301 form).
+    expect(card?.comparison.nursery).toEqual({ kind: "line", text: "—" });
     // The real cells (founder's ruling, 17 Nov 2026): the
     // flood line derives both bands through the results
     // layer's mapping — the fabricated absence states
@@ -593,6 +601,85 @@ describe("card assembly", () => {
       kind: "distance",
       name: "King Edward VI Grammar School",
       miles: 6.1,
+    });
+  });
+
+  it("assembles the nursery row as a distance cell where the shortlist nearest files (BUG-392/393)", () => {
+    // The brain files the nearest nursery beyond the
+    // radius as shortlistNearest (never beyondNearest, so
+    // the free page and the report keep the register
+    // line): the cell names it, and the school band colours
+    // it red past 2 miles — the founder's "find the
+    // nearest one and mark it red".
+    const nurseryBeyond = nearbyWith([
+      category({
+        category: "nurseries",
+        state: "empty",
+        line: "No nursery within 2 miles of the postcode point in the childcare register we hold.",
+        shortlistNearest: {
+          name: "Far Away Nursery",
+          miles: 4.4,
+          latitude: 51.4,
+          longitude: -0.2,
+        },
+      }),
+    ]);
+    const card = buildShortlistCard({
+      resolution: birkdale,
+      nearby: nurseryBeyond,
+      sold: birkdaleSold,
+      short: shortWith(TAX_SERVED),
+    });
+    expect(card?.comparison.nursery).toEqual({
+      kind: "distance",
+      name: "Far Away Nursery",
+      miles: 4.4,
+    });
+    expect(comparisonCellBand("nursery", "school", card?.comparison.nursery as ShortlistCell)).toBe(
+      "red",
+    );
+  });
+
+  it("assembles the nursery row as a dash where no nursery files within 25 miles (BUG-392)", () => {
+    // No shortlist nearest: the register line is banned
+    // from this page, and there is nothing to name — the
+    // cell is a dash, never the line.
+    const nurseryEmpty = nearbyWith([
+      category({
+        category: "nurseries",
+        state: "empty",
+        line: "No nursery within 2 miles of the postcode point in the childcare register we hold.",
+      }),
+    ]);
+    const card = buildShortlistCard({
+      resolution: birkdale,
+      nearby: nurseryEmpty,
+      sold: birkdaleSold,
+      short: shortWith(TAX_SERVED),
+    });
+    expect(card?.comparison.nursery).toEqual({ kind: "line", text: "—" });
+  });
+
+  it("assembles the nursery row's named state where the table is not filed (BUG-392)", () => {
+    // The ban is on the register line only: a not-filed
+    // nursery still shows its own named state, exactly as
+    // the other rows show theirs.
+    const nurseryUnfiled = nearbyWith([
+      category({
+        category: "nurseries",
+        state: "not-filed",
+        line: "The nurseries data is not filed yet, so no nurseries answer can be given yet",
+      }),
+    ]);
+    const card = buildShortlistCard({
+      resolution: birkdale,
+      nearby: nurseryUnfiled,
+      sold: birkdaleSold,
+      short: shortWith(TAX_SERVED),
+    });
+    expect(card?.comparison.nursery).toEqual({
+      kind: "line",
+      text: "The nurseries data is not filed yet, so no nurseries answer can be given yet",
     });
   });
 
@@ -797,12 +884,12 @@ describe("card assembly", () => {
       rung: 3,
       kind: "wider-area",
       sections: {
-        soldPrices: { state: "unavailable", reason: "sold prices need an exact postcode" },
-        crime: { state: "unavailable", reason: "crime counts need an exact postcode" },
+        soldPrices: { state: "unavailable", reason: "Sold prices need an exact postcode" },
+        crime: { state: "unavailable", reason: "Crime counts need an exact postcode" },
         nearby: { state: "unavailable", reason: "distances need an exact postcode" },
-        flood: { state: "unavailable", reason: "flood answers need an exact postcode" },
-        air: { state: "unavailable", reason: "air quality needs an exact postcode" },
-        councilTax: { state: "unavailable", reason: "council tax needs an exact postcode" },
+        flood: { state: "unavailable", reason: "Flood answers need an exact postcode" },
+        air: { state: "unavailable", reason: "Air quality needs an exact postcode" },
+        councilTax: { state: "unavailable", reason: "Council tax needs an exact postcode" },
       },
     } as unknown as ShortBundle;
     const card = buildShortlistCard({ resolution, short });
@@ -812,7 +899,7 @@ describe("card assembly", () => {
     expect(card?.addressLine).toBe("Wider area — E16, not this exact home");
     expect(card?.lastSale).toBeNull();
     expect(card?.factsLine).toBe(
-      "sold prices need an exact postcode • crime counts need an exact postcode",
+      "Sold prices need an exact postcode • Crime counts need an exact postcode",
     );
     expect(card?.comparison.station).toEqual({ kind: "line", text: "—" });
     // BUG-301: the nearby reason stands once, on
@@ -827,15 +914,15 @@ describe("card assembly", () => {
     }
     expect(card?.comparison.flood).toEqual({
       kind: "line",
-      text: "flood answers need an exact postcode",
+      text: "Flood answers need an exact postcode",
     });
     expect(card?.comparison.air).toEqual({
       kind: "line",
-      text: "air quality needs an exact postcode",
+      text: "Air quality needs an exact postcode",
     });
     expect(card?.comparison.councilTax).toEqual({
       kind: "line",
-      text: "council tax needs an exact postcode",
+      text: "Council tax needs an exact postcode",
     });
   });
   it("BUG-297: a crime rate exactly at the England average speaks the verdict in plain words, not a bare count", () => {
@@ -884,7 +971,7 @@ describe("card assembly", () => {
             floodLayer({
               layer: "rofsw",
               pointState: "not-filed",
-              line: "this flood map is not filed yet, so no answer can be given from it",
+              line: "This flood map is not filed yet, so no answer can be given from it",
             }),
           ],
         },
@@ -896,7 +983,7 @@ describe("card assembly", () => {
         { text: "Rivers & sea: " },
         { text: "High", band: "red" },
         { text: " · Surface water: " },
-        { text: "this flood map is not filed yet, so no answer can be given from it" },
+        { text: "This flood map is not filed yet, so no answer can be given from it" },
       ],
     });
   });
@@ -979,12 +1066,12 @@ describe("BUG-309: the staleness test for a saved snapshot", () => {
       rung: 3,
       kind: "wider-area",
       sections: {
-        soldPrices: { state: "unavailable", reason: "sold prices need an exact postcode" },
-        crime: { state: "unavailable", reason: "crime counts need an exact postcode" },
+        soldPrices: { state: "unavailable", reason: "Sold prices need an exact postcode" },
+        crime: { state: "unavailable", reason: "Crime counts need an exact postcode" },
         nearby: { state: "unavailable", reason: "distances need an exact postcode" },
-        flood: { state: "unavailable", reason: "flood answers need an exact postcode" },
-        air: { state: "unavailable", reason: "air quality needs an exact postcode" },
-        councilTax: { state: "unavailable", reason: "council tax needs an exact postcode" },
+        flood: { state: "unavailable", reason: "Flood answers need an exact postcode" },
+        air: { state: "unavailable", reason: "Air quality needs an exact postcode" },
+        councilTax: { state: "unavailable", reason: "Council tax needs an exact postcode" },
       },
     } as unknown as ShortBundle;
     const card = buildShortlistCard({ resolution, short });
@@ -1048,6 +1135,61 @@ describe("BUG-309: the staleness test for a saved snapshot", () => {
         },
       }),
     ).toBe(true);
+  });
+
+  it("an air line in the verdict-first text with a band is stale (BUG-394)", () => {
+    // Saved after BUG-361 put the verdict words ahead
+    // of the figures and before BUG-394 reshaped the
+    // cell to segments: the whole "verdict · figures"
+    // text would take the pill's colour, so a fresh
+    // derivation restores the verdict-only colour.
+    const card = currentRung1Card();
+    expect(
+      isStaleShortlistCard({
+        ...card,
+        comparison: {
+          ...card.comparison,
+          air: {
+            kind: "line",
+            text: "Within UK legal limits · NO2 21.71 µg/m³ a year · PM2.5 9.94 µg/m³ · PM10 16.97 µg/m³",
+            band: "orange",
+          },
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it("a nursery line carrying the register line is stale (BUG-392)", () => {
+    // Saved before BUG-392/393: the shortlist carried the
+    // register line as a line cell. Current assembly never
+    // produces it — a nearest files as a distance cell, no
+    // nearest files as a dash — so a fresh derivation
+    // restores the named nearest or the dash. Both the
+    // pre-BUG-395 lowercase form and the capitalised form
+    // trip it (the two fixes land in one push, but a card
+    // saved between them would carry the capitalised form).
+    const card = currentRung1Card();
+    for (const text of [
+      "no nursery within 2 miles of the postcode point in the childcare register we hold.",
+      "No nursery within 2 miles of the postcode point in the childcare register we hold.",
+    ]) {
+      expect(
+        isStaleShortlistCard({
+          ...card,
+          comparison: { ...card.comparison, nursery: { kind: "line", text } },
+        }),
+      ).toBe(true);
+    }
+  });
+
+  it("a nursery dash is not stale — no nearest within 25 miles is a current shape (BUG-392)", () => {
+    const card = currentRung1Card();
+    expect(
+      isStaleShortlistCard({
+        ...card,
+        comparison: { ...card.comparison, nursery: { kind: "line", text: "—" } },
+      }),
+    ).toBe(false);
   });
 
   it("a bandless figures-only air line is not stale — no band to derive a verdict from (BUG-361)", () => {
@@ -1219,7 +1361,7 @@ describe("the comparison's colour coding (BUG-163)", () => {
     expect(
       comparisonCellBand("flood", null, {
         kind: "line",
-        text: "flood answers need an exact postcode",
+        text: "Flood answers need an exact postcode",
       }),
     ).toBeNull();
     // Crime's verdict needs the calibration pair, which
@@ -1292,9 +1434,11 @@ describe("the Air quality row (BUG-164)", () => {
       pm10: 20,
     });
     expect(card?.comparison.air).toEqual({
-      kind: "line",
-      text: "Above a UK legal limit · NO2 45.20 µg/m³ a year · PM2.5 12.00 µg/m³ · PM10 20.00 µg/m³",
-      band: "red",
+      kind: "segments",
+      segments: [
+        { text: "Above a UK legal limit", band: "red" },
+        { text: " · NO2 45.20 µg/m³ a year · PM2.5 12.00 µg/m³ · PM10 20.00 µg/m³" },
+      ],
     });
   });
 
@@ -1308,9 +1452,11 @@ describe("the Air quality row (BUG-164)", () => {
       pm10: 12,
     });
     expect(card?.comparison.air).toEqual({
-      kind: "line",
-      text: "Well within UK legal limits · NO2 8.00 µg/m³ a year · PM2.5 4.00 µg/m³ · PM10 12.00 µg/m³",
-      band: "green",
+      kind: "segments",
+      segments: [
+        { text: "Well within UK legal limits", band: "green" },
+        { text: " · NO2 8.00 µg/m³ a year · PM2.5 4.00 µg/m³ · PM10 12.00 µg/m³" },
+      ],
     });
   });
 
@@ -1329,9 +1475,11 @@ describe("the Air quality row (BUG-164)", () => {
       pm10: 12.55,
     });
     expect(card?.comparison.air).toEqual({
-      kind: "line",
-      text: "Well within UK legal limits · NO2 8.15 µg/m³ a year · PM2.5 7.12 µg/m³ · PM10 12.55 µg/m³",
-      band: "green",
+      kind: "segments",
+      segments: [
+        { text: "Well within UK legal limits", band: "green" },
+        { text: " · NO2 8.15 µg/m³ a year · PM2.5 7.12 µg/m³ · PM10 12.55 µg/m³" },
+      ],
     });
   });
 
@@ -1345,9 +1493,11 @@ describe("the Air quality row (BUG-164)", () => {
       pm10: 22,
     });
     expect(card?.comparison.air).toEqual({
-      kind: "line",
-      text: "Within UK legal limits · NO2 25.00 µg/m³ a year · PM2.5 12.00 µg/m³ · PM10 22.00 µg/m³",
-      band: "orange",
+      kind: "segments",
+      segments: [
+        { text: "Within UK legal limits", band: "orange" },
+        { text: " · NO2 25.00 µg/m³ a year · PM2.5 12.00 µg/m³ · PM10 22.00 µg/m³" },
+      ],
     });
   });
 
@@ -1361,9 +1511,11 @@ describe("the Air quality row (BUG-164)", () => {
       pm10: 12,
     });
     expect(half?.comparison.air).toEqual({
-      kind: "line",
-      text: "Within UK legal limits · NO2 20.00 µg/m³ a year · PM2.5 4.00 µg/m³ · PM10 12.00 µg/m³",
-      band: "orange",
+      kind: "segments",
+      segments: [
+        { text: "Within UK legal limits", band: "orange" },
+        { text: " · NO2 20.00 µg/m³ a year · PM2.5 4.00 µg/m³ · PM10 12.00 µg/m³" },
+      ],
     });
     const atLimit = cardWithAir({
       state: "served",
@@ -1374,16 +1526,18 @@ describe("the Air quality row (BUG-164)", () => {
       pm10: 40,
     });
     expect(atLimit?.comparison.air).toEqual({
-      kind: "line",
-      text: "Within UK legal limits · NO2 40.00 µg/m³ a year · PM2.5 20.00 µg/m³ · PM10 40.00 µg/m³",
-      band: "orange",
+      kind: "segments",
+      segments: [
+        { text: "Within UK legal limits", band: "orange" },
+        { text: " · NO2 40.00 µg/m³ a year · PM2.5 20.00 µg/m³ · PM10 40.00 µg/m³" },
+      ],
     });
   });
 
   it("carries the section's own named line, plain, where no air square is filed", () => {
     const card = cardWithAir({
       state: "not-filed",
-      line: "no modelled air quality square is filed for this point",
+      line: "No modelled air quality square is filed for this point",
       year: null,
       no2: null,
       pm25: null,
@@ -1391,7 +1545,7 @@ describe("the Air quality row (BUG-164)", () => {
     });
     expect(card?.comparison.air).toEqual({
       kind: "line",
-      text: "no modelled air quality square is filed for this point",
+      text: "No modelled air quality square is filed for this point",
     });
   });
 

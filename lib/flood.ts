@@ -32,7 +32,7 @@ import { RADIUS_MILES } from "./nearby";
 // The ruled shape (D25):
 //   - Rung 1 and rung 2 serve the IDENTICAL answer, computed
 //     from and worded as the postcode point; rung 3 serves the
-//     named state "flood answers need an exact postcode" with
+//     named state "Flood answers need an exact postcode" with
 //     no flood payload; rung 4 nothing.
 //   - Coverage is England only: the three products are
 //     Environment Agency products. The nation is read from the
@@ -154,7 +154,7 @@ import { RADIUS_MILES } from "./nearby";
 // scenario Low is two products' facts, never a computed
 // change, and no served line ever sets them side by side.
 
-export const FLOOD_UNAVAILABLE_REASON = "flood answers need an exact postcode";
+export const FLOOD_UNAVAILABLE_REASON = "Flood answers need an exact postcode";
 
 // The limits, stated plainly (D25's insurance boundary; the
 // closing sentence is D27's unknown-source statement). This
@@ -823,10 +823,10 @@ export const FLOOD_DEFENCES_BRIDGE =
 // it, in the caveat's own terms, so an empty list can never
 // read as "no defences exist".
 export const FLOOD_DEFENCES_NONE_LINE =
-  "no EA-recorded flood defence is mapped within 2 miles of this postcode point. The record covers the defences the Environment Agency owns, manages or inspects — defences recorded by other bodies, and defences on smaller watercourses, are not in it.";
+  "No EA-recorded flood defence is mapped within 2 miles of this postcode point. The record covers the defences the Environment Agency owns, manages or inspects — defences recorded by other bodies, and defences on smaller watercourses, are not in it.";
 
 export const FLOOD_DEFENCES_NOT_FILED_LINE =
-  "recorded flood defences are not filed yet, so no answer can be given from them";
+  "Recorded flood defences are not filed yet, so no answer can be given from them";
 
 // The condition grades in the Agency's own words, mapped
 // from the filed TEXT codes (the FLOOD_ZONE_DEFINITIONS
@@ -841,10 +841,10 @@ export const DEFENCE_CONDITION_GRADES: Record<string, string> = {
   "4": "Poor",
   "5": "Very Poor",
 };
-export const DEFENCE_NO_CONDITION_LINE = "no condition is recorded for this defence";
-export const DEFENCE_NO_MAINTAINER_LINE = "no maintainer is recorded for this defence";
-export const DEFENCE_NO_DESIGN_SOP_LINE = "no design standard is recorded for this defence";
-export const DEFENCE_NO_CURRENT_SOP_LINE = "no current standard is recorded for this defence";
+export const DEFENCE_NO_CONDITION_LINE = "No condition is recorded for this defence";
+export const DEFENCE_NO_MAINTAINER_LINE = "No maintainer is recorded for this defence";
+export const DEFENCE_NO_DESIGN_SOP_LINE = "No design standard is recorded for this defence";
+export const DEFENCE_NO_CURRENT_SOP_LINE = "No current standard is recorded for this defence";
 
 // The D13 lines for the standards of protection: a bare
 // "1 in 100" is meaningless, so each figure travels with
@@ -1110,13 +1110,13 @@ function nationOf(lsoaCode: string | null): Nation {
 function notCoveredReason(nation: Nation): string {
   switch (nation) {
     case "wales":
-      return "flood answers are not covered for Wales — the Environment Agency's flood maps cover England only, and flood maps for Wales are published by Natural Resources Wales";
+      return "Flood answers are not covered for Wales — the Environment Agency's flood maps cover England only, and flood maps for Wales are published by Natural Resources Wales";
     case "scotland":
-      return "flood answers are not covered for Scotland — the Environment Agency's flood maps cover England only, and flood maps for Scotland are published by the Scottish Environment Protection Agency";
+      return "Flood answers are not covered for Scotland — the Environment Agency's flood maps cover England only, and flood maps for Scotland are published by the Scottish Environment Protection Agency";
     case "northern-ireland":
-      return "flood answers are not covered for Northern Ireland — the Environment Agency's flood maps cover England only";
+      return "Flood answers are not covered for Northern Ireland — the Environment Agency's flood maps cover England only";
     default:
-      return "the Environment Agency's flood maps cover England only, and this postcode's filed area code does not place it in England";
+      return "The Environment Agency's flood maps cover England only, and this postcode's filed area code does not place it in England";
   }
 }
 
@@ -1185,7 +1185,7 @@ function pointLine(spec: LayerSpec, covering: ServedFloodLabel | null): string {
   }
   switch (spec.type) {
     case "flood_zone":
-      return "the postcode point is not in Flood Zone 2 or Flood Zone 3 on the Environment Agency's planning map";
+      return "The postcode point is not in Flood Zone 2 or Flood Zone 3 on the Environment Agency's planning map";
     case "rofrs":
       // BUG-343 (25 Nov 2026): the free page's flood pill
       // reads this absence as "Very low" (lib/journey.ts's
@@ -1200,7 +1200,7 @@ function pointLine(spec: LayerSpec, covering: ServedFloodLabel | null): string {
       // the free page's own rendering keys off it.
       return "the postcode point is below the lowest band the Environment Agency publishes on its map of flooding from rivers and the sea — Very low";
     case "rofsw":
-      return "no surface-water band reaches this point — below the lowest band this product publishes";
+      return "No surface-water band reaches this point — below the lowest band this product publishes";
   }
 }
 
@@ -1231,7 +1231,7 @@ function buildLayer(spec: LayerSpec, facts: FloodLayerFacts): ServedFloodLayer {
   if (facts.filedCount <= 0) {
     return {
       ...base,
-      line: "this flood map is not filed yet, so no answer can be given from it",
+      line: "This flood map is not filed yet, so no answer can be given from it",
     };
   }
 
@@ -1270,7 +1270,7 @@ function buildLayer(spec: LayerSpec, facts: FloodLayerFacts): ServedFloodLayer {
     const displayLabel = labelFor(spec.type, beyond.riskLabel, beyond.detail).displayLabel;
     const miles = round3(beyond.miles);
     layer.beyondNearest = { displayLabel, miles };
-    layer.beyondLine = `none within ${RADIUS_MILES} miles — the nearest mapped edge is ${displayLabel}, ${miles} miles away`;
+    layer.beyondLine = `None within ${RADIUS_MILES} miles — the nearest mapped edge is ${displayLabel}, ${miles} miles away`;
   }
 
   return layer;
@@ -1430,7 +1430,7 @@ function buildClimateSource(spec: ClimateSpec, facts: FloodClimateFacts): Served
   if (facts.filedCount <= 0) {
     return {
       ...base,
-      line: `the climate scenario map of ${spec.mapPhrase} is not filed yet, so no answer can be given from it`,
+      line: `The climate scenario map of ${spec.mapPhrase} is not filed yet, so no answer can be given from it`,
     };
   }
   if (facts.coveringLabel) {
@@ -1449,7 +1449,7 @@ function buildClimateSource(spec: ClimateSpec, facts: FloodClimateFacts): Served
   return {
     ...base,
     pointState: "no-band-published",
-    line: `no likelihood band is published for this point under this scenario on the Environment Agency's climate scenario map of ${spec.mapPhrase}`,
+    line: `No likelihood band is published for this point under this scenario on the Environment Agency's climate scenario map of ${spec.mapPhrase}`,
   };
 }
 

@@ -243,7 +243,7 @@ function shortSections(): ShortSections {
       builtUpArea: polygon("this postcode point is inside a built-up area"),
       brownfield: {
         state: "none-found",
-        line: "no brownfield site is filed within 2 miles",
+        line: "No brownfield site is filed within 2 miles",
         countWithin: 0,
         nearest: null,
         beyondLine: null,

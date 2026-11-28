@@ -555,7 +555,7 @@ describe("sold prices — ladder rungs (M6.3)", () => {
     expect(bundle).toEqual({
       rung: 3,
       kind: "wider-area",
-      soldPrices: { state: "unavailable", reason: "sold prices need an exact postcode" },
+      soldPrices: { state: "unavailable", reason: "Sold prices need an exact postcode" },
     });
     const serialised = JSON.stringify(bundle);
     expect(serialised).not.toContain("588995");
@@ -572,7 +572,7 @@ describe("sold prices — ladder rungs (M6.3)", () => {
     expect(bundle).toEqual({
       rung: 4,
       kind: "no-location",
-      soldPrices: { state: "unavailable", reason: "sold prices need an exact postcode" },
+      soldPrices: { state: "unavailable", reason: "Sold prices need an exact postcode" },
     });
     expect(source.loadCalls()).toEqual([]);
   });

@@ -343,6 +343,16 @@ export function paymentGiftLockedNote(email: string): string {
 }
 export const PAYMENT_GIFT_USE_DIFFERENT_EMAIL = "Use a different email";
 
+// BUG-398 (27 Nov 2026): the in-flight line — what
+// the tapped control says while the intent is being
+// created. "Starting…" is the checking screens' word
+// for exactly this phase (the intent is starting, the
+// card panel has not loaded yet — its own line,
+// "Loading the card panel...", stands after the intent
+// answers). The copy is the founder's to overrule, as
+// with the other lines.
+export const PAYMENT_STARTING_LINE = "Starting…";
+
 // The page's own failure lines (this build's copy, in
 // Sample 9's error-line manner: name the failure, state
 // plainly that nothing was charged, invite a retry).

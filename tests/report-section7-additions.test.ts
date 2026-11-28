@@ -88,7 +88,7 @@ describe("report — Section 7 additions (M8.10): building safety", () => {
         state: "handed-off",
         grain: "home",
         grainLine: "this building, in the Building Safety Regulator's register",
-        line: "whether this building is on the Building Safety Regulator's register of high-rise residential buildings can only be checked on the register's own search service — we do not hold a copy of the register, so no register answer is given here; the link below takes you to the official search, where you enter the postcode",
+        line: "Whether this building is on the Building Safety Regulator's register of high-rise residential buildings can only be checked on the register's own search service — we do not hold a copy of the register, so no register answer is given here; the link below takes you to the official search, where you enter the postcode",
         link: {
           label: "Search the register of high-rise residential buildings (GOV.UK)",
           url: "https://www.register-high-rise-building.service.gov.uk/public-register/search",
@@ -366,7 +366,7 @@ describe("report — Section 7 additions (M8.10): broadband & mobile depth", () 
       allOperatorsLine:
         all !== null
           ? `all four mobile networks are modelled to have ${placeWord} coverage at ${all}% of premises in Braintree`
-          : `the share of premises in Braintree where all four mobile networks have ${placeWord} coverage is not published for this service`,
+          : `The share of premises in Braintree where all four mobile networks have ${placeWord} coverage is not published for this service`,
     });
     area.sections.mobile.services = [
       {
@@ -528,7 +528,7 @@ describe("report — Section 7 additions (M8.10): broadband & mobile depth", () 
           noOperatorPct: 16,
           line: "at least one mobile network is modelled to have outdoor coverage at 84% of premises in Braintree",
           allOperatorsLine:
-            "the share of premises in Braintree where all four mobile networks have outdoor coverage is not published for this service",
+            "The share of premises in Braintree where all four mobile networks have outdoor coverage is not published for this service",
         },
         indoor: null,
       },
@@ -582,7 +582,7 @@ describe("report — Section 7 additions (M8.10): brownfield & built-up area in 
       insideName: null,
       nearest: null,
       beyondNearest: { name: "Newham", miles: 3.1 },
-      beyondLine: "none within 2 miles — the nearest is Newham, 3.1 miles away",
+      beyondLine: "None within 2 miles — the nearest is Newham, 3.1 miles away",
     };
     area.sections.constraints.brownfield = {
       label: "Brownfield land",
@@ -669,7 +669,7 @@ describe("report — Section 7 additions (M8.10): brownfield & built-up area in 
     area.sections.constraints.brownfield = {
       ...area.sections.constraints.brownfield,
       state: "not-published",
-      line: "this council does not supply the national brownfield register, so no finding can be made from the data — the council's own brownfield register is the record",
+      line: "This council does not supply the national brownfield register, so no finding can be made from the data — the council's own brownfield register is the record",
     };
     const built = buildReportView(input({ area }));
     const text = sectionText(built, 7);
@@ -700,7 +700,7 @@ describe("report — Section 7 additions (M8.10): planning constraints grouping 
       layer: "conservation_area",
       label: "Conservation area",
       state: "none-found",
-      line: "no conservation area found in the national data, checked 10 November 2026",
+      line: "No conservation area found in the national data, checked 10 November 2026",
       insideName: null,
       nearest: { name: "Chelmer and Blackwater Navigation", miles: 1.473 },
       beyondNearest: null,
@@ -722,11 +722,11 @@ describe("report — Section 7 additions (M8.10): planning constraints grouping 
       layer: "green_belt",
       label: "Green belt",
       state: "none-found",
-      line: "no green belt covers this postcode point in the national data",
+      line: "No green belt covers this postcode point in the national data",
       insideName: null,
       nearest: null,
       beyondNearest: { name: "London", miles: 5.831 },
-      beyondLine: "none within 2 miles — the nearest is London, 5.831 miles away",
+      beyondLine: "None within 2 miles — the nearest is London, 5.831 miles away",
     };
     area.sections.constraints.builtUpArea = {
       ...area.sections.constraints.builtUpArea,
@@ -993,7 +993,7 @@ describe("report — Section 7 additions (M8.10): registered parks & gardens", (
     area2.sections.heritage.parksAndGardens = {
       ...area2.sections.heritage.parksAndGardens,
       state: "none-found",
-      line: "no registered park and garden covers this postcode point in the national data",
+      line: "No registered park and garden covers this postcode point in the national data",
       nearest: { name: "Nonsuch Park", miles: 1.234 },
       beyondLine: null,
     };
@@ -1012,10 +1012,10 @@ describe("report — Section 7 additions (M8.10): registered parks & gardens", (
     area3.sections.heritage.parksAndGardens = {
       ...area3.sections.heritage.parksAndGardens,
       state: "none-found",
-      line: "no registered park and garden covers this postcode point in the national data",
+      line: "No registered park and garden covers this postcode point in the national data",
       nearest: null,
       beyondNearest: { name: "Nonsuch Park", miles: 2.412 },
-      beyondLine: "none within 2 miles — the nearest is Nonsuch Park, 2.412 miles away",
+      beyondLine: "None within 2 miles — the nearest is Nonsuch Park, 2.412 miles away",
     };
     const beyond = buildReportView(input({ area: area3 }));
     const beyondText = sectionText(beyond, 7);

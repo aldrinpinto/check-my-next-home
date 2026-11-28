@@ -486,7 +486,7 @@ describe("crime — ladder rungs (M6.4)", () => {
     expect(bundle).toEqual({
       rung: 3,
       kind: "wider-area",
-      crime: { state: "unavailable", reason: "crime counts need an exact postcode" },
+      crime: { state: "unavailable", reason: "Crime counts need an exact postcode" },
     });
     const serialised = JSON.stringify(bundle);
     expect(serialised).not.toContain("330");
@@ -501,7 +501,7 @@ describe("crime — ladder rungs (M6.4)", () => {
     expect(bundle).toEqual({
       rung: 4,
       kind: "no-location",
-      crime: { state: "unavailable", reason: "crime counts need an exact postcode" },
+      crime: { state: "unavailable", reason: "Crime counts need an exact postcode" },
     });
   });
 });

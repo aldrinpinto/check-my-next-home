@@ -365,7 +365,7 @@ describe("matrix — the address ladder's own states", () => {
     });
     const area = await buildAreaBundle(rung3, new MatrixAreaSource());
     if (area.kind !== "wider-area") throw new Error("expected wider-area");
-    expect(area.area.reason).toBe("area answers need an exact postcode");
+    expect(area.area.reason).toBe("Area answers need an exact postcode");
     expect(Object.keys(area.area.sections)).toHaveLength(16);
   });
 
@@ -375,7 +375,7 @@ describe("matrix — the address ladder's own states", () => {
     expect(area).toEqual({
       rung: 4,
       kind: "no-location",
-      area: { state: "unavailable", reason: "area answers need an exact postcode" },
+      area: { state: "unavailable", reason: "Area answers need an exact postcode" },
     });
   });
 });
@@ -494,7 +494,7 @@ describe("matrix — nearby", () => {
     const { answer } = await categoryOf(source, "gp");
     expect(answer.state).toBe("none-within");
     expect(answer.beyondNearest?.name).toBe("Far Surgery");
-    expect(answer.line).toContain("none within 2 miles — nearest is Far Surgery");
+    expect(answer.line).toContain("None within 2 miles — nearest is Far Surgery");
   });
 
   it("empty-map: a What's Nearby group with nothing filed within the radius is a fact about the map", async () => {
@@ -503,7 +503,7 @@ describe("matrix — nearby", () => {
     const { answer } = await categoryOf(source, "food-and-drink");
     expect(answer.state).toBe("empty-map");
     expect(answer.line).toBe(
-      "no food and drink places recorded within 2 miles on the map data we hold — a gap in the map is not proof that none exists",
+      "No food and drink places recorded within 2 miles on the map data we hold — a gap in the map is not proof that none exists",
     );
   });
 
@@ -513,7 +513,7 @@ describe("matrix — nearby", () => {
     const { answer } = await categoryOf(source, "nurseries");
     expect(answer.state).toBe("empty");
     expect(answer.line).toBe(
-      "no nursery within 2 miles of the postcode point in the childcare register we hold.",
+      "No nursery within 2 miles of the postcode point in the childcare register we hold.",
     );
   });
 
@@ -525,13 +525,13 @@ describe("matrix — nearby", () => {
     const gp = await categoryOf(source, "gp");
     expect(gp.answer.state).toBe("not-filed");
     expect(gp.answer.line).toBe(
-      "the GP surgeries data is not filed yet, so no GP surgeries answer can be given yet",
+      "The GP surgeries data is not filed yet, so no GP surgeries answer can be given yet",
     );
     expect(gp.answer.places).toEqual([]);
     const parks = await categoryOf(source, "parks");
     expect(parks.answer.state).toBe("not-filed");
     expect(parks.answer.line).toBe(
-      "the parks and greenspace data is not filed yet, so no parks and greenspace answer can be given yet",
+      "The parks and greenspace data is not filed yet, so no parks and greenspace answer can be given yet",
     );
     expectClean(gp.bundle);
   });
@@ -542,7 +542,7 @@ describe("matrix — nearby", () => {
     const { answer } = await categoryOf(source, "supermarket");
     expect(answer.state).toBe("none-within");
     expect(answer.line).toBe(
-      "no supermarkets recorded within 2 miles on the map data we hold — a gap in the map is not proof that none exists",
+      "No supermarkets recorded within 2 miles on the map data we hold — a gap in the map is not proof that none exists",
     );
     expectClean(answer);
   });
@@ -557,7 +557,7 @@ describe("matrix — nearby", () => {
     const { answer } = await categoryOf(source, "gp");
     expect(answer.state).toBe("none-within");
     expect(answer.beyondNearest).toBeNull();
-    expect(answer.line).toBe("no GP surgeries within 2 miles of the postcode point");
+    expect(answer.line).toBe("No GP surgeries within 2 miles of the postcode point");
   });
 
   it("sixth forms and colleges (M6.33, D51/D64): within, none-within and not-filed in the category's own words", async () => {
@@ -582,7 +582,7 @@ describe("matrix — nearby", () => {
     expect(none.answer.state).toBe("none-within");
     expect(none.answer.beyondNearest?.name).toBe("Far College");
     expect(none.answer.beyondNearest?.miles).toBeCloseTo(6.208, 1);
-    expect(none.answer.line).toContain("none within 5 miles — nearest is Far College");
+    expect(none.answer.line).toContain("None within 5 miles — nearest is Far College");
 
     const unfiledSource = new MatrixNearbySource();
     filedEverywhere(unfiledSource);
@@ -590,7 +590,7 @@ describe("matrix — nearby", () => {
     const unfiled = await categoryOf(unfiledSource, "sixth-forms");
     expect(unfiled.answer.state).toBe("not-filed");
     expect(unfiled.answer.line).toBe(
-      "the sixth forms and colleges data is not filed yet, so no sixth forms and colleges answer can be given yet",
+      "The sixth forms and colleges data is not filed yet, so no sixth forms and colleges answer can be given yet",
     );
     expect(unfiled.answer.places).toEqual([]);
     expectClean(unfiled.bundle);
@@ -796,12 +796,12 @@ describe("matrix — sold prices", () => {
     const scotland = await buildSoldPricesBundle(SCO_HOME, source);
     if (scotland.kind !== "not-covered") throw new Error("expected not-covered");
     expect(scotland.soldPrices.reason).toBe(
-      "sold prices are not covered for Scotland — HM Land Registry publishes Price Paid for England and Wales only; property sales in Scotland are recorded by Registers of Scotland",
+      "Sold prices are not covered for Scotland — HM Land Registry publishes Price Paid for England and Wales only; property sales in Scotland are recorded by Registers of Scotland",
     );
     const ni = await buildSoldPricesBundle(NI_HOME, source);
     if (ni.kind !== "not-covered") throw new Error("expected not-covered");
     expect(ni.soldPrices.reason).toBe(
-      "sold prices are not covered for Northern Ireland — HM Land Registry publishes Price Paid for England and Wales only",
+      "Sold prices are not covered for Northern Ireland — HM Land Registry publishes Price Paid for England and Wales only",
     );
     expectClean(scotland);
   });
@@ -818,7 +818,7 @@ describe("matrix — sold prices", () => {
     expect(rung3).toEqual({
       rung: 3,
       kind: "wider-area",
-      soldPrices: { state: "unavailable", reason: "sold prices need an exact postcode" },
+      soldPrices: { state: "unavailable", reason: "Sold prices need an exact postcode" },
     });
   });
 });
@@ -981,7 +981,7 @@ describe("matrix — crime", () => {
     if (bundle.kind !== "crime") throw new Error("expected a crime bundle");
     expect(bundle.crime).toEqual({
       state: "not-filed",
-      reason: "crime counts could not be loaded for this postcode, so no crime answer can be given",
+      reason: "Crime counts could not be loaded for this postcode, so no crime answer can be given",
     });
     expect(JSON.stringify(bundle)).not.toContain("total");
     expectClean(bundle);
@@ -992,12 +992,12 @@ describe("matrix — crime", () => {
     const scotland = await buildCrimeBundle(SCO_HOME, source, { now: CRIME_NOW });
     if (scotland.kind !== "not-covered") throw new Error("expected not-covered");
     expect(scotland.crime.reason).toBe(
-      "crime counts are not covered for Scotland — Police.uk publishes street-level data for England and Wales forces only; recorded crime in Scotland is published by Police Scotland",
+      "Crime counts are not covered for Scotland — Police.uk publishes street-level data for England and Wales forces only; recorded crime in Scotland is published by Police Scotland",
     );
     const ni = await buildCrimeBundle(NI_HOME, source, { now: CRIME_NOW });
     if (ni.kind !== "not-covered") throw new Error("expected not-covered");
     expect(ni.crime.reason).toBe(
-      "crime counts are not covered for Northern Ireland — Police.uk publishes street-level data for England and Wales forces only; recorded crime in Northern Ireland is published by the Police Service of Northern Ireland",
+      "Crime counts are not covered for Northern Ireland — Police.uk publishes street-level data for England and Wales forces only; recorded crime in Northern Ireland is published by the Police Service of Northern Ireland",
     );
     // Coverage is decided before any load is attempted.
     expect(source.loadCalls).toEqual([]);
@@ -1014,7 +1014,7 @@ describe("matrix — crime", () => {
     expect(rung3).toEqual({
       rung: 3,
       kind: "wider-area",
-      crime: { state: "unavailable", reason: "crime counts need an exact postcode" },
+      crime: { state: "unavailable", reason: "Crime counts need an exact postcode" },
     });
     const rung4 = await buildCrimeBundle({ rung: 4, kind: "no-location" }, source, {
       now: CRIME_NOW,
@@ -1022,7 +1022,7 @@ describe("matrix — crime", () => {
     expect(rung4).toEqual({
       rung: 4,
       kind: "no-location",
-      crime: { state: "unavailable", reason: "crime counts need an exact postcode" },
+      crime: { state: "unavailable", reason: "Crime counts need an exact postcode" },
     });
   });
 
@@ -1155,7 +1155,7 @@ describe("matrix — flood", () => {
     const byLayer = new Map(bundle.flood.layers.map((l) => [l.layer, l]));
     expect(byLayer.get("flood_zone")?.pointState).toBe("zone-1");
     expect(byLayer.get("flood_zone")?.line).toBe(
-      "the postcode point is not in Flood Zone 2 or Flood Zone 3 on the Environment Agency's planning map",
+      "The postcode point is not in Flood Zone 2 or Flood Zone 3 on the Environment Agency's planning map",
     );
     expect(byLayer.get("rofrs")?.pointState).toBe("no-band-published");
     // BUG-343: the absence reads as Very low — the free
@@ -1166,7 +1166,7 @@ describe("matrix — flood", () => {
     );
     expect(byLayer.get("rofsw")?.pointState).toBe("below-lowest-band");
     expect(byLayer.get("rofsw")?.line).toBe(
-      "no surface-water band reaches this point — below the lowest band this product publishes",
+      "No surface-water band reaches this point — below the lowest band this product publishes",
     );
     expect(new Set(bundle.flood.layers.map((l) => l.line)).size).toBe(3);
     expectClean(bundle);
@@ -1180,7 +1180,7 @@ describe("matrix — flood", () => {
     const byLayer = new Map(bundle.flood.layers.map((l) => [l.layer, l]));
     expect(byLayer.get("rofsw")?.pointState).toBe("not-filed");
     expect(byLayer.get("rofsw")?.line).toBe(
-      "this flood map is not filed yet, so no answer can be given from it",
+      "This flood map is not filed yet, so no answer can be given from it",
     );
     expect(byLayer.get("flood_zone")?.pointState).toBe("zone-1");
     expect(byLayer.get("rofrs")?.pointState).toBe("no-band-published");
@@ -1191,22 +1191,22 @@ describe("matrix — flood", () => {
     const wales = await buildFloodBundle(WAL_HOME, source);
     if (wales.kind !== "not-covered") throw new Error("expected not-covered");
     expect(wales.flood.reason).toBe(
-      "flood answers are not covered for Wales — the Environment Agency's flood maps cover England only, and flood maps for Wales are published by Natural Resources Wales",
+      "Flood answers are not covered for Wales — the Environment Agency's flood maps cover England only, and flood maps for Wales are published by Natural Resources Wales",
     );
     const scotland = await buildFloodBundle(SCO_HOME, source);
     if (scotland.kind !== "not-covered") throw new Error("expected not-covered");
     expect(scotland.flood.reason).toBe(
-      "flood answers are not covered for Scotland — the Environment Agency's flood maps cover England only, and flood maps for Scotland are published by the Scottish Environment Protection Agency",
+      "Flood answers are not covered for Scotland — the Environment Agency's flood maps cover England only, and flood maps for Scotland are published by the Scottish Environment Protection Agency",
     );
     const ni = await buildFloodBundle(NI_HOME, source);
     if (ni.kind !== "not-covered") throw new Error("expected not-covered");
     expect(ni.flood.reason).toBe(
-      "flood answers are not covered for Northern Ireland — the Environment Agency's flood maps cover England only",
+      "Flood answers are not covered for Northern Ireland — the Environment Agency's flood maps cover England only",
     );
     const unknown = await buildFloodBundle(home(UNKNOWN_DIR), source);
     if (unknown.kind !== "not-covered") throw new Error("expected not-covered");
     expect(unknown.flood.reason).toBe(
-      "the Environment Agency's flood maps cover England only, and this postcode's filed area code does not place it in England",
+      "The Environment Agency's flood maps cover England only, and this postcode's filed area code does not place it in England",
     );
     expectClean(wales);
   });
@@ -1220,13 +1220,13 @@ describe("matrix — flood", () => {
     expect(rung3).toEqual({
       rung: 3,
       kind: "wider-area",
-      flood: { state: "unavailable", reason: "flood answers need an exact postcode" },
+      flood: { state: "unavailable", reason: "Flood answers need an exact postcode" },
     });
     const rung4 = await buildFloodBundle({ rung: 4, kind: "no-location" }, source);
     expect(rung4).toEqual({
       rung: 4,
       kind: "no-location",
-      flood: { state: "unavailable", reason: "flood answers need an exact postcode" },
+      flood: { state: "unavailable", reason: "Flood answers need an exact postcode" },
     });
   });
 });
@@ -1609,22 +1609,22 @@ describe("matrix — area: polygon layers", () => {
     const { constraints, heritage } = bundle.sections;
     expect(constraints.greenBelt.state).toBe("none-found");
     expect(constraints.greenBelt.line).toBe(
-      "no green belt covers this postcode point in the national data",
+      "No green belt covers this postcode point in the national data",
     );
     expect(heritage.monuments.state).toBe("none-found");
     expect(heritage.monuments.line).toBe(
-      "no scheduled monument covers this postcode point in the national data",
+      "No scheduled monument covers this postcode point in the national data",
     );
     // Conservation areas keep their check date — council-
     // supplied data, and the date is load-bearing there.
     expect(constraints.conservationArea.state).toBe("none-found");
     expect(constraints.conservationArea.line).toBe(
-      "no conservation area found in the national data, checked 10 November 2026",
+      "No conservation area found in the national data, checked 10 November 2026",
     );
     // Ancient woodland keeps 'recorded in the inventory'.
     const aw = bundle.sections.nature.ancientWoodland;
     expect(aw.state).toBe("none-found");
-    expect(aw.line).toBe("no ancient woodland recorded in the inventory near this postcode point");
+    expect(aw.line).toBe("No ancient woodland recorded in the inventory near this postcode point");
     expectClean(bundle);
   });
 
@@ -1647,7 +1647,7 @@ describe("matrix — area: polygon layers", () => {
     expect(a4.state).toBe("none-found");
     expect(a4.councilPublishes).toBe(true);
     expect(a4.line).toBe(
-      "no Article 4 direction area covers this postcode point in the national data",
+      "No Article 4 direction area covers this postcode point in the national data",
     );
   });
 
@@ -1658,10 +1658,10 @@ describe("matrix — area: polygon layers", () => {
     const bundle = await areaBundle(source);
     expect(bundle.sections.constraints.conservationArea.state).toBe("not-filed");
     expect(bundle.sections.constraints.conservationArea.line).toBe(
-      "the conservation area data is not filed yet, so no conservation area answer can be given yet",
+      "The conservation area data is not filed yet, so no conservation area answer can be given yet",
     );
     expect(bundle.sections.constraints.greenBelt.line).toBe(
-      "the green belt data is not filed yet, so no green belt answer can be given yet",
+      "The green belt data is not filed yet, so no green belt answer can be given yet",
     );
   });
 
@@ -1669,20 +1669,20 @@ describe("matrix — area: polygon layers", () => {
     const wales = await areaBundle(new MatrixAreaSource(), WAL_HOME);
     expect(wales.sections.constraints.conservationArea.state).toBe("sparse-coverage");
     expect(wales.sections.constraints.conservationArea.line).toBe(
-      "no conservation area is filed near this point — conservation areas are supplied by councils and coverage here is sparse, so this is not a proven none",
+      "No conservation area is filed near this point — conservation areas are supplied by councils and coverage here is sparse, so this is not a proven none",
     );
     expect(wales.sections.constraints.greenBelt.state).toBe("sparse-coverage");
     expect(wales.sections.constraints.greenBelt.line).toBe(
-      "the green belt data filed covers England and Wales, and no green belt is filed near this point",
+      "The green belt data filed covers England and Wales, and no green belt is filed near this point",
     );
     const scotland = await areaBundle(new MatrixAreaSource(), SCO_HOME);
     expect(scotland.sections.heritage.monuments.state).toBe("sparse-coverage");
     expect(scotland.sections.heritage.monuments.line).toBe(
-      "the scheduled monuments filed cover England, and none is filed near this point",
+      "The scheduled monuments filed cover England, and none is filed near this point",
     );
     expect(scotland.sections.nature.ancientWoodland.state).toBe("sparse-coverage");
     expect(scotland.sections.nature.ancientWoodland.line).toBe(
-      "the ancient woodland inventory filed covers England, and no woodland in it is filed near this point",
+      "The ancient woodland inventory filed covers England, and no woodland in it is filed near this point",
     );
     expectClean(wales);
   });
@@ -1702,10 +1702,10 @@ describe("matrix — area: heritage", () => {
     const listed = bundle.sections.heritage.listed;
     expect(listed.state).toBe("served");
     expect(listed.countWithin).toBe(0);
-    expect(listed.line).toBe("no listed buildings within 2 miles of the postcode point");
+    expect(listed.line).toBe("No listed buildings within 2 miles of the postcode point");
     expect(listed.beyondLine).toContain("Apes Hall");
     expect(bundle.sections.heritage.localListsLine).toBe(
-      "buildings on councils' local lists are not included — local lists are held by each council and are not part of the national data",
+      "Buildings on councils' local lists are not included — local lists are held by each council and are not part of the national data",
     );
     expectClean(bundle);
   });
@@ -1722,7 +1722,7 @@ describe("matrix — area: heritage", () => {
     const bundle = await areaBundle(source);
     expect(bundle.sections.heritage.listed.state).toBe("not-filed");
     expect(bundle.sections.heritage.listed.line).toBe(
-      "the listed buildings data is not filed yet, so no listed buildings answer can be given yet",
+      "The listed buildings data is not filed yet, so no listed buildings answer can be given yet",
     );
   });
 
@@ -1732,7 +1732,7 @@ describe("matrix — area: heritage", () => {
     expect(listed.state).toBe("sparse-coverage");
     expect(listed.countWithin).toBeNull();
     expect(listed.line).toBe(
-      "the listed buildings filed are England's National Heritage List — listed buildings in Wales sit on their own register, which is not filed, so no count can be given for this point",
+      "The listed buildings filed are England's National Heritage List — listed buildings in Wales sit on their own register, which is not filed, so no count can be given for this point",
     );
   });
 
@@ -1769,7 +1769,7 @@ describe("matrix — area: nature", () => {
   it("served absence: no designated site, proven against the filings", async () => {
     const bundle = await areaBundle(new MatrixAreaSource());
     const nature = bundle.sections.nature;
-    expect(nature.placesLine).toBe("no designated site at or within 2 miles of the postcode point");
+    expect(nature.placesLine).toBe("No designated site at or within 2 miles of the postcode point");
     expect(nature.designationsLine).toBeNull();
     expect(nature.coverageLine).toBeNull();
     expectClean(bundle);
@@ -1784,7 +1784,7 @@ describe("matrix — area: nature", () => {
     const bundle = await areaBundle(source);
     const nature = bundle.sections.nature;
     expect(nature.designationsLine).toBe(
-      "the SSSI designation data is not filed yet, so no SSSI answer can be given yet",
+      "The SSSI designation data is not filed yet, so no SSSI answer can be given yet",
     );
     expect(nature.placesWithinCount).toBe(1);
     expect(nature.places[0]?.line).toBe("Example Estuary — SAC");
@@ -1802,7 +1802,7 @@ describe("matrix — area: nature", () => {
     const bundle = await areaBundle(source);
     expect(bundle.sections.nature.places).toEqual([]);
     expect(bundle.sections.nature.placesLine).toBe(
-      "no designated site at or within 2 miles of the postcode point",
+      "No designated site at or within 2 miles of the postcode point",
     );
   });
 
@@ -1818,11 +1818,11 @@ describe("matrix — area: nature", () => {
     const bundle = await areaBundle(source);
     const nature = bundle.sections.nature;
     expect(nature.placesLine).toBe(
-      "nature designations are not filed yet, so no designation answer can be given yet",
+      "Nature designations are not filed yet, so no designation answer can be given yet",
     );
     expect(nature.places).toEqual([]);
     expect(nature.designationsLine).toBe(
-      "the SSSI designation data is not filed yet, so no SSSI answer can be given yet; the SAC designation data is not filed yet, so no SAC answer can be given yet; the SPA designation data is not filed yet, so no SPA answer can be given yet; the Ramsar designation data is not filed yet, so no Ramsar answer can be given yet",
+      "The SSSI designation data is not filed yet, so no SSSI answer can be given yet; the SAC designation data is not filed yet, so no SAC answer can be given yet; the SPA designation data is not filed yet, so no SPA answer can be given yet; the Ramsar designation data is not filed yet, so no Ramsar answer can be given yet",
     );
   });
 
@@ -1845,13 +1845,13 @@ describe("matrix — area: nature", () => {
     const unfiled = await areaBundle(source);
     expect(unfiled.sections.nature.priorityHabitat).toEqual({
       state: "not-filed",
-      line: "priority habitat records are not filed yet, so no habitat answer can be given yet",
+      line: "Priority habitat records are not filed yet, so no habitat answer can be given yet",
     });
     const filed = await areaBundle(new MatrixAreaSource());
     const phi = filed.sections.nature.priorityHabitat;
     expect(phi.state).toBe("served");
     if (phi.state === "served")
-      expect(phi.line).toBe("no priority habitat is recorded near this postcode point");
+      expect(phi.line).toBe("No priority habitat is recorded near this postcode point");
   });
 });
 
@@ -1933,7 +1933,7 @@ describe("matrix — area: EPC", () => {
     source.epc = epcArtefact([]);
     const bundle = await areaBundle(source);
     expect(bundle.sections.epc.state).toBe("filed-zero");
-    expect(bundle.sections.epc.line).toBe("no energy certificate is recorded for this postcode");
+    expect(bundle.sections.epc.line).toBe("No energy certificate is recorded for this postcode");
     expect(bundle.sections.epc.certificateCountAtPostcode).toBe(0);
   });
 
@@ -1945,7 +1945,7 @@ describe("matrix — area: EPC", () => {
     const bundle = await areaBundle(source);
     expect(bundle.sections.epc.state).toBe("none-matching");
     expect(bundle.sections.epc.line).toBe(
-      "certificates are recorded for this postcode; none is for this exact home",
+      "Certificates are recorded for this postcode; none is for this exact home",
     );
     expect(bundle.sections.epc.certificateCountAtPostcode).toBe(1);
   });
@@ -1956,7 +1956,7 @@ describe("matrix — area: EPC", () => {
     const bundle = await areaBundle(source);
     expect(bundle.sections.epc.state).toBe("not-filed");
     expect(bundle.sections.epc.line).toBe(
-      "energy certificates could not be loaded for this postcode, so no certificate answer can be given",
+      "Energy certificates could not be loaded for this postcode, so no certificate answer can be given",
     );
     expectClean(bundle);
   });
@@ -2133,7 +2133,7 @@ describe("matrix — area: council tax", () => {
     const tax = bundle.sections.councilTax;
     expect(tax.state).toBe("not-filed");
     expect(tax.line).toBe(
-      "this council's council tax charges are not filed yet — most councils are filed in the spring pass, and until then no figure can be given",
+      "This council's council tax charges are not filed yet — most councils are filed in the spring pass, and until then no figure can be given",
     );
     expect(JSON.stringify(tax)).not.toContain("not published");
     // The monthly state flows through honestly: no monthly
@@ -2237,12 +2237,12 @@ describe("matrix — area: Census, IMD, air, noise, benefits, solar", () => {
     missing.imd = null as never;
     const notFiled = await areaBundle(missing);
     expect(notFiled.sections.imd.state).toBe("not-filed");
-    expect(notFiled.sections.imd.line).toBe("no deprivation index figure is filed for this area");
+    expect(notFiled.sections.imd.line).toBe("No deprivation index figure is filed for this area");
 
     const wales = await areaBundle(new MatrixAreaSource(), WAL_HOME);
     expect(wales.sections.imd.state).toBe("not-covered");
     expect(wales.sections.imd.line).toBe(
-      "the English Indices of Deprivation do not cover Wales — it publishes its own index on its own scale, which is not filed and is never compared with the English one",
+      "The English Indices of Deprivation do not cover Wales — it publishes its own index on its own scale, which is not filed and is never compared with the English one",
     );
   });
 
@@ -2257,7 +2257,7 @@ describe("matrix — area: Census, IMD, air, noise, benefits, solar", () => {
     const notFiled = await areaBundle(missing);
     expect(notFiled.sections.air.state).toBe("not-filed");
     expect(notFiled.sections.air.line).toBe(
-      "no modelled air quality square is filed for this point",
+      "No modelled air quality square is filed for this point",
     );
   });
 
@@ -2267,18 +2267,18 @@ describe("matrix — area: Census, IMD, air, noise, benefits, solar", () => {
     const unfiled = await areaBundle(unfiledSource, SCO_HOME);
     expect(unfiled.sections.noise.state).toBe("not-filed");
     expect(unfiled.sections.noise.line).toBe(
-      "modelled noise bands are not filed yet, so no noise answer can be given yet",
+      "Modelled noise bands are not filed yet, so no noise answer can be given yet",
     );
 
     const scotland = await areaBundle(new MatrixAreaSource(), SCO_HOME);
     expect(scotland.sections.noise.state).toBe("not-covered");
     expect(scotland.sections.noise.line).toBe(
-      "the modelled noise mapping filed covers England only — Scotland is not covered",
+      "The modelled noise mapping filed covers England only — Scotland is not covered",
     );
 
     const noRows = await areaBundle(new MatrixAreaSource());
     expect(noRows.sections.noise.state).toBe("served");
-    expect(noRows.sections.noise.line).toBe("no noise bands are filed for this postcode");
+    expect(noRows.sections.noise.line).toBe("No noise bands are filed for this postcode");
 
     const withRows = new MatrixAreaSource();
     withRows.noise = {
@@ -2295,7 +2295,7 @@ describe("matrix — area: Census, IMD, air, noise, benefits, solar", () => {
     // Below-range is a real filed value, never 0 dB.
     expect(bands[0]?.line).toBe("road noise: Below 55 dB by day, Below 50 dB by night");
     // A row with no band is the publisher's no-modelled state.
-    expect(bands[1]?.line).toBe("no rail noise band is filed for this postcode");
+    expect(bands[1]?.line).toBe("No rail noise band is filed for this postcode");
     expectClean(servedBundle);
   });
 
@@ -2330,7 +2330,7 @@ describe("matrix — area: Census, IMD, air, noise, benefits, solar", () => {
     const bundle = await areaBundle(new MatrixAreaSource());
     const benefits = bundle.sections.benefits;
     expect(benefits.state).toBe("not-filed");
-    expect(benefits.line).toBe("benefit counts are not filed for this area");
+    expect(benefits.line).toBe("Benefit counts are not filed for this area");
     const people = benefits.series.find((s) => s.series === "uc_people");
     expect(people?.state).toBe("not-filed");
     expect(people?.line).toBe("people on Universal Credit is not filed for this area");
@@ -2348,11 +2348,11 @@ describe("matrix — area: Census, IMD, air, noise, benefits, solar", () => {
     const a = await areaBundle(emptyGrid);
     expect(a.sections.solar.state).toBe("not-filed");
     expect(a.sections.solar.line).toBe(
-      "solar modelling is not filed yet, so no solar answer can be given yet",
+      "Solar modelling is not filed yet, so no solar answer can be given yet",
     );
     const missingCell = await areaBundle(new MatrixAreaSource());
     expect(missingCell.sections.solar.state).toBe("not-filed");
-    expect(missingCell.sections.solar.line).toBe("solar modelling is not filed for this area yet");
+    expect(missingCell.sections.solar.line).toBe("Solar modelling is not filed for this area yet");
   });
 
   it("rung 3: every section present only as its named state, per-section reasons intact (16)", async () => {
@@ -2362,30 +2362,30 @@ describe("matrix — area: Census, IMD, air, noise, benefits, solar", () => {
     );
     if (bundle.kind !== "wider-area") throw new Error("expected wider-area");
     expect(bundle.area.sections).toEqual({
-      constraints: { state: "unavailable", reason: "planning constraints need an exact postcode" },
-      heritage: { state: "unavailable", reason: "heritage answers need an exact postcode" },
-      nature: { state: "unavailable", reason: "nature answers need an exact postcode" },
-      epc: { state: "unavailable", reason: "energy certificates need an exact postcode" },
-      councilTax: { state: "unavailable", reason: "council tax needs an exact postcode" },
+      constraints: { state: "unavailable", reason: "Planning constraints need an exact postcode" },
+      heritage: { state: "unavailable", reason: "Heritage answers need an exact postcode" },
+      nature: { state: "unavailable", reason: "Nature answers need an exact postcode" },
+      epc: { state: "unavailable", reason: "Energy certificates need an exact postcode" },
+      councilTax: { state: "unavailable", reason: "Council tax needs an exact postcode" },
       planningApplications: {
         state: "unavailable",
-        reason: "planning applications need an exact postcode",
+        reason: "Planning applications need an exact postcode",
       },
       buildingSafety: {
         state: "unavailable",
-        reason: "building safety answers need an exact postcode",
+        reason: "Building safety answers need an exact postcode",
       },
       census: { state: "unavailable", reason: "Census figures need an exact postcode" },
-      imd: { state: "unavailable", reason: "area statistics need an exact postcode" },
-      air: { state: "unavailable", reason: "air quality needs an exact postcode" },
-      noise: { state: "unavailable", reason: "noise bands need an exact postcode" },
-      benefits: { state: "unavailable", reason: "benefit counts need an exact postcode" },
-      solar: { state: "unavailable", reason: "solar modelling needs an exact postcode" },
-      broadband: { state: "unavailable", reason: "broadband answers need an exact postcode" },
-      mobile: { state: "unavailable", reason: "mobile answers need an exact postcode" },
+      imd: { state: "unavailable", reason: "Area statistics need an exact postcode" },
+      air: { state: "unavailable", reason: "Air quality needs an exact postcode" },
+      noise: { state: "unavailable", reason: "Noise bands need an exact postcode" },
+      benefits: { state: "unavailable", reason: "Benefit counts need an exact postcode" },
+      solar: { state: "unavailable", reason: "Solar modelling needs an exact postcode" },
+      broadband: { state: "unavailable", reason: "Broadband answers need an exact postcode" },
+      mobile: { state: "unavailable", reason: "Mobile answers need an exact postcode" },
       chargingZones: {
         state: "unavailable",
-        reason: "charging zones need an exact postcode",
+        reason: "Charging zones need an exact postcode",
       },
     });
   });
@@ -2448,11 +2448,11 @@ describe("matrix — the short bundle's state lines equal the full bundle's, ver
     const full = areaBundle.sections;
     expect(short.sections.epc.state).toBe("filed-zero");
     expect(short.sections.epc.line).toBe(full.epc.line);
-    expect(short.sections.epc.line).toBe("no energy certificate is recorded for this postcode");
+    expect(short.sections.epc.line).toBe("No energy certificate is recorded for this postcode");
     expect(short.sections.councilTax.state).toBe("not-filed");
     expect(short.sections.councilTax.line).toBe(full.councilTax.line);
     expect(short.sections.councilTax.line).toBe(
-      "this council's council tax charges are not filed yet — most councils are filed in the spring pass, and until then no figure can be given",
+      "This council's council tax charges are not filed yet — most councils are filed in the spring pass, and until then no figure can be given",
     );
     expect(short.sections.air.state).toBe("not-filed");
     expect(short.sections.air.line).toBe(full.air.line);
@@ -2470,7 +2470,7 @@ describe("matrix — the short bundle's state lines equal the full bundle's, ver
     if (rung1.short.kind !== "short-bundle") throw new Error("expected a short bundle");
     expect(rung1.short.sections.epc.state).toBe("none-matching");
     expect(rung1.short.sections.epc.line).toBe(
-      "certificates are recorded for this postcode; none is for this exact home",
+      "Certificates are recorded for this postcode; none is for this exact home",
     );
     expect(rung1.short.sections.councilTax.line).toBe(
       "Band D averages £2,280.34 a year in Braintree (the council's scale — not this home's bill)",
@@ -2502,7 +2502,7 @@ describe("matrix — the short bundle's state lines equal the full bundle's, ver
     if (short.kind !== "short-bundle") throw new Error("expected a short bundle");
     const supermarkets = short.sections.nearby.categories.find((c) => c.category === "supermarket");
     expect(supermarkets?.line).toBe(
-      "no supermarkets recorded within 2 miles on the map data we hold — a gap in the map is not proof that none exists",
+      "No supermarkets recorded within 2 miles on the map data we hold — a gap in the map is not proof that none exists",
     );
   });
 
@@ -2516,7 +2516,7 @@ describe("matrix — the short bundle's state lines equal the full bundle's, ver
       areaBundle.sections.nature.designationsLine,
     );
     expect(short.sections.nature.designationsLine).toBe(
-      "the SSSI designation data is not filed yet, so no SSSI answer can be given yet",
+      "The SSSI designation data is not filed yet, so no SSSI answer can be given yet",
     );
   });
 });
@@ -2576,7 +2576,7 @@ describe("matrix — area: planning applications (the hand-off)", () => {
     expect(planning.state).toBe("handed-off");
     expect(planning.council).toBe("Belfast");
     expect(planning.line).toBe(
-      "planning applications for this area are published on the Northern Ireland Public Register — we do not hold a copy, so no applications are listed here; the link below takes you to the register, where you can search by postcode",
+      "Planning applications for this area are published on the Northern Ireland Public Register — we do not hold a copy, so no applications are listed here; the link below takes you to the register, where you can search by postcode",
     );
     expect(planning.link).toEqual({
       label: "Northern Ireland Public Register",
@@ -2591,7 +2591,7 @@ describe("matrix — area: planning applications (the hand-off)", () => {
     expect(planning.state).toBe("handed-off");
     expect(planning.council).toBe("Mid Ulster");
     expect(planning.line).toBe(
-      "planning applications for this area are published by Mid Ulster District Council on its own planning portal — it is the one Northern Ireland council not on the national register; we do not hold a copy, so no applications are listed here",
+      "Planning applications for this area are published by Mid Ulster District Council on its own planning portal — it is the one Northern Ireland council not on the national register; we do not hold a copy, so no applications are listed here",
     );
     expect(planning.link).toBeNull();
     expectClean(bundle);
@@ -2775,7 +2775,7 @@ describe("matrix — area: company ownership (behind the flag)", () => {
     if (!company) throw new Error("expected the section");
     expect(company.state).toBe("not-company-owned");
     expect(company.line).toBe(
-      "this home's title is not in HM Land Registry's company-ownership data as at November 2026",
+      "This home's title is not in HM Land Registry's company-ownership data as at November 2026",
     );
     expect(company.explainer).toContain("charities are excluded from both datasets by category");
     expect(company.explainer).toContain("unregistered");
@@ -2843,7 +2843,7 @@ describe("matrix — area: company ownership (behind the flag)", () => {
     if (!company) throw new Error("expected the section");
     expect(company.state).toBe("not-filed");
     expect(company.line).toBe(
-      "the company-ownership data is not filed yet, so no company-ownership answer can be given yet",
+      "The company-ownership data is not filed yet, so no company-ownership answer can be given yet",
     );
     expectClean(bundle);
   });
@@ -2904,7 +2904,7 @@ describe("matrix — area: company ownership (behind the flag)", () => {
     expect(shortOn.sections.companyOwnership).toEqual({
       state: "not-company-owned",
       ownedByCompany: false,
-      line: "this home's title is not in HM Land Registry's company-ownership data as at November 2026",
+      line: "This home's title is not in HM Land Registry's company-ownership data as at November 2026",
     });
   });
 
@@ -2971,7 +2971,7 @@ describe("matrix — area: building safety (M6.16, D35)", () => {
     const section = bundle.sections.buildingSafety;
     expect(section.tribunal.state).toBe("none-filed");
     expect(section.tribunal.line).toBe(
-      "no published building-safety orders naming this postcode, as at 14 November 2026",
+      "No published building-safety orders naming this postcode, as at 14 November 2026",
     );
     expect(section.register.state).toBe("handed-off");
     expect(section.register.link).toEqual({
@@ -2986,7 +2986,7 @@ describe("matrix — area: building safety (M6.16, D35)", () => {
     const register = bundle.sections.buildingSafety.register;
     expect(register.state).toBe("out-of-scope");
     expect(register.line).toBe(
-      "the Building Safety Regulator's register covers high-rise residential buildings — buildings of 7 or more storeys or 18 metres or more, with 2 or more residential units; a house is outside what the register is for",
+      "The Building Safety Regulator's register covers high-rise residential buildings — buildings of 7 or more storeys or 18 metres or more, with 2 or more residential units; a house is outside what the register is for",
     );
     expect(register.link).toBeNull();
     expectClean(bundle);
@@ -2999,7 +2999,7 @@ describe("matrix — area: building safety (M6.16, D35)", () => {
     const section = bundle.sections.buildingSafety;
     expect(section.tribunal.state).toBe("not-filed");
     expect(section.tribunal.line).toBe(
-      "the building-safety decisions data is not filed yet, so no building-safety answer can be given yet",
+      "The building-safety decisions data is not filed yet, so no building-safety answer can be given yet",
     );
     expect(section.sourceName).toBeNull();
     // The register half does not depend on the filing.
@@ -3032,7 +3032,7 @@ describe("matrix — area: building safety (M6.16, D35)", () => {
     if (bundle.kind !== "wider-area") throw new Error("expected wider-area");
     expect(bundle.area.sections.buildingSafety).toEqual({
       state: "unavailable",
-      reason: "building safety answers need an exact postcode",
+      reason: "Building safety answers need an exact postcode",
     });
   });
 
@@ -3170,11 +3170,11 @@ describe("matrix — area: broadband & mobile (M6.17, D36)", () => {
     expectClean(bundle);
     expect(bundle.sections.broadband.state).toBe("not-filed");
     expect(bundle.sections.broadband.line).toBe(
-      "broadband coverage is not filed for this postcode yet",
+      "Broadband coverage is not filed for this postcode yet",
     );
     expect(bundle.sections.mobile.state).toBe("not-filed");
     expect(bundle.sections.mobile.line).toBe(
-      "mobile coverage is not filed for this postcode's council area yet",
+      "Mobile coverage is not filed for this postcode's council area yet",
     );
   });
 
@@ -3186,7 +3186,7 @@ describe("matrix — area: broadband & mobile (M6.17, D36)", () => {
     expect(sa.outdoor?.allOperatorsPct).toBeNull();
     expect(sa.outdoor?.allOperatorsPublished).toBe(false);
     expect(sa.outdoor?.allOperatorsLine).toBe(
-      "the share of premises in Braintree where all four mobile networks have outdoor coverage is not published for this service",
+      "The share of premises in Braintree where all four mobile networks have outdoor coverage is not published for this service",
     );
     // A whole service unpublished in this release serves
     // its own state — the service never silently vanishes.
@@ -3212,11 +3212,11 @@ describe("matrix — area: broadband & mobile (M6.17, D36)", () => {
     if (wider.kind !== "wider-area") throw new Error("expected wider-area");
     expect(wider.area.sections.broadband).toEqual({
       state: "unavailable",
-      reason: "broadband answers need an exact postcode",
+      reason: "Broadband answers need an exact postcode",
     });
     expect(wider.area.sections.mobile).toEqual({
       state: "unavailable",
-      reason: "mobile answers need an exact postcode",
+      reason: "Mobile answers need an exact postcode",
     });
 
     const rung1 = await areaBundle(ofcomSource(), ENG_HOME);

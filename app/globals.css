@@ -3561,9 +3561,11 @@ a.trunc-row:hover {
 
 /* A banded line value in the comparison (BUG-163): the
    pills' figure chip carries a whole fact here (a flood
-   pair, a crime count, the air values), not a short
-   figure — the text wraps inside the cell rather than
-   overflowing it. */
+   pair, a crime count) — the text wraps inside the cell
+   rather than overflowing it. The air values no longer
+   ride in one chip (BUG-394): the verdict alone takes
+   the colour, as a segment, and the figures stand beside
+   it as plain text. */
 .pill__figure.compare-val {
   white-space: normal;
 }
@@ -4299,6 +4301,15 @@ a.picker__row {
 .report-payment__method:focus-visible {
   outline: 2px solid var(--cmnh-forest-deep);
   outline-offset: 2px;
+}
+
+/* BUG-398: the row is disabled while the intent is
+   being created — dimmed to the site's disabled
+   dress (.btn[disabled] above), with a waiting
+   cursor: the payment is busy, not forbidden. */
+.report-payment__method:disabled {
+  opacity: 0.55;
+  cursor: wait;
 }
 
 /* The accepted-brand marks on the method rows

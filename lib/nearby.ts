@@ -667,6 +667,18 @@ export type CategoryAnswer = {
   // as the listed places — the map pins the beyond-nearest
   // essentials too.
   beyondNearest: { name: string; miles: number; latitude: number; longitude: number } | null;
+  // Nurseries only (BUG-392/393): the nearest nursery
+  // beyond the radius, filed for the shortlist cell — the
+  // shortlist names it with a red distance pill where no
+  // nursery files within 2 miles. It is deliberately NOT
+  // beyondNearest: the free page's nursery pill, the
+  // report's map pins and the short bundle's nearest all
+  // read beyondNearest, and the register line stays their
+  // empty state — only the shortlist reads this field.
+  // Null where no named nursery files within
+  // NEAREST_SANITY_MILES (25), or where nurseries file
+  // within the radius (places[0] is the nearest then).
+  shortlistNearest?: { name: string; miles: number; latitude: number; longitude: number } | null;
   // The ruled sentence for the non-"within" states; null when
   // the places speak for themselves.
   line: string | null;
@@ -1057,7 +1069,7 @@ function emptyLine(
   radius: number = RADIUS_MILES,
 ): string {
   if (spec.emptyKind === "map")
-    return `no ${spec.label} recorded within ${radius} miles on the map data we hold — a gap in the map is not proof that none exists`;
+    return `No ${spec.label} recorded within ${radius} miles on the map data we hold — a gap in the map is not proof that none exists`;
   if (spec.emptyKind === "register")
     // BUG-250 item 25 (24 Nov 2026): the nurseries line
     // is a finished sentence and carries its closing full
@@ -1065,12 +1077,12 @@ function emptyLine(
     // and keep theirs off; the join in lib/journey.ts
     // (BUG-257) strips a non-final segment's stop, so
     // this never prints ".;" where the line is joined.
-    return `no nursery within ${radius} miles of the postcode point in the childcare register we hold.`;
+    return `No nursery within ${radius} miles of the postcode point in the childcare register we hold.`;
   if (key === "parks")
     return countWithin > 0
-      ? `no named greenspace site within ${radius} miles of the postcode point`
-      : `no greenspace site within ${radius} miles of the postcode point`;
-  return `no ${spec.label} within ${radius} miles of the postcode point`;
+      ? `No named greenspace site within ${radius} miles of the postcode point`
+      : `No greenspace site within ${radius} miles of the postcode point`;
+  return `No ${spec.label} within ${radius} miles of the postcode point`;
 }
 
 // --- leavers' destinations (M6.34, D51/D65) --------------
@@ -1187,7 +1199,7 @@ async function buildCategory(
       places: [],
       countWithin: 0,
       beyondNearest: null,
-      line: `the ${spec.label} data filed covers England and Wales only, so no ${spec.label} answer can be given for this home in ${nationLabel} yet`,
+      line: `The ${spec.label} data filed covers England and Wales only, so no ${spec.label} answer can be given for this home in ${nationLabel} yet`,
     };
     if (key === "schools-secondary") {
       answer.nearestSelective = null;
@@ -1210,7 +1222,7 @@ async function buildCategory(
       places: [],
       countWithin: 0,
       beyondNearest: null,
-      line: `the ${spec.label} data is not filed yet, so no ${spec.label} answer can be given yet`,
+      line: `The ${spec.label} data is not filed yet, so no ${spec.label} answer can be given yet`,
     };
     if (key === "schools-secondary") {
       answer.nearestSelective = null;
@@ -1317,6 +1329,7 @@ async function buildCategory(
     places,
     countWithin: measured.length,
     beyondNearest: null,
+    shortlistNearest: null,
     line: null,
   };
   if (key === "schools-secondary") {
@@ -1366,7 +1379,7 @@ async function buildCategory(
         latitude: nearest.latitude,
         longitude: nearest.longitude,
       };
-      answer.line = `none within ${radius} miles — nearest is ${nearest.name}, ${miles} miles away`;
+      answer.line = `None within ${radius} miles — nearest is ${nearest.name}, ${miles} miles away`;
     } else {
       // No NAMED nearest exists to serve (the table holds
       // only unnamed points, or none near): the category
@@ -1379,6 +1392,35 @@ async function buildCategory(
   }
   answer.state = spec.emptyKind === "map" ? "empty-map" : "empty";
   answer.line = emptyLine(key, spec, measured.length, radius);
+  if (key === "nurseries") {
+    // BUG-392/393: the shortlist names the nearest nursery
+    // with a red distance pill where none files within the
+    // radius — but the register line stays the free page /
+    // report empty state, so the nearest is filed here, in
+    // the shortlist-only field, never as beyondNearest.
+    // The same named-within-25-miles rule as the essential
+    // filing above: past NEAREST_SANITY_MILES there is no
+    // nearest a family can use, and the shortlist cell
+    // falls back to a dash (lib/shortlist-card.ts).
+    const nearest = await source.nearestPoint(key, latitude, longitude);
+    if (
+      nearest &&
+      nearest.name !== null &&
+      nearest.name !== "" &&
+      haversineMiles(latitude, longitude, nearest.latitude, nearest.longitude) <=
+        NEAREST_SANITY_MILES
+    ) {
+      const miles = round3(
+        haversineMiles(latitude, longitude, nearest.latitude, nearest.longitude),
+      );
+      answer.shortlistNearest = {
+        name: nearest.name,
+        miles,
+        latitude: nearest.latitude,
+        longitude: nearest.longitude,
+      };
+    }
+  }
   return answer;
 }
 

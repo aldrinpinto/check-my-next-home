@@ -105,9 +105,9 @@ export const CRIME_EXPLAINER =
 export const CRIME_CALIBRATION_EXPLAINER =
   "Per-head figures divide the recorded count by the Census 2021 residents of the small areas that contain the postcodes inside the circle, each area counted whole. The areas reach beyond the circle, so the population is larger than the circle's own, and an area the circle only clips, holding no postcode inside the mile, is missed. The England figure is worked out the same way over the same 12 months, from the same published data. A per-head figure counts recorded crimes against residents — it is not a measure of any one person's risk, and crimes recorded in the circle include those involving people passing through.";
 
-const UNAVAILABLE_REASON = "crime counts need an exact postcode";
+const UNAVAILABLE_REASON = "Crime counts need an exact postcode";
 const NOT_FILED_REASON =
-  "crime counts could not be loaded for this postcode, so no crime answer can be given";
+  "Crime counts could not be loaded for this postcode, so no crime answer can be given";
 // The still-gathering reason (fix batch, 19 Nov 2026 —
 // BUG-003): the named state a check serves when the
 // postcode's cold load is still running past the bounded
@@ -464,8 +464,8 @@ export async function buildCrimeBundle(
     // the line names it (D30 — flood's NRW/SEPA form).
     const reason =
       coverage === "scotland"
-        ? "crime counts are not covered for Scotland — Police.uk publishes street-level data for England and Wales forces only; recorded crime in Scotland is published by Police Scotland"
-        : "crime counts are not covered for Northern Ireland — Police.uk publishes street-level data for England and Wales forces only; recorded crime in Northern Ireland is published by the Police Service of Northern Ireland";
+        ? "Crime counts are not covered for Scotland — Police.uk publishes street-level data for England and Wales forces only; recorded crime in Scotland is published by Police Scotland"
+        : "Crime counts are not covered for Northern Ireland — Police.uk publishes street-level data for England and Wales forces only; recorded crime in Northern Ireland is published by the Police Service of Northern Ireland";
     return {
       rung: resolution.rung,
       kind: "not-covered",

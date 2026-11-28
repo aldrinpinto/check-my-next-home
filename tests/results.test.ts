@@ -213,7 +213,7 @@ const baseNearby = nearbyWith({
     places: [],
     countWithin: 0,
     beyondNearest: { latitude: 51.7, longitude: 0.6, name: "Broomfield Hospital", miles: 4.213 },
-    line: "none within 2 miles — nearest is Broomfield Hospital, 4.213 miles away",
+    line: "None within 2 miles — nearest is Broomfield Hospital, 4.213 miles away",
   }),
   maternity: category({
     category: "maternity",
@@ -221,7 +221,7 @@ const baseNearby = nearbyWith({
     places: [],
     countWithin: 0,
     beyondNearest: { latitude: 51.7, longitude: 0.6, name: "Broomfield Hospital", miles: 5.89 },
-    line: "none within 2 miles — nearest is Broomfield Hospital, 5.89 miles away",
+    line: "None within 2 miles — nearest is Broomfield Hospital, 5.89 miles away",
   }),
 });
 
@@ -282,13 +282,13 @@ function shortSections(overrides: Partial<ShortSections> = {}): ShortSections {
           "rofrs",
           "no-band-published",
           null,
-          "no river or sea flood band is published for this postcode point",
+          "No river or sea flood band is published for this postcode point",
         ),
         floodLayer(
           "rofsw",
           "no-band-published",
           null,
-          "no surface-water flood band is published for this postcode point",
+          "No surface-water flood band is published for this postcode point",
         ),
       ],
     },
@@ -324,12 +324,12 @@ function shortSections(overrides: Partial<ShortSections> = {}): ShortSections {
     constraints: {
       state: "served",
       conservationArea: polygon("this postcode point is not in a conservation area"),
-      article4: polygon("no Article 4 direction is filed for this postcode point"),
+      article4: polygon("No Article 4 direction is filed for this postcode point"),
       greenBelt: polygon("this postcode point is not in the green belt"),
       builtUpArea: polygon("this postcode point is inside a built-up area"),
       brownfield: {
         state: "none-found",
-        line: "no brownfield site is filed within 2 miles",
+        line: "No brownfield site is filed within 2 miles",
         countWithin: 0,
         nearest: null,
         beyondLine: null,
@@ -356,7 +356,7 @@ function shortSections(overrides: Partial<ShortSections> = {}): ShortSections {
       placesWithinCount: 1,
       nearestPlace: null,
       beyondLine: null,
-      ancientWoodland: polygon("no ancient woodland is filed at this postcode point"),
+      ancientWoodland: polygon("No ancient woodland is filed at this postcode point"),
       priorityHabitat: { state: "not-filed", line: "priority habitat data is not filed yet" },
       sourceLine: "Natural England",
     },
@@ -508,8 +508,8 @@ function areaBundle(noiseState: "served" | "not-filed" | "not-covered" = "not-fi
               state: noiseState,
               line:
                 noiseState === "not-filed"
-                  ? "modelled noise bands are not filed yet, so no noise answer can be given yet"
-                  : "the modelled noise mapping filed covers England only — Wales is not covered",
+                  ? "Modelled noise bands are not filed yet, so no noise answer can be given yet"
+                  : "The modelled noise mapping filed covers England only — Wales is not covered",
               bands: [],
               headlineBand: null,
               sourceLine: null,
@@ -844,7 +844,7 @@ describe("results — place groups", () => {
       places: [],
       countWithin: 0,
       beyondNearest: { name: "Far Away Place", miles: 14.671, latitude: 51.7, longitude: 0.6 },
-      line: "none within 2 miles — nearest is Far Away Place, 14.671 miles away",
+      line: "None within 2 miles — nearest is Far Away Place, 14.671 miles away",
     });
     const group = placeGroupView(
       primary,
@@ -941,7 +941,7 @@ describe("results — pill logic D75 (fold-in)", () => {
         places: [],
         countWithin: 0,
         beyondNearest: { latitude: 51.7, longitude: 0.6, name: "Broomfield Hospital", miles: 5.8 },
-        line: "none within 2 miles — nearest is Broomfield Hospital, 5.8 miles away",
+        line: "None within 2 miles — nearest is Broomfield Hospital, 5.8 miles away",
       }),
       station: category({
         category: "station",
@@ -1309,7 +1309,7 @@ describe("results — pill logic D75 (fold-in)", () => {
         places: [],
         countWithin: 0,
         beyondNearest: { latitude: 51.7, longitude: 0.6, name: "Broomfield Hospital", miles: 5.8 },
-        line: "none within 2 miles — nearest is Broomfield Hospital, 5.8 miles away",
+        line: "None within 2 miles — nearest is Broomfield Hospital, 5.8 miles away",
       }),
       station: category({
         category: "station",
@@ -1342,7 +1342,7 @@ describe("results — pill logic D75 (fold-in)", () => {
             "rofrs",
             "no-band-published",
             null,
-            "no river or sea flood band is published for this postcode point",
+            "No river or sea flood band is published for this postcode point",
           ),
           floodLayer(
             "rofsw",
@@ -1415,7 +1415,7 @@ describe("results — pill logic D75 (fold-in)", () => {
         places: [],
         countWithin: 0,
         beyondNearest: { latitude: 51.7, longitude: 0.6, name: "Broomfield Hospital", miles: 5.8 },
-        line: "none within 2 miles — nearest is Broomfield Hospital, 5.8 miles away",
+        line: "None within 2 miles — nearest is Broomfield Hospital, 5.8 miles away",
       }),
       station: category({
         category: "station",
@@ -1652,7 +1652,7 @@ describe("results — pill logic D75 (fold-in)", () => {
       area: d75Area({
         air: {
           state: "not-filed",
-          line: "no modelled air quality square is filed for this point",
+          line: "No modelled air quality square is filed for this point",
           year: null,
           no2: null,
           pm25: null,
@@ -1768,7 +1768,7 @@ describe("results — pill logic D75 (fold-in)", () => {
         // PM2.5 7.12, PM10 12.55) is green now.
         air: {
           state: "not-filed",
-          line: "no modelled air quality square is filed for this point",
+          line: "No modelled air quality square is filed for this point",
           year: null,
           no2: null,
           pm25: null,
@@ -1986,7 +1986,7 @@ describe("results — pill logic D75 (fold-in)", () => {
         places: [],
         countWithin: 0,
         beyondNearest: { latitude: 51.7, longitude: 0.6, name: "Broomfield Hospital", miles: 5.8 },
-        line: "none within 2 miles — nearest is Broomfield Hospital, 5.8 miles away",
+        line: "None within 2 miles — nearest is Broomfield Hospital, 5.8 miles away",
       }),
       station: category({
         category: "station",
@@ -2081,7 +2081,7 @@ describe("results — pill logic D75 (fold-in)", () => {
       area: d75Area({
         air: {
           state: "not-filed",
-          line: "no modelled air quality square is filed for this point",
+          line: "No modelled air quality square is filed for this point",
           year: null,
           no2: null,
           pm25: null,
@@ -2528,7 +2528,7 @@ describe("results — the built view", () => {
     // the one line reads No.
     const no = withSection({
       state: "not-company-owned",
-      line: "this home's title is not in HM Land Registry's company-ownership data",
+      line: "This home's title is not in HM Land Registry's company-ownership data",
     });
     expect(no).toContain("Owned by a company: No.");
     expect(no).not.toContain("this home's title is not in HM Land Registry");
@@ -2645,7 +2645,7 @@ describe("results — planning constraints grouping (BUG-212)", () => {
         layer: "conservation_area",
         label: "Conservation area",
         state: "none-found",
-        line: "no conservation area found in the national data, checked 10 November 2026",
+        line: "No conservation area found in the national data, checked 10 November 2026",
         insideName: null,
         nearest: { name: "Chelmer and Blackwater Navigation", miles: 1.473 },
         beyondLine: null,
@@ -2665,10 +2665,10 @@ describe("results — planning constraints grouping (BUG-212)", () => {
         layer: "green_belt",
         label: "Green belt",
         state: "none-found",
-        line: "no green belt covers this postcode point in the national data",
+        line: "No green belt covers this postcode point in the national data",
         insideName: null,
         nearest: { name: "London", miles: 5.831 },
-        beyondLine: "none within 2 miles — the nearest is London, 5.831 miles away",
+        beyondLine: "None within 2 miles — the nearest is London, 5.831 miles away",
         sourceLine: "green belt data",
       },
       builtUpArea: {
@@ -2683,7 +2683,7 @@ describe("results — planning constraints grouping (BUG-212)", () => {
       },
       brownfield: {
         state: "not-published",
-        line: "this council does not supply the national brownfield register, so no finding can be made from the data — the council's own brownfield register is the record",
+        line: "This council does not supply the national brownfield register, so no finding can be made from the data — the council's own brownfield register is the record",
         countWithin: null,
         nearest: null,
         beyondLine: null,
@@ -2788,7 +2788,7 @@ describe("results — nation gating (Scotland/NI gap check, fold-in workstream 6
       places: [],
       countWithin: 0,
       beyondNearest: { name: "Far Away Place", miles, latitude: 51.7, longitude: 0.6 },
-      line: `none within 2 miles — nearest is Far Away Place, ${miles} miles away`,
+      line: `None within 2 miles — nearest is Far Away Place, ${miles} miles away`,
     });
   const gatedBundle = () =>
     nearbyWith({
@@ -2924,7 +2924,7 @@ describe("results — nation gating (Scotland/NI gap check, fold-in workstream 6
         places: [],
         countWithin: 0,
         beyondNearest: { name: "Far Away Place", miles, latitude: 51.7, longitude: 0.6 },
-        line: `none within 2 miles — nearest is Far Away Place, ${miles} miles away`,
+        line: `None within 2 miles — nearest is Far Away Place, ${miles} miles away`,
       });
     const view = buildResultsView(
       input({
@@ -3163,7 +3163,7 @@ describe("results — BUG-205/206/209 hierarchy fixes", () => {
               latitude: 51.7,
               longitude: 0.6,
             },
-            line: "none within 5 miles — nearest is Shell Recharge/Ubitricity, 13.9 miles away",
+            line: "None within 5 miles — nearest is Shell Recharge/Ubitricity, 13.9 miles away",
           }),
         }),
       }),
@@ -3369,7 +3369,7 @@ describe("results — BUG-213 none-within preamble", () => {
           latitude: 51.7,
           longitude: 0.6,
         },
-        line: "none within 2 miles — nearest is Far Away Surgery, 30 miles away",
+        line: "None within 2 miles — nearest is Far Away Surgery, 30 miles away",
       }),
     });
     const view = buildResultsView(input({ nearby: bundle }));
@@ -3388,7 +3388,7 @@ describe("results — BUG-213 none-within preamble", () => {
     // unnamed no-finding line there, never the name.
     const feed = nearbyCheckingGroups(bundle);
     expect(feed.health.state).toBe("done");
-    expect(feed.health.line).toBe("no GP surgeries within 2 miles of the postcode point");
+    expect(feed.health.line).toBe("No GP surgeries within 2 miles of the postcode point");
     expect(feed.health.line).not.toContain("Far Away Surgery");
   });
 });
@@ -3418,7 +3418,7 @@ describe("results — BUG-213 hospitals maternity behind the strip", () => {
               latitude: 51.7,
               longitude: 0.6,
             },
-            line: "none within 2 miles — nearest is Broomfield Hospital, 4.213 miles away",
+            line: "None within 2 miles — nearest is Broomfield Hospital, 4.213 miles away",
           }),
           maternity: category({
             category: "maternity",
@@ -3657,7 +3657,7 @@ describe("results — M7.11 figures in place (D-1/D-2/O-3)", () => {
     expect(text).toContain(
       "Very low — a chance of flooding in any given year of less than 1 in 1,000.",
     );
-    expect(text).not.toContain("no river or sea flood band is published for this postcode point");
+    expect(text).not.toContain("No river or sea flood band is published for this postcode point");
   });
 
   it("D-2: the surface-water below-lowest-band state gains the sample's extreme-picture line", () => {
@@ -3674,13 +3674,13 @@ describe("results — M7.11 figures in place (D-1/D-2/O-3)", () => {
             "rofrs",
             "no-band-published",
             null,
-            "no river or sea flood band is published for this postcode point",
+            "No river or sea flood band is published for this postcode point",
           ),
           floodLayer(
             "rofsw",
             "below-lowest-band",
             null,
-            "no surface-water band reaches this point — below the lowest band this product publishes",
+            "No surface-water band reaches this point — below the lowest band this product publishes",
           ),
         ],
       },
@@ -3716,7 +3716,7 @@ describe("results — M7.11 figures in place (D-1/D-2/O-3)", () => {
             "rofsw",
             "below-lowest-band",
             null,
-            "no surface-water band reaches this point — below the lowest band this product publishes",
+            "No surface-water band reaches this point — below the lowest band this product publishes",
           ),
         ],
       },

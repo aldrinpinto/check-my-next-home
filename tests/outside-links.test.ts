@@ -436,7 +436,7 @@ function shortSections(overrides: Partial<ShortSections> = {}): ShortSections {
       builtUpArea: polygon("this postcode point is inside a built-up area"),
       brownfield: {
         state: "none-found",
-        line: "no brownfield site is filed within 2 miles",
+        line: "No brownfield site is filed within 2 miles",
         countWithin: 0,
         nearest: null,
         beyondLine: null,
@@ -558,8 +558,8 @@ function areaBundle(noiseState: "served" | "not-filed" | "not-covered" = "not-fi
               state: noiseState,
               line:
                 noiseState === "not-filed"
-                  ? "modelled noise bands are not filed yet, so no noise answer can be given yet"
-                  : "the modelled noise mapping filed covers England only — Wales is not covered",
+                  ? "Modelled noise bands are not filed yet, so no noise answer can be given yet"
+                  : "The modelled noise mapping filed covers England only — Wales is not covered",
               bands: [],
               headlineBand: null,
               sourceLine: null,

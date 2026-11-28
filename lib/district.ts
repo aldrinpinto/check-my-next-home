@@ -3,7 +3,7 @@
 // treatment for the sections below).
 //
 // The rung-3 page used to serve four tabs of named states
-// ("crime counts need an exact postcode", …) because the
+// ("Crime counts need an exact postcode", …) because the
 // ladder's contract (M6.6/D26) holds no area codes and no
 // point at rung 3, so no brain could aggregate. The founder
 // has ruled the district page a real page: the postcode

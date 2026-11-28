@@ -3538,7 +3538,7 @@ export function buildWiderAreaView(
     section("costs", "Costs", "councilTax"),
     section("flood", "Flood", "flood"),
     linesSection("planning-protection", "Planning, protection & ownership", [
-      { type: "line", text: "planning applications need an exact postcode" },
+      { type: "line", text: "Planning applications need an exact postcode" },
     ]),
   ];
   const nearbyTab: ResultsSectionView[] = [

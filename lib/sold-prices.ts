@@ -84,7 +84,7 @@ export const NO_SALE_RECORDED_LINE = "No sale recorded for this postcode since 1
 export const NO_HOME_SALE_LINE = "No sale recorded for this home since 1995";
 export const RECENT_SALES_LABEL = "recent recorded sales in this postcode";
 
-const UNAVAILABLE_REASON = "sold prices need an exact postcode";
+const UNAVAILABLE_REASON = "Sold prices need an exact postcode";
 
 // The rung-1/2 cold-load degrade's reason (Part A of the
 // cold-check fix, founder's authorisation, 19 Nov 2026),
@@ -406,8 +406,8 @@ export async function buildSoldPricesBundle(
     // nation's own answer lives, where one exists).
     const reason =
       coverage === "scotland"
-        ? "sold prices are not covered for Scotland — HM Land Registry publishes Price Paid for England and Wales only; property sales in Scotland are recorded by Registers of Scotland"
-        : "sold prices are not covered for Northern Ireland — HM Land Registry publishes Price Paid for England and Wales only";
+        ? "Sold prices are not covered for Scotland — HM Land Registry publishes Price Paid for England and Wales only; property sales in Scotland are recorded by Registers of Scotland"
+        : "Sold prices are not covered for Northern Ireland — HM Land Registry publishes Price Paid for England and Wales only";
     return {
       rung: resolution.rung,
       kind: "not-covered",

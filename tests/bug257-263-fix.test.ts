@@ -230,7 +230,7 @@ describe("BUG-250 item 24 — no filing language on the sixth-form line", () => 
 describe("BUG-250 item 25 — the nurseries empty line carries its closing full stop", () => {
   it("the register-empty line is a finished sentence", () => {
     expect(emptyAnswerForm("nurseries" as NearbyCategory, 0).line).toBe(
-      "no nursery within 2 miles of the postcode point in the childcare register we hold.",
+      "No nursery within 2 miles of the postcode point in the childcare register we hold.",
     );
   });
 });

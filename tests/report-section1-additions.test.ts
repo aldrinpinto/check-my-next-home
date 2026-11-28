@@ -230,7 +230,7 @@ const companyServed: CompanyOwnershipSection = {
 const companyNo: CompanyOwnershipSection = {
   ...companyBase,
   state: "not-company-owned",
-  line: "this home's title is not in HM Land Registry's company-ownership data as at November 2026",
+  line: "This home's title is not in HM Land Registry's company-ownership data as at November 2026",
   ownTitles: [],
 };
 

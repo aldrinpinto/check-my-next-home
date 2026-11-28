@@ -12,8 +12,9 @@ import { useRouter } from "next/navigation";
 // the 307. So a page that must redirect renders this
 // for plain loads (its server half still calls
 // redirect() for RSC navigations): on mount it
-// replaces the URL with the destination, under
-// whatever short line the page renders beside it.
+// replaces the URL with the destination, beside the
+// destination's own checking frame — or nothing at
+// all, where no check is opening (BUG-396).
 // The replace keeps the failed URL out of the
 // visitor's history — the back button returns to
 // where they came from, never to this redirecting

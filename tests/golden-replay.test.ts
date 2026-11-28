@@ -1150,7 +1150,7 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
     expect(birkdaleCat.countWithin).toBe(0);
     expect(birkdaleCat.beyondNearest).toBeNull();
     expect(birkdaleCat.line).toBe(
-      "no sixth forms and colleges within 5 miles of the postcode point",
+      "No sixth forms and colleges within 5 miles of the postcode point",
     );
 
     // Exeter: the beyond path on the fixture filing
@@ -1451,7 +1451,7 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
       longitude: 0.466021,
     });
     expect(birkdale.line).toBe(
-      "none within 2 miles — nearest is Broomfield Hospital, 5.89 miles away",
+      "None within 2 miles — nearest is Broomfield Hospital, 5.89 miles away",
     );
     // The within arm at the other two universal homes:
     // the one unit inside the radius, at its filed
@@ -1915,7 +1915,7 @@ describe.skipIf(!RUN)("golden replay — every golden home through every brain (
         area.kind === "area-bundle" ? area.sections.buildingSafety.tribunal.line : null;
       if (!tribunalLine) throw new Error(`${tag}: no tribunal line served on the real bundle`);
       expect(tribunalLine).toMatch(
-        /^no published building-safety orders naming this postcode(, as at .+)?$/,
+        /^No published building-safety orders naming this postcode(, as at .+)?$/,
       );
       expect(text).toContain(tribunalLine.charAt(0).toUpperCase() + tribunalLine.slice(1) + ".");
       // Parks & gardens: wired, unfiled, named as such.

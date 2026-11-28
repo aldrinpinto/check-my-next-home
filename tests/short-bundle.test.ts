@@ -2297,7 +2297,7 @@ describe("short bundle — 19 Birkdale Rise, CM3 2JT (rung 1)", () => {
     const [zones, rofrs, rofsw] = flood.layers;
     expect(zones.pointState).toBe("zone-1");
     expect(zones.line).toBe(
-      "the postcode point is not in Flood Zone 2 or Flood Zone 3 on the Environment Agency's planning map",
+      "The postcode point is not in Flood Zone 2 or Flood Zone 3 on the Environment Agency's planning map",
     );
     expect(zones.coveringLabel).toBeNull();
     expect(zones.basisLine).toContain("drawn as if flood defences were not there");
@@ -2314,7 +2314,7 @@ describe("short bundle — 19 Birkdale Rise, CM3 2JT (rung 1)", () => {
     expect(rofrs.sourceLine).toContain("data to 3 November 2026");
     expect(rofsw.pointState).toBe("below-lowest-band");
     expect(rofsw.line).toBe(
-      "no surface-water band reaches this point — below the lowest band this product publishes",
+      "No surface-water band reaches this point — below the lowest band this product publishes",
     );
     expect(rofsw.sourceLine).toContain("data to 10 November 2026");
     // The three absences are three distinct lines, and the EA
@@ -2586,7 +2586,7 @@ describe("short bundle — 19 Birkdale Rise, CM3 2JT (rung 1)", () => {
               defences: [],
               totalWithin: null,
               overflowLine: null,
-              line: "recorded flood defences are not filed yet, so no answer can be given from them",
+              line: "Recorded flood defences are not filed yet, so no answer can be given from them",
               sourceName: null,
               sourceDate: null,
               sourceLine: null,
@@ -2882,14 +2882,14 @@ describe("short bundle — 19 Birkdale Rise, CM3 2JT (rung 1)", () => {
     expect(constraints.article4).not.toHaveProperty("rights");
     expect(constraints.conservationArea.state).toBe("none-found");
     expect(constraints.conservationArea.line).toBe(
-      "no conservation area found in the national data, checked 10 November 2026",
+      "No conservation area found in the national data, checked 10 November 2026",
     );
     expect(constraints.conservationArea.nearest).toEqual({
       name: "Chelmer and Blackwater Navigation",
       miles: 1.473,
     });
     expect(constraints.greenBelt.beyondLine).toBe(
-      "none within 2 miles — the nearest is London, 5.831 miles away",
+      "None within 2 miles — the nearest is London, 5.831 miles away",
     );
     // BUG-212: the beyond nearest travels in the same
     // nearest slot (the brownfield precedent) so the
@@ -2916,7 +2916,7 @@ describe("short bundle — 19 Birkdale Rise, CM3 2JT (rung 1)", () => {
     expect(constraints.brownfield.countWithin).toBeNull();
     expect(constraints.brownfield.nearest).toBeNull();
     expect(constraints.brownfield.line).toBe(
-      "this council does not supply the national brownfield register, so no finding can be made from the data — the council's own brownfield register is the record",
+      "This council does not supply the national brownfield register, so no finding can be made from the data — the council's own brownfield register is the record",
     );
     // The heritage section's four new layers take the
     // monuments' place: in the full bundle, absent here.
@@ -2943,13 +2943,13 @@ describe("short bundle — 19 Birkdale Rise, CM3 2JT (rung 1)", () => {
     // the full bundle.
     expect(heritage).not.toHaveProperty("monuments");
     expect(nature.placesWithinCount).toBe(0);
-    expect(nature.placesLine).toBe("no designated site at or within 2 miles of the postcode point");
+    expect(nature.placesLine).toBe("No designated site at or within 2 miles of the postcode point");
     expect(nature.nearestPlace?.name).toBe("Woodham Walter Common SSSI");
     expect(nature.nearestPlace?.miles).toBe(2.887);
     expect(nature.nearestPlace?.inside).toBe(false);
     expect(nature.beyondLine).toContain("the nearest is Woodham Walter Common SSSI");
     expect(nature.ancientWoodland.line).toBe(
-      "no ancient woodland recorded in the inventory near this postcode point",
+      "No ancient woodland recorded in the inventory near this postcode point",
     );
     expect(nature.priorityHabitat.state).toBe("not-filed");
   });
@@ -3105,7 +3105,7 @@ describe("short bundle — Flat 4, Minerva House, KT17 1FH (rung 1)", () => {
     expect(constraints.conservationArea.nearest).toEqual({ name: "Ewell Village", miles: 0.099 });
     expect(constraints.article4.state).toBe("none-found");
     expect(constraints.article4.line).toBe(
-      "no Article 4 direction area covers this postcode point in the national data",
+      "No Article 4 direction area covers this postcode point in the national data",
     );
   });
 });
@@ -3289,15 +3289,15 @@ describe("short bundle — rungs 3 and 4 are named states only", () => {
     expect(Object.keys(short.sections)).toEqual(SECTION_ORDER);
     expect(short.sections.soldPrices).toEqual({
       state: "unavailable",
-      reason: "sold prices need an exact postcode",
+      reason: "Sold prices need an exact postcode",
     });
     expect(short.sections.flood).toEqual({
       state: "unavailable",
-      reason: "flood answers need an exact postcode",
+      reason: "Flood answers need an exact postcode",
     });
     expect(short.sections.crime).toEqual({
       state: "unavailable",
-      reason: "crime counts need an exact postcode",
+      reason: "Crime counts need an exact postcode",
     });
     expect(short.sections.nearby).toEqual({
       state: "unavailable",
@@ -3305,31 +3305,31 @@ describe("short bundle — rungs 3 and 4 are named states only", () => {
     });
     expect(short.sections.epc).toEqual({
       state: "unavailable",
-      reason: "energy certificates need an exact postcode",
+      reason: "Energy certificates need an exact postcode",
     });
     expect(short.sections.councilTax).toEqual({
       state: "unavailable",
-      reason: "council tax needs an exact postcode",
+      reason: "Council tax needs an exact postcode",
     });
     expect(short.sections.constraints).toEqual({
       state: "unavailable",
-      reason: "planning constraints need an exact postcode",
+      reason: "Planning constraints need an exact postcode",
     });
     expect(short.sections.heritage).toEqual({
       state: "unavailable",
-      reason: "heritage answers need an exact postcode",
+      reason: "Heritage answers need an exact postcode",
     });
     expect(short.sections.nature).toEqual({
       state: "unavailable",
-      reason: "nature answers need an exact postcode",
+      reason: "Nature answers need an exact postcode",
     });
     expect(short.sections.air).toEqual({
       state: "unavailable",
-      reason: "air quality needs an exact postcode",
+      reason: "Air quality needs an exact postcode",
     });
     expect(short.sections.noise).toEqual({
       state: "unavailable",
-      reason: "noise bands need an exact postcode",
+      reason: "Noise bands need an exact postcode",
     });
     // Figure-freedom, deep: every leaf under sections is a
     // string, and no key below the section level names a
@@ -3350,8 +3350,8 @@ describe("short bundle — rungs 3 and 4 are named states only", () => {
     expect(Object.keys(short.sections)).toEqual(SECTION_ORDER);
     expect(allNumbers(short.sections)).toEqual([]);
     for (const section of Object.values(short.sections)) expect(section.state).toBe("unavailable");
-    expect(short.sections.soldPrices.reason).toBe("sold prices need an exact postcode");
-    expect(short.sections.epc.reason).toBe("area answers need an exact postcode");
+    expect(short.sections.soldPrices.reason).toBe("Sold prices need an exact postcode");
+    expect(short.sections.epc.reason).toBe("Area answers need an exact postcode");
   });
 });
 
@@ -3402,18 +3402,18 @@ describe("short bundle — named states project as their own words", () => {
       state: "filed-zero",
       headlineBand: null,
       headlineAssessmentLabel: null,
-      line: "no energy certificate is recorded for this postcode",
+      line: "No energy certificate is recorded for this postcode",
     });
     expect(short.sections.crime).toEqual({
       state: "not-filed",
-      reason: "crime counts could not be loaded for this postcode, so no crime answer can be given",
+      reason: "Crime counts could not be loaded for this postcode, so no crime answer can be given",
     });
     // The noise table is unfiled for this postcode: its
     // named state, with no band.
     expect(short.sections.noise).toEqual({
       state: "not-filed",
       headlineBand: null,
-      line: "modelled noise bands are not filed yet, so no noise answer can be given yet",
+      line: "Modelled noise bands are not filed yet, so no noise answer can be given yet",
     });
     const sold = servedSold(short);
     expect(sold.ownLastSale).toEqual({ price: 148000, date: "2009-06-05" });
@@ -3430,7 +3430,7 @@ describe("short bundle — named states project as their own words", () => {
     const flood = servedFlood(short);
     expect(flood.layers[2].pointState).toBe("not-filed");
     expect(flood.layers[2].line).toBe(
-      "this flood map is not filed yet, so no answer can be given from it",
+      "This flood map is not filed yet, so no answer can be given from it",
     );
     expect(flood.layers[0].pointState).toBe("zone-1");
   });
@@ -3526,7 +3526,7 @@ describe("short bundle — broadband & mobile (M6.17, D36)", () => {
       expect(short.sections.broadband).toEqual({
         state: "not-filed",
         gigabitCapablePct: null,
-        line: "broadband coverage is not filed for this postcode yet",
+        line: "Broadband coverage is not filed for this postcode yet",
       });
     } finally {
       areaSource.broadbandOverride = undefined;
@@ -3545,7 +3545,7 @@ describe("short bundle — broadband & mobile (M6.17, D36)", () => {
     if (rung3.kind !== "wider-area") throw new Error("expected wider-area");
     expect(rung3.sections.broadband).toEqual({
       state: "unavailable",
-      reason: "broadband answers need an exact postcode",
+      reason: "Broadband answers need an exact postcode",
     });
     expect("mobile" in rung3.sections).toBe(false);
     expect(Object.keys(rung3.sections)).toHaveLength(12);
@@ -3554,7 +3554,7 @@ describe("short bundle — broadband & mobile (M6.17, D36)", () => {
     if (rung4.kind !== "no-location") throw new Error("expected no-location");
     expect(rung4.sections.broadband).toEqual({
       state: "unavailable",
-      reason: "area answers need an exact postcode",
+      reason: "Area answers need an exact postcode",
     });
     expect("mobile" in rung4.sections).toBe(false);
   });

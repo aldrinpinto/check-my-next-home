@@ -616,8 +616,8 @@ export const CHECK_PAGES: Record<string, CheckPageContent> = {
       {
         heading: "The yardsticks the bands are read against",
         paragraphs: [
-          "In the detailed report, each band also carries its position against two yardsticks, in words, with the colour following the first. The first is Defra's own: 55 dB by day and 50 dB by night — the levels the published bands themselves are cut at, so a band always sits wholly below them or wholly at or above them, never across them. A band within the Defra level takes the green tint; a band at or above it takes the red.",
-          "The second is the World Health Organization's environmental noise guidelines of 2018, which differ by source: for road traffic 53 dB by day and 45 by night, for railways 54 by day and 44 by night, and for aircraft 45 by day and 40 by night. Those guidelines are long-term health-based values, and a 5 dB band can span one — where it does, the report's words say the band spans the guideline rather than placing it on either side. The WHO position is carried in words only and colours nothing: it is a stricter scale for reading the band, not a limit the band is judged against.",
+          "In the detailed report, each band carries its position against the World Health Organization's guideline in words, and the colour follows that guideline: a band entirely below it takes the green tint, a band spanning it takes the orange, and a band entirely at or above it takes the red. Defra's own levels — 55 dB by day and 50 dB by night, the levels the published bands themselves are cut at — do not colour the band.",
+          "The World Health Organization's environmental noise guidelines of 2018 differ by source: for road traffic 53 dB by day and 45 by night, for railways 54 by day and 44 by night, and for aircraft 45 by day and 40 by night. Those guidelines are long-term health-based values, and a 5 dB band can span one — where it does, the report's words say the band spans the guideline rather than placing it on either side, and the band takes the orange tint.",
         ],
       },
       {

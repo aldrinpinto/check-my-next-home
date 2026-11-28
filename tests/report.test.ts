@@ -455,6 +455,109 @@ describe("report — Section 4 health, air, noise & crime", () => {
     expect(s4).toContain("Below 50 dB");
   });
 
+  it("noise cells colour on the WHO guideline, not the Defra threshold (BUG-399)", () => {
+    const noiseTableOf = (reportView: ReportView) => {
+      const table = reportView.sections[3].blocks.find(
+        (b) => b.type === "table" && b.head?.[0] === "Source",
+      );
+      if (!table || table.type !== "table") throw new Error("expected the noise table");
+      return table;
+    };
+    const withNoiseBands = (
+      bands: {
+        sourceKind: string;
+        label: string;
+        dayBand: string | null;
+        nightBand: string | null;
+      }[],
+    ) => {
+      const base = input();
+      if (base.area.kind !== "area-bundle") throw new Error("expected an area bundle");
+      const sections = base.area.sections;
+      return buildReportView({
+        ...base,
+        area: {
+          ...base.area,
+          sections: {
+            ...sections,
+            noise: {
+              ...sections.noise,
+              bands: bands.map((band) => ({
+                ...band,
+                line: `${band.label}: ${band.dayBand ?? "—"} by day`,
+              })),
+            },
+          },
+        },
+      });
+    };
+
+    // The BUG-399 case: the base fixture's road bands
+    // span their WHO guidelines (53 by day, 45 by
+    // night) — orange now, not the Defra green they
+    // carried.
+    const base = noiseTableOf(view);
+    expect(base.cellTones?.[0]).toEqual([null, "orange", "orange"]);
+    expect(base.cellSubs?.[0][1]).toBe("Spanning the WHO guideline of 53 dB");
+    expect(base.cellSubs?.[0][2]).toBe("Spanning the WHO guideline of 45 dB");
+
+    // Entirely below the WHO guideline: green.
+    const below = noiseTableOf(
+      withNoiseBands([
+        {
+          sourceKind: "road",
+          label: "Road noise",
+          dayBand: "Below 50 dB",
+          nightBand: "Below 45 dB",
+        },
+      ]),
+    );
+    expect(below.cellTones?.[0]).toEqual([null, "green", "green"]);
+    expect(below.cellSubs?.[0][1]).toBe("Below the WHO guideline of 53 dB");
+    expect(below.cellSubs?.[0][2]).toBe("Below the WHO guideline of 45 dB");
+
+    // Entirely at or above the WHO guideline: red.
+    const above = noiseTableOf(
+      withNoiseBands([
+        { sourceKind: "road", label: "Road noise", dayBand: "55–59 dB", nightBand: "45–49 dB" },
+      ]),
+    );
+    expect(above.cellTones?.[0]).toEqual([null, "red", "red"]);
+    expect(above.cellSubs?.[0][1]).toBe("At or above the WHO guideline of 53 dB");
+    expect(above.cellSubs?.[0][2]).toBe("At or above the WHO guideline of 45 dB");
+
+    // Rail and airport at their own guidelines (rail
+    // 54/44, airport 45/40); "70 dB or more" is red
+    // everywhere.
+    const mixed = noiseTableOf(
+      withNoiseBands([
+        {
+          sourceKind: "rail",
+          label: "Rail noise",
+          dayBand: "Below 55 dB",
+          nightBand: "Below 45 dB",
+        },
+        {
+          sourceKind: "airport",
+          label: "Airport noise",
+          dayBand: "Below 45 dB",
+          nightBand: "Below 40 dB",
+        },
+        {
+          sourceKind: "road",
+          label: "Road noise",
+          dayBand: "70 dB or more",
+          nightBand: "70 dB or more",
+        },
+      ]),
+    );
+    expect(mixed.cellTones?.[0]).toEqual([null, "orange", "orange"]);
+    expect(mixed.cellTones?.[1]).toEqual([null, "green", "green"]);
+    expect(mixed.cellTones?.[2]).toEqual([null, "red", "red"]);
+    expect(mixed.cellSubs?.[0][1]).toBe("Spanning the WHO guideline of 54 dB");
+    expect(mixed.cellSubs?.[1][1]).toBe("Below the WHO guideline of 45 dB");
+  });
+
   it("crime carries the counts with the D39 calibration beside them (f)", () => {
     expect(s4).toContain("330 incidents");
     expect(s4).toContain("recorded within 1 mile of this home");
@@ -520,7 +623,7 @@ describe("report — Section 5 and its map", () => {
               latitude: 51.8,
               longitude: 0.64,
             },
-            line: "none within 2 miles — nearest is Witham Station, 3.4 miles away",
+            line: "None within 2 miles — nearest is Witham Station, 3.4 miles away",
           }),
           supermarket: category({
             category: "supermarket",
@@ -692,7 +795,7 @@ describe("report — Section 6 the neighbourhood", () => {
     if (absentArea.kind !== "area-bundle") throw new Error("expected an area bundle");
     const absent = absentArea.sections.benefits;
     const base = absent.series[0];
-    absent.line = "benefit counts are not filed for this area";
+    absent.line = "Benefit counts are not filed for this area";
     absent.series = [
       {
         ...base,
@@ -2292,12 +2395,12 @@ describe("report — M8.3 flood maps: captions", () => {
       {
         flood_zone: {
           pointState: "zone-1",
-          line: "the postcode point is not in Flood Zone 2 or Flood Zone 3 on the Environment Agency's planning map",
+          line: "The postcode point is not in Flood Zone 2 or Flood Zone 3 on the Environment Agency's planning map",
           covering: null,
         },
         rofsw: {
           pointState: "below-lowest-band",
-          line: "no surface-water band reaches this point — below the lowest band this product publishes",
+          line: "No surface-water band reaches this point — below the lowest band this product publishes",
           covering: null,
         },
       },

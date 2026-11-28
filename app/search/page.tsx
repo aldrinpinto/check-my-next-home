@@ -8,6 +8,7 @@ import RedirectTo from "../../components/RedirectTo";
 import ResultsPage from "../../components/ResultsPage";
 import StreetChoice from "../../components/StreetChoice";
 import WholeCheckFailure from "../../components/WholeCheckFailure";
+import SearchLoading from "./loading";
 import {
   classifyAddressInput,
   createAddressSource,
@@ -110,11 +111,15 @@ export default async function SearchPage({
     // token at all has no district screen to mount on,
     // so it renders the streamed child bare — the child
     // resolves it to the place page or the unplaced
-    // notice, as the branch always did.
+    // notice, as the branch always did. The fallback
+    // while it streams is the segment's own checking
+    // frame (BUG-396) — the same frame the loading
+    // boundary showed — so no line of its own ever
+    // appears here either.
     const outward = classifyAddressInput(params.outward).outward;
     if (!outward) {
       return (
-        <Suspense fallback={<p className="results-loading">Opening your check…</p>}>
+        <Suspense fallback={<SearchLoading />}>
           <DistrictResultsForOutward outward={params.outward} notfound={params.notfound} />
         </Suspense>
       );
@@ -353,6 +358,17 @@ async function DistrictResultsForOutward({
     // unplaceable, it is a place pick that arrived by
     // URL, and it lands on the place page — never the
     // unplaced notice, never a failure page.
+    //
+    // The redirect is the client-side navigation alone
+    // (BUG-396): this child renders inside the district
+    // checking screen's hidden children, so the screen
+    // itself is the frame around it — no line of its
+    // own, and nothing to flash if the screen
+    // completes first. The destination and the
+    // history-replace are unchanged; only the visible
+    // content is gone, and only for these edge inputs
+    // (a full postcode or a place name in the outward
+    // slot).
     let url: string;
     if (resolution.rung === 4) {
       url = (await placeChoiceUrl(outward)) ?? UNPLACED_NOTICE_URL;
@@ -361,12 +377,7 @@ async function DistrictResultsForOutward({
     } else {
       url = homeRoute(resolution.directory.postcode);
     }
-    return (
-      <main className="journey-page main--wide">
-        <p className="results-loading">Opening your check…</p>
-        <RedirectTo to={url} />
-      </main>
-    );
+    return <RedirectTo to={url} />;
   }
   return <DistrictResults resolution={resolution} notfound={notfound} />;
 }

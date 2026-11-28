@@ -6622,6 +6622,23 @@
         "label": "string",
         "line": "string",
         "places": [],
+        "shortlistNearest": "null",
+        "state": "string"
+      },
+      {
+        "basisLabel": "string",
+        "beyondNearest": "null",
+        "category": "string",
+        "countWithin": "number",
+        "label": "string",
+        "line": "string",
+        "places": [],
+        "shortlistNearest": {
+          "latitude": "number",
+          "longitude": "number",
+          "miles": "number",
+          "name": "string"
+        },
         "state": "string"
       },
       {
@@ -6640,6 +6657,7 @@
         "nearestSelectiveLine": "null",
         "places": [],
         "selectiveSchools": [],
+        "shortlistNearest": "null",
         "state": "string"
       },
       {
@@ -6655,6 +6673,7 @@
         "label": "string",
         "line": "string",
         "places": [],
+        "shortlistNearest": "null",
         "state": "string"
       }
     ],
@@ -6715,6 +6734,7 @@
         "nearestSelectiveLine": "null",
         "places": [],
         "selectiveSchools": [],
+        "shortlistNearest": "null",
         "state": "string"
       },
       {
@@ -6725,6 +6745,7 @@
         "label": "string",
         "line": "string",
         "places": [],
+        "shortlistNearest": "null",
         "state": "string"
       }
     ],
@@ -6923,6 +6944,7 @@
           }
         ],
         "selectiveSchools": [],
+        "shortlistNearest": "null",
         "state": "string"
       },
       {
@@ -6953,6 +6975,7 @@
             "name": "string"
           }
         ],
+        "shortlistNearest": "null",
         "state": "string"
       },
       {
@@ -6979,6 +7002,7 @@
             "name": "string"
           }
         ],
+        "shortlistNearest": "null",
         "state": "string"
       },
       {
@@ -7004,6 +7028,7 @@
             "name": "string"
           }
         ],
+        "shortlistNearest": "null",
         "state": "string"
       }
     ],

@@ -1050,7 +1050,7 @@ describe("nearby bundle — 19 Birkdale Rise, CM3 2JT", () => {
       latitude: 51.774662,
       longitude: 0.466021,
     });
-    expect(ae.line).toBe("none within 2 miles — nearest is Broomfield Hospital, 5.89 miles away");
+    expect(ae.line).toBe("None within 2 miles — nearest is Broomfield Hospital, 5.89 miles away");
   });
 
   it("names Broomfield as the nearest maternity unit beyond the radius, in the same words (M6.24)", async () => {
@@ -1067,7 +1067,7 @@ describe("nearby bundle — 19 Birkdale Rise, CM3 2JT", () => {
       longitude: 0.466021,
     });
     expect(maternity.line).toBe(
-      "none within 2 miles — nearest is Broomfield Hospital, 5.89 miles away",
+      "None within 2 miles — nearest is Broomfield Hospital, 5.89 miles away",
     );
   });
 
@@ -1375,7 +1375,38 @@ describe("nearby bundle — Flat 4, Minerva House, KT17 1FH", () => {
     const birkdale = await bundleFor("CM3 2JT");
     const none = category(birkdale, "nurseries");
     expect(none.state).toBe("empty");
-    expect(none.line).toContain("no nursery within 2 miles");
+    expect(none.line).toContain("No nursery within 2 miles");
+    // BUG-392/393: Birkdale's nearest nursery row is the
+    // Epsom synthetic, ~100 miles away — past the 25-mile
+    // sanity cap — so no shortlist nearest is filed either.
+    expect(none.shortlistNearest).toBeNull();
+  });
+
+  it("nurseries beyond the radius file the shortlist nearest, and the register line stays (BUG-392/393)", async () => {
+    // A point ~7 miles north of Epsom: no nursery within
+    // 2 miles, but Far Away Nursery (~4.4 miles) is inside
+    // the 25-mile sanity cap — the brain files it for the
+    // shortlist cell only, as shortlistNearest, never as
+    // beyondNearest: the free page and the report still
+    // serve the register line, and the nursery pill still
+    // reads the empty state.
+    const epsom = await resolveAddressInput("KT17 1FH", addressSource);
+    if (!("directory" in epsom)) throw new Error("expected a resolution with a directory");
+    const far = {
+      ...epsom,
+      directory: { ...epsom.directory, latitude: EPSOM.lat + 0.1, longitude: EPSOM.lon },
+    };
+    const bundle = await buildNearbyBundle(far, fakeSource);
+    const nurseries = category(bundle, "nurseries");
+    expect(nurseries.state).toBe("empty");
+    expect(nurseries.line).toContain("No nursery within 2 miles");
+    expect(nurseries.places).toEqual([]);
+    expect(nurseries.beyondNearest).toBeNull();
+    expect(nurseries.shortlistNearest?.name).toBe("Far Away Nursery (synthetic)");
+    expect(nurseries.shortlistNearest?.miles).toBeCloseTo(
+      haversineMiles(EPSOM.lat + 0.1, EPSOM.lon, EPSOM.lat + 0.03621, EPSOM.lon),
+      2,
+    );
   });
 });
 
@@ -1524,7 +1555,7 @@ describe("nearby bundle — Hilgay, CB6 1EH", () => {
     const parks = category(bundle, "parks");
     expect(parks.countWithin).toBe(2);
     expect(parks.places).toEqual([]);
-    expect(parks.line).toContain("no named greenspace site within 2 miles");
+    expect(parks.line).toContain("No named greenspace site within 2 miles");
   });
 });
 
@@ -1671,7 +1702,7 @@ describe("nearby bundle — sixth forms (M6.33, D51/D64)", () => {
     // Re-pinned (BUG-110): the sixth-forms radius is
     // five miles, so the beyond line names five.
     expect(cat.line).toBe(
-      "none within 5 miles — nearest is Bexley Grammar School, 5.484 miles away",
+      "None within 5 miles — nearest is Bexley Grammar School, 5.484 miles away",
     );
   });
 

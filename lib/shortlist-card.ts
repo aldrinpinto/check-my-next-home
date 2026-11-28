@@ -89,17 +89,36 @@ function categoryOf(nearby: NearbyBundle, key: string): CategoryAnswer | undefin
 
 // The nearest a category serves: its first within-radius
 // place, or the essential services' single beyond nearest —
-// the same nearest the results page's own rows lead with.
+// the same nearest the results page's own rows lead with —
+// or, for nurseries, the shortlist-only nearest the brain
+// files where none is within the radius (BUG-392/393).
 function nearestOf(category: CategoryAnswer | undefined): { name: string; miles: number } | null {
   if (!category) return null;
   if (category.places.length > 0)
     return { name: category.places[0].name, miles: category.places[0].miles };
-  return category.beyondNearest ?? null;
+  return category.beyondNearest ?? category.shortlistNearest ?? null;
 }
 
 function distanceCell(category: CategoryAnswer | undefined): ShortlistCell {
   const nearest = nearestOf(category);
   if (nearest) return { kind: "distance", name: nearest.name, miles: nearest.miles };
+  return { kind: "line", text: category?.line ?? NOT_COVERED_LINE };
+}
+
+// The nursery cell (BUG-392/393): the register line — "No
+// nursery within 2 miles of the postcode point in the
+// childcare register we hold." — never shows on the
+// shortlist. Where the brain filed a shortlist nearest the
+// cell names it as a distance cell (the school band colours
+// it red past 2 miles); where none filed within 25 miles
+// there is nothing to name, so the cell is a dash — the
+// rung-3 card's BUG-301 form — never the line. Any other
+// named state (not-filed, not-covered) still shows its own
+// line, exactly as the other rows show theirs.
+function nurseryCell(category: CategoryAnswer | undefined): ShortlistCell {
+  const nearest = nearestOf(category);
+  if (nearest) return { kind: "distance", name: nearest.name, miles: nearest.miles };
+  if (category?.state === "empty") return { kind: "line", text: "—" };
   return { kind: "line", text: category?.line ?? NOT_COVERED_LINE };
 }
 
@@ -292,6 +311,13 @@ function airCell(input: ShortlistCardInput): ShortlistCell {
       // the pill's own, mirrored here; a bandless set
       // (unreachable on this branch) keeps the figures
       // alone rather than guessing a verdict.
+      // BUG-394: the cell is SEGMENTS, not a banded
+      // line — the colour lives on the verdict value
+      // only (BUG-291), as the crime cell does, and the
+      // figures stand beside it as plain text. A banded
+      // line would hand the whole "verdict · figures"
+      // text to CompareCell's line branch, which wraps
+      // it all in the pill chip.
       const verdict =
         band === "red"
           ? "Above a UK legal limit"
@@ -300,10 +326,12 @@ function airCell(input: ShortlistCardInput): ShortlistCell {
             : band === "green"
               ? "Well within UK legal limits"
               : null;
+      if (verdict === null) {
+        return { kind: "segments", segments: [{ text: figures }] };
+      }
       return {
-        kind: "line",
-        text: verdict === null ? figures : `${verdict} · ${figures}`,
-        ...(band ? { band } : {}),
+        kind: "segments",
+        segments: [{ text: verdict, ...(band ? { band } : {}) }, { text: ` · ${figures}` }],
       };
     }
     return { kind: "line", text: air.line ?? NOT_COVERED_LINE };
@@ -383,7 +411,7 @@ function rung1Card(input: ShortlistCardInput): ShortlistCard | null {
     primary: distanceCell(categoryOf(nearby, "schools-primary")),
     secondary: distanceCell(secondary),
     grammar: grammarCell,
-    nursery: distanceCell(categoryOf(nearby, "nurseries")),
+    nursery: nurseryCell(categoryOf(nearby, "nurseries")),
     flood: floodCell(short.sections.flood),
     crime: crimeCell(short.sections.crime),
     air: airCell(input),

@@ -451,7 +451,7 @@ describe("sixth forms — the beyond name (M6.33, D64 ruling 4)", () => {
       longitude: DISTANT_FLAGGED_SECONDARY.longitude,
     });
     expect(cat.line).toBe(
-      `none within 5 miles — nearest is Distant Flagged Secondary, ${milesOf(DISTANT_FLAGGED_SECONDARY)} miles away`,
+      `None within 5 miles — nearest is Distant Flagged Secondary, ${milesOf(DISTANT_FLAGGED_SECONDARY)} miles away`,
     );
   });
 
@@ -502,7 +502,7 @@ describe("sixth forms — the beyond name (M6.33, D64 ruling 4)", () => {
     expect(cat.countWithin).toBe(1);
     expect(cat.places).toEqual([]);
     expect(cat.beyondNearest).toBeNull();
-    expect(cat.line).toBe("no sixth forms and colleges within 5 miles of the postcode point");
+    expect(cat.line).toBe("No sixth forms and colleges within 5 miles of the postcode point");
   });
 });
 
@@ -516,7 +516,7 @@ describe("sixth forms — the not-filed state (M6.33, D30)", () => {
     expect(cat.places).toEqual([]);
     expect(cat.beyondNearest).toBeNull();
     expect(cat.line).toBe(
-      "the sixth forms and colleges data is not filed yet, so no sixth forms and colleges answer can be given yet",
+      "The sixth forms and colleges data is not filed yet, so no sixth forms and colleges answer can be given yet",
     );
   });
 });

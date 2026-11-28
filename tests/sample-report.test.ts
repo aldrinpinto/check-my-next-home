@@ -229,7 +229,7 @@ describe("the name suppression (founder ruling, 22 Nov 2026)", () => {
     expect(dentist?.places).toEqual([]);
     expect(dentist?.countWithin).toBe(0);
     expect(dentist?.state).toBe("none-within");
-    expect(dentist?.line).toBe("no dentists within 2 miles of the postcode point");
+    expect(dentist?.line).toBe("No dentists within 2 miles of the postcode point");
     // The fixture's only park is "Birkdale Rise Green":
     // dropped; the non-essential category serves the
     // builder's own empty form for the reduced filing.
@@ -237,7 +237,7 @@ describe("the name suppression (founder ruling, 22 Nov 2026)", () => {
     expect(parks?.places).toEqual([]);
     expect(parks?.countWithin).toBe(0);
     expect(parks?.state).toBe("empty");
-    expect(parks?.line).toBe("no greenspace site within 2 miles of the postcode point");
+    expect(parks?.line).toBe("No greenspace site within 2 miles of the postcode point");
     // An entry carrying no banned name is untouched,
     // count included — suppression adjusts nothing else.
     const supermarket = byKey("supermarket");

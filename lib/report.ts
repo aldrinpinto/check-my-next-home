@@ -485,9 +485,10 @@ export type ReportBlock =
   // (the air and noise tables' yardstick cells — the air
   // table's UK-limit-only bands, green under half the
   // limit, orange at half or more within it, red over
-  // it; the noise table's green within the yardstick,
-  // red at or above it; BUG-073 / BUG-076, succeeding
-  // print-check item 2's red-only alert) and a per-cell
+  // it; the noise table's WHO-guideline bands, green
+  // entirely below it, orange spanning it, red entirely
+  // at or above it (BUG-399); BUG-073 / BUG-076,
+  // succeeding print-check item 2's red-only alert) and a per-cell
   // second line (the figure's position against its
   // yardsticks, printed inside the table with its
   // figure). Both are sparse grids aligned with rows;
@@ -2354,20 +2355,22 @@ function buildCategoryBars(served: ServedCrime): ReportBlock {
 }
 
 // The noise yardsticks (BUG-076, the founder's ruled
-// option C): each filed band is read against Defra's
-// thresholds — 55 dB by day, 50 dB by night, the levels
-// the published bands themselves are cut at, so a band
-// never straddles them — and against the World Health
-// Organization's 2018 environmental noise guidelines for
-// the band's own source (road 53 by day / 45 by night,
-// rail 54 / 44, aircraft 45 / 40), which a band can
-// straddle, and the words say so where it does. Colour
-// follows Defra alone: green where the band sits within
-// the threshold, red where it is at or above it. An
-// absence cell ("No modelled … noise") is a filed state,
-// not a level: it stays plain, with no colour and no
-// position words. Both yardsticks are explained on the
-// noise How-we-check page, which Section 10 links.
+// option C; BUG-399, founder ruling 27 Nov 2026): each
+// filed band is read against Defra's thresholds — 55 dB
+// by day, 50 dB by night, the levels the published bands
+// themselves are cut at, so a band never straddles them
+// — and against the World Health Organization's 2018
+// environmental noise guidelines for the band's own
+// source (road 53 by day / 45 by night, rail 54 / 44,
+// aircraft 45 / 40), which a band can straddle, and the
+// words say so where it does. Colour follows the WHO
+// guideline: green where the band sits entirely below
+// it, orange where it spans it, red where it sits
+// entirely at or above it. An absence cell ("No
+// modelled … noise") is a filed state, not a level: it
+// stays plain, with no colour and no position words.
+// Both yardsticks are explained on the noise
+// How-we-check page, which Section 10 links.
 // BUG-112's context, given once for the whole noise
 // table: Defra publishes strategic noise in bands only —
 // no exact decibel figure exists in the source, and none
@@ -2399,24 +2402,35 @@ function noisePosition(
   span: { lo: number; hi: number },
   sourceKind: string,
   when: "day" | "night",
-): { tone: "green" | "red"; words: string } {
-  const defra = when === "day" ? 55 : 50;
-  const tone = span.hi <= defra ? ("green" as const) : ("red" as const);
-  // BUG-112: the small print no longer restates the band
-  // as a Defra threshold sentence — the band in the cell
-  // IS the value. The small print gives the band's
-  // position against the WHO guideline only; the
-  // bands-are-modelled context stands once, in the
-  // table's caption (NOISE_BAND_CONTEXT_LINE). Colour
-  // still follows the Defra threshold alone.
+): { tone: "green" | "orange" | "red"; words: string } {
+  // BUG-399 (founder ruling, 27 Nov 2026): the colour
+  // follows the WHO guideline, not the Defra threshold.
+  // A band entirely below its WHO guideline is green, a
+  // band spanning it is orange, a band entirely at or
+  // above it is red. The small print already said the
+  // position in exactly these three words; the tone now
+  // reads from the same position, so the two can never
+  // disagree. BUG-112's note still stands otherwise: the
+  // small print gives the position against the WHO
+  // guideline only, and the bands-are-modelled context
+  // stands once in the table's caption.
   const who = NOISE_WHO_GUIDELINES[sourceKind]?.[when];
-  if (who === undefined) return { tone, words: "" };
+  if (who === undefined) {
+    // No WHO guideline for this source: no WHO verdict
+    // is possible, so the cell keeps the Defra tone it
+    // always had (green within 55 by day / 50 by night,
+    // red at or above) rather than inventing one.
+    const defra = when === "day" ? 55 : 50;
+    return { tone: span.hi <= defra ? ("green" as const) : ("red" as const), words: "" };
+  }
   const whoPart =
     span.hi <= who
       ? `below the WHO guideline of ${who} dB`
       : span.lo >= who
         ? `at or above the WHO guideline of ${who} dB`
         : `spanning the WHO guideline of ${who} dB`;
+  const tone =
+    span.hi <= who ? ("green" as const) : span.lo >= who ? ("red" as const) : ("orange" as const);
   return { tone, words: sentence(whoPart) };
 }
 

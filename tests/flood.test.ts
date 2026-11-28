@@ -508,7 +508,7 @@ describe("flood — ladder rungs (D25)", () => {
     expect(bundle).toEqual({
       rung: 3,
       kind: "wider-area",
-      flood: { state: "unavailable", reason: "flood answers need an exact postcode" },
+      flood: { state: "unavailable", reason: "Flood answers need an exact postcode" },
     });
     const serialised = JSON.stringify(bundle);
     expect(serialised).not.toContain("Flood Zone");
@@ -521,7 +521,7 @@ describe("flood — ladder rungs (D25)", () => {
     expect(bundle).toEqual({
       rung: 4,
       kind: "no-location",
-      flood: { state: "unavailable", reason: "flood answers need an exact postcode" },
+      flood: { state: "unavailable", reason: "Flood answers need an exact postcode" },
     });
   });
 });
@@ -599,7 +599,7 @@ describe("flood — a layer with no filing serves its not-filed state, never an 
 });
 
 describe("flood — the beyond form (nothing within the radius)", () => {
-  it("serves 'none within 2 miles — nearest is…' with the single nearest edge", async () => {
+  it("serves 'None within 2 miles — nearest is…' with the single nearest edge", async () => {
     const remote = directory("XX2 2XX", 52.5, -1.5, "E01000002");
     fileFacts(remote, {
       flood_zone: facts({
@@ -623,7 +623,7 @@ describe("flood — the beyond form (nothing within the radius)", () => {
     expect(zones.proximity).toEqual([]);
     expect(zones.beyondNearest).toEqual({ displayLabel: "Flood Zone 2", miles: 4.317 });
     expect(zones.beyondLine).toBe(
-      "none within 2 miles — the nearest mapped edge is Flood Zone 2, 4.317 miles away",
+      "None within 2 miles — the nearest mapped edge is Flood Zone 2, 4.317 miles away",
     );
     // A layer with a band inside the radius serves proximity
     // and no beyond entry.
@@ -729,7 +729,7 @@ describe("flood — the golden homes (measured on the serving basis)", () => {
     expect(new Set([zones.pointState, rofrs.pointState, rofsw.pointState]).size).toBe(3);
     expect(new Set([zones.line, rofrs.line, rofsw.line]).size).toBe(3);
     expect(zones.line).toBe(
-      "the postcode point is not in Flood Zone 2 or Flood Zone 3 on the Environment Agency's planning map",
+      "The postcode point is not in Flood Zone 2 or Flood Zone 3 on the Environment Agency's planning map",
     );
     expect(zones.remainder?.displayLabel).toBe("Flood Zone 1");
     expect(zones.remainder?.detail).toBeNull();
@@ -753,7 +753,7 @@ describe("flood — the golden homes (measured on the serving basis)", () => {
       ["Very low", 1.307],
     ]);
     expect(rofsw.line).toBe(
-      "no surface-water band reaches this point — below the lowest band this product publishes",
+      "No surface-water band reaches this point — below the lowest band this product publishes",
     );
     expect(prox(rofsw)).toEqual([
       ["Low", 0.03],
@@ -1234,7 +1234,7 @@ describe("flood — live warnings compose at serve time (M6.22, D42)", () => {
     const zones = layer(bundle.flood.layers, "flood_zone");
     expect(zones.pointState).toBe("zone-1");
     expect(zones.line).toBe(
-      "the postcode point is not in Flood Zone 2 or Flood Zone 3 on the Environment Agency's planning map",
+      "The postcode point is not in Flood Zone 2 or Flood Zone 3 on the Environment Agency's planning map",
     );
   });
 
@@ -1559,12 +1559,12 @@ describe("flood — recorded defences (M6.27, D49/D54)", () => {
       designSopLine: "design standard: 1 in 10",
       designSopExplainer: DESIGN_SOP_EXPLAINER,
       currentSop: null,
-      currentSopLine: "no current standard is recorded for this defence",
+      currentSopLine: "No current standard is recorded for this defence",
       miles: 0.851,
     });
     // The '' condition is the absence of a grade, not grade 0.
     expect(second.condition).toBeNull();
-    expect(second.conditionLine).toBe("no condition is recorded for this defence");
+    expect(second.conditionLine).toBe("No condition is recorded for this defence");
     expect(second.maintainer).toBe("Private individual, Company or Charity");
   });
 
@@ -1594,7 +1594,7 @@ describe("flood — recorded defences (M6.27, D49/D54)", () => {
     for (const [i, category] of categories.entries()) {
       const served = block.defences[i];
       if (category === "Unknown") {
-        expect(served.maintainer).toBe("no maintainer is recorded for this defence");
+        expect(served.maintainer).toBe("No maintainer is recorded for this defence");
         expect(served.maintainerRecorded).toBe(false);
       } else {
         expect(served.maintainer).toBe(category);
@@ -1602,7 +1602,7 @@ describe("flood — recorded defences (M6.27, D49/D54)", () => {
       }
       // No maintainer string outside the vocabulary (or its
       // one named absence) can appear in served output.
-      expect([...categories, "no maintainer is recorded for this defence"]).toContain(
+      expect([...categories, "No maintainer is recorded for this defence"]).toContain(
         served.maintainer,
       );
     }
@@ -1667,7 +1667,7 @@ describe("flood — recorded defences (M6.27, D49/D54)", () => {
     expect(block.state).toBe("none-within-radius");
     expect(block.line).toBe(FLOOD_DEFENCES_NONE_LINE);
     expect(block.line).toContain(
-      "no EA-recorded flood defence is mapped within 2 miles of this postcode point",
+      "No EA-recorded flood defence is mapped within 2 miles of this postcode point",
     );
     expect(block.line).toContain("defences recorded by other bodies");
     expect(block.caveat).toBeNull();
@@ -1684,7 +1684,7 @@ describe("flood — recorded defences (M6.27, D49/D54)", () => {
     expect(block.state).toBe("not-filed");
     expect(block.line).toBe(FLOOD_DEFENCES_NOT_FILED_LINE);
     expect(block.line).toBe(
-      "recorded flood defences are not filed yet, so no answer can be given from them",
+      "Recorded flood defences are not filed yet, so no answer can be given from them",
     );
     expect(block.caveat).toBeNull();
     expect(block.bridgeLine).toBeNull();
@@ -1717,9 +1717,9 @@ describe("flood — recorded defences (M6.27, D49/D54)", () => {
     expect(a.condition).toBe("Unchecked");
     expect(a.conditionLine).toBe("condition: Unchecked");
     expect(b.condition).toBeNull();
-    expect(b.conditionLine).toBe("no condition is recorded for this defence");
+    expect(b.conditionLine).toBe("No condition is recorded for this defence");
     expect(b.designSop).toBeNull();
-    expect(b.designSopLine).toBe("no design standard is recorded for this defence");
+    expect(b.designSopLine).toBe("No design standard is recorded for this defence");
     expect(b.designSopExplainer).toBeNull();
     expect(b.designSopQuality).toBeNull();
     expect(b.currentSop).toBe(50);
@@ -1949,10 +1949,10 @@ describe("flood — climate outlook (M6.28, D49/D55)", () => {
       expect(s.sourceLine).toBeNull();
     }
     expect(block.sources[0].line).toBe(
-      "the climate scenario map of flooding from rivers and the sea is not filed yet, so no answer can be given from it",
+      "The climate scenario map of flooding from rivers and the sea is not filed yet, so no answer can be given from it",
     );
     expect(block.sources[1].line).toBe(
-      "the climate scenario map of flooding from surface water is not filed yet, so no answer can be given from it",
+      "The climate scenario map of flooding from surface water is not filed yet, so no answer can be given from it",
     );
     // The block is a sibling: no climate material inside the
     // present-day layers.
@@ -1995,7 +1995,7 @@ describe("flood — climate outlook (M6.28, D49/D55)", () => {
     expect(surfaceWater.pointState).toBe("no-band-published");
     expect(surfaceWater.band).toBeNull();
     expect(surfaceWater.line).toBe(
-      "no likelihood band is published for this point under this scenario on the Environment Agency's climate scenario map of flooding from surface water",
+      "No likelihood band is published for this point under this scenario on the Environment Agency's climate scenario map of flooding from surface water",
     );
     expect(surfaceWater.sourceLine).toBe(`${ROFSW_CC_SOURCE} — data to 10 November 2026`);
   });

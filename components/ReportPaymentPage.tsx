@@ -22,6 +22,7 @@ import {
   PAYMENT_GIFT_USE_DIFFERENT_EMAIL,
   PAYMENT_HOME_NOT_FOUND_LINE,
   PAYMENT_START_FAILED_LINE,
+  PAYMENT_STARTING_LINE,
   paymentGiftGoneLine,
   type ReportPaymentView,
   type StartedPayment,
@@ -403,6 +404,21 @@ export default function ReportPaymentPage({
   // reaches for a payment counts, including retries
   // after a failed start or a decline.
   const [attempt, setAttempt] = useState(0);
+  // BUG-398: the intent is being created — the visible
+  // in-flight state on the tapped control. creatingFor
+  // (below) is a ref, so it cannot re-render; without
+  // this state a tap did nothing visible while the
+  // fetch was in flight, and the second tap hit the
+  // creatingFor guard — a silent no-op — so it looked
+  // like the second click did it. Set beside
+  // creatingFor once the guards pass, cleared in the
+  // finally beside it, so the state can never stick
+  // past the intent's settlement — including the
+  // BUG-325 gift-lost reconcile and a failed start.
+  // The one-payment-per-attempt rule is unchanged:
+  // the creatingFor guard stays first, and this state
+  // mirrors it, never replaces it.
+  const [starting, setStarting] = useState(false);
   // BUG-325: the visit's gift, lost at intent time —
   // the server answered a payment for a gift visit, so
   // the gift is gone for this page load and the page
@@ -570,6 +586,7 @@ export default function ReportPaymentPage({
     // answer may reconcile the page away from it.
     const giftVisit = giftActive;
     creatingFor.current = `${normalised}|${consentTimestamp}`;
+    setStarting(true);
     setAttempt((value) => value + 1);
     try {
       const response = await fetch("/api/payments/intent", {
@@ -654,6 +671,7 @@ export default function ReportPaymentPage({
       setNotice(PAYMENT_START_FAILED_LINE);
     } finally {
       creatingFor.current = null;
+      setStarting(false);
     }
   }
 
@@ -695,6 +713,15 @@ export default function ReportPaymentPage({
   }
 
   function onStartClick(preferred?: PreferredPaymentMethod) {
+    // BUG-398: a tap during the flight is a no-op —
+    // the controls are disabled while starting, and
+    // this guard is the second layer, so no path can
+    // re-validate, re-record the preference, or
+    // re-enter the start while one is in flight. In
+    // particular a second tap on the OTHER row must
+    // not overwrite preferredMethod before the
+    // creatingFor guard no-ops the start.
+    if (starting) return;
     // BUG-328: BOTH checks are evaluated before any
     // return — a missing email AND a missing tick are
     // named together, on the first click. BUG-327: a
@@ -1105,8 +1132,13 @@ export default function ReportPaymentPage({
                             type="button"
                             className="report-payment__method"
                             onClick={() => onStartClick("card")}
+                            disabled={starting}
                           >
-                            <span className="report-payment__method-label">Card</span>
+                            <span className="report-payment__method-label">
+                              {starting && preferredMethod === "card"
+                                ? PAYMENT_STARTING_LINE
+                                : "Card"}
+                            </span>
                             <span className="report-payment__method-marks" aria-hidden="true">
                               <VisaMark />
                               <MastercardMark />
@@ -1120,8 +1152,13 @@ export default function ReportPaymentPage({
                             type="button"
                             className="report-payment__method"
                             onClick={() => onStartClick("revolut_pay")}
+                            disabled={starting}
                           >
-                            <span className="report-payment__method-label">Revolut Pay</span>
+                            <span className="report-payment__method-label">
+                              {starting && preferredMethod === "revolut_pay"
+                                ? PAYMENT_STARTING_LINE
+                                : "Revolut Pay"}
+                            </span>
                             <span className="report-payment__method-marks" aria-hidden="true">
                               <RevolutMark />
                             </span>
@@ -1141,14 +1178,21 @@ export default function ReportPaymentPage({
                         so an attempt can be answered with the
                         consent error instead of silence. No
                         payment can start unticked either way:
-                        the click handler requires the consent. */}
+                        the click handler requires the consent.
+                        BUG-398: it IS disabled while the intent
+                        is being created — in-flight only, when
+                        the consent necessarily stands — so a
+                        second tap cannot re-enter the start,
+                        and the starting line is the visible
+                        state. */}
                     <button
                       type="button"
                       className="btn btn--brass report-payment__pay"
                       onClick={() => onStartClick()}
                       aria-disabled={consentAt === null || undefined}
+                      disabled={starting}
                     >
-                      {payLabel}
+                      {starting && preferredMethod === null ? PAYMENT_STARTING_LINE : payLabel}
                     </button>
                     {/* BUG-223: Screen C draws no closing line
                         under the button for a gift holder —

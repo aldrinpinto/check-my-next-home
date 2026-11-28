@@ -886,8 +886,8 @@ export function farBeyondLine(category: CategoryAnswer): string {
   // map-held supermarket category carries the map-gap
   // caveat; the rest carry the plain form.
   return category.category === "supermarket"
-    ? `no ${category.label} recorded within 2 miles on the map data we hold — a gap in the map is not proof that none exists`
-    : `no ${category.label} within 2 miles of the postcode point`;
+    ? `No ${category.label} recorded within 2 miles on the map data we hold — a gap in the map is not proof that none exists`
+    : `No ${category.label} within 2 miles of the postcode point`;
 }
 
 export function suppressFarBeyond(category: CategoryAnswer): CategoryAnswer {
@@ -972,7 +972,7 @@ function schoolsGroupResult(byCategory: Map<NearbyCategory, CategoryAnswer>): Ch
       return {
         state: "done",
         line:
-          `none within ${CHECKING_NEARBY_RADIUS_MILES} miles — nearest is ` +
+          `None within ${CHECKING_NEARBY_RADIUS_MILES} miles — nearest is ` +
           `${primary.beyondNearest.name}, ${formatMiles(primary.beyondNearest.miles)} ` +
           `miles away`,
       };

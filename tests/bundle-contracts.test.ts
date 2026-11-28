@@ -378,6 +378,37 @@
 // on the M8.1 coordinates precedent. All 50 pins stand.
 // Recorded here and in docs/frontend-design-pass.md so
 // the change is never mistaken for drift.
+//
+// RE-PIN RECORD: BUG-392/393 (founder ruling, 27 Nov 2026)
+// deliberately widened the frozen nearby shape — every
+// served category answer gains shortlistNearest (null
+// where no nursery files as the shortlist nearest): the
+// nearest nursery beyond the radius, filed for the
+// shortlist cell only, so the shortlist names it with a
+// red distance pill where no nursery files within 2 miles
+// while the free page and the report keep the register
+// line. THREE pins moved (nearby.served,
+// nearby.beyond-only, nearby.none-anywhere), each
+// differing by exactly the added key — verified by
+// leaf-diff against the printed shapes (PRINT_SHAPES=1)
+// and by stripped-variant-set comparison: with the key
+// stripped, each moved pin is the old pin. The
+// beyond-only pin additionally splits the nurseries
+// variant out from the other plain categories — its
+// shortlistNearest is the filed object ("Beyond One",
+// 3.2 miles) where the others carry null — the intended
+// filing, with beyondNearest still null and the register
+// line still the nurseries line. The not-filed pin did
+// not move — its answers are built by the early returns,
+// which carry no shortlist nearest — and the rung-3/4
+// pins did not move (no categories record). No short pin
+// moved: the short bundle's derivation never reads the
+// field. The nearby cache carries no shape check and no
+// nurseries count in its guard, so a pre-fix entry still
+// serves — and its nursery cell falls back to the dash,
+// never the banned line, until the entry recomputes.
+// All 50 pins stand. Recorded here so the change is
+// never mistaken for drift.
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";

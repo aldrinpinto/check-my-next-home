@@ -109,12 +109,13 @@ export const AIR_NOT_SAVED_LINE = "Air quality is not in this saved snapshot.";
 // honours the shape so a saved list is never dropped for
 // its age — new assembly never produces one.
 //
-// A SEGMENTS cell (BUG-291, BUG-292): a line whose colour
+// A SEGMENTS cell (BUG-291, BUG-292, BUG-394): a line whose colour
 // belongs to the VALUES, not the whole line — each segment
 // is plain text or one banded value, so the labels stay
 // plain while the figures take the pill's dress. The
-// flood cell's two bands and the crime cell's verdict are
-// segments; every other row stays a plain line.
+// flood cell's two bands, the crime cell's verdict and the
+// air cell's verdict are segments; every other row stays a
+// plain line.
 export type ShortlistSegment = { text: string; band?: DistanceBand };
 
 export type ShortlistCell =
@@ -379,11 +380,13 @@ function derivedLegacyBand(rowKey: ComparisonRowKey, text: string): DistanceBand
 // its row family's band (lib/results.ts's distanceBand) —
 // except GP: its family stands in the row table, but the
 // product never colours a GP distance anywhere, so the
-// table does not start. A line cell takes the band
-// assembly derived for it from the pill verdicts (flood,
-// crime, air quality) — or, for a pre-colour-work card
-// that stored none, the band its stored values still
-// determine (BUG-189, above); every other line — council
+// table does not start. A line cell takes the band stored
+// on it — but only STORED cards carry one: current
+// assembly never produces a banded line (BUG-394 — the
+// air cell's verdict is a segment now, as flood's and
+// crime's already were), so the line arm exists for
+// pre-colour-work snapshots (BUG-189, above) and any
+// other stored banded line; every other line — council
 // tax above all — stays plain, as does a legacy pointer.
 export function comparisonCellBand(
   rowKey: ComparisonRowKey,
@@ -415,6 +418,11 @@ export function comparisonCellBand(
 //     saved before BUG-361 put the verdict words ahead
 //     of the figures — the band is the verdict, so a
 //     fresh derivation restores the words;
+//   - an air line in the verdict-first text with a band:
+//     saved after BUG-361 and before BUG-394 reshaped the
+//     cell to segments — the whole "verdict · figures"
+//     text would take the pill's colour; a fresh
+//     derivation restores the verdict-only colour;
 //   - a grammar line in the old lowercase form: saved
 //     before BUG-313 capitalised the composed line;
 //   - a grammar line in the capitalised selective
@@ -423,6 +431,11 @@ export function comparisonCellBand(
 //     that sentence as a line cell (a selective school
 //     files as a distance cell; no selective school files
 //     as the category's own line).
+//   - a nursery line carrying the register line: saved
+//     before BUG-392/393 — current assembly never
+//     produces it (a nearest files as a distance cell, no
+//     nearest files as a dash); a fresh derivation
+//     restores the named nearest or the dash.
 //   - rung 3 only: the BUG-301 signature — the nearby
 //     reason repeated on the seven governed rows.
 // Deliberately NOT markers: a plain-line crime cell
@@ -442,11 +455,28 @@ export function isStaleShortlistCard(card: ShortlistCard): boolean {
   if (comparison.air === undefined) return true;
   const air = comparison.air;
   if (air?.kind === "line" && air.band !== undefined && air.text.startsWith("NO2 ")) return true;
+  if (
+    air?.kind === "line" &&
+    air.band !== undefined &&
+    (air.text.startsWith("Above a UK legal limit") ||
+      air.text.startsWith("Within UK legal limits") ||
+      air.text.startsWith("Well within UK legal limits"))
+  ) {
+    return true;
+  }
   const grammar = comparison.grammar;
   if (
     grammar?.kind === "line" &&
     (grammar.text.startsWith("the nearest selective secondary school is ") ||
       grammar.text.startsWith("The nearest selective secondary school is "))
+  ) {
+    return true;
+  }
+  const nursery = comparison.nursery;
+  if (
+    nursery?.kind === "line" &&
+    (nursery.text.startsWith("no nursery within 2 miles") ||
+      nursery.text.startsWith("No nursery within 2 miles"))
   ) {
     return true;
   }
