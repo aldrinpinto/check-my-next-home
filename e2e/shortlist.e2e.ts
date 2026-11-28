@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { chromium, type Page } from "@playwright/test";
 
-import { SHORTLIST_STORAGE_KEY, type ShortlistCard } from "../lib/shortlist";
+import { NOISE_NOT_SAVED_LINE, SHORTLIST_STORAGE_KEY, type ShortlistCard } from "../lib/shortlist";
 import { expect, test } from "./fixtures";
 
 // M7.5 E2E (D68) — the shortlist against the SERVED app +
@@ -71,6 +71,9 @@ function specCard(overrides: Partial<ShortlistCard> & { id: string }): Shortlist
       flood: { kind: "pointer" },
       crime: { kind: "pointer" },
       air: line("NO2 8.15 µg/m³ a year · PM2.5 7.12 µg/m³ · PM10 12.55 µg/m³"),
+      // BUG-403: this seed predates the Noise row (saved
+      // 17 Nov 2026), so its noise cell is the not-saved line.
+      noise: line(NOISE_NOT_SAVED_LINE),
       gp: { kind: "distance", name: "Birkdale Surgery", miles: 1.9 },
       ae: { kind: "distance", name: "Broomfield Hospital", miles: 5.89 },
       station: { kind: "distance", name: "Chelmsford", miles: 2.31 },

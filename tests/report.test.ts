@@ -455,7 +455,7 @@ describe("report — Section 4 health, air, noise & crime", () => {
     expect(s4).toContain("Below 50 dB");
   });
 
-  it("noise cells colour on the WHO guideline, not the Defra threshold (BUG-399)", () => {
+  it("noise cells are two-colour: lowest band green, everything else red (BUG-399 ruling change, 28 Nov 2026)", () => {
     const noiseTableOf = (reportView: ReportView) => {
       const table = reportView.sections[3].blocks.find(
         (b) => b.type === "table" && b.head?.[0] === "Source",
@@ -491,58 +491,93 @@ describe("report — Section 4 health, air, noise & crime", () => {
         },
       });
     };
+    // No orange tone and no "spanning" words anywhere in
+    // a noise table, in any row.
+    const expectNoOrange = (table: {
+      cellTones?: ("green" | "orange" | "red" | null)[][];
+      cellSubs?: (string | null)[][];
+    }) => {
+      for (const row of table.cellTones ?? []) expect(row).not.toContain("orange");
+      for (const row of table.cellSubs ?? []) {
+        for (const sub of row) {
+          if (sub) expect(sub).not.toMatch(/spanning/i);
+        }
+      }
+    };
+    const quietest = "The quietest band Defra publishes for this source";
 
-    // The BUG-399 case: the base fixture's road bands
-    // span their WHO guidelines (53 by day, 45 by
-    // night) — orange now, not the Defra green they
-    // carried.
+    // The base fixture's road bands are the lowest
+    // published bands ("Below 55 dB" by day, "Below 50 dB"
+    // by night) — green now, with the quietest-band words,
+    // not the spanning orange they carried under the
+    // three-colour rule.
     const base = noiseTableOf(view);
-    expect(base.cellTones?.[0]).toEqual([null, "orange", "orange"]);
-    expect(base.cellSubs?.[0][1]).toBe("Spanning the WHO guideline of 53 dB");
-    expect(base.cellSubs?.[0][2]).toBe("Spanning the WHO guideline of 45 dB");
+    expect(base.cellTones?.[0]).toEqual([null, "green", "green"]);
+    expect(base.cellSubs?.[0][1]).toBe(quietest);
+    expect(base.cellSubs?.[0][2]).toBe(quietest);
+    expectNoOrange(base);
 
-    // Entirely below the WHO guideline: green.
-    const below = noiseTableOf(
+    // The lowest band is green at every source and hour —
+    // road, rail and airport, day and night — because
+    // green is the below-band itself, not a WHO comparison.
+    const lowest = noiseTableOf(
       withNoiseBands([
         {
           sourceKind: "road",
           label: "Road noise",
-          dayBand: "Below 50 dB",
-          nightBand: "Below 45 dB",
+          dayBand: "Below 55 dB",
+          nightBand: "Below 50 dB",
         },
-      ]),
-    );
-    expect(below.cellTones?.[0]).toEqual([null, "green", "green"]);
-    expect(below.cellSubs?.[0][1]).toBe("Below the WHO guideline of 53 dB");
-    expect(below.cellSubs?.[0][2]).toBe("Below the WHO guideline of 45 dB");
-
-    // Entirely at or above the WHO guideline: red.
-    const above = noiseTableOf(
-      withNoiseBands([
-        { sourceKind: "road", label: "Road noise", dayBand: "55–59 dB", nightBand: "45–49 dB" },
-      ]),
-    );
-    expect(above.cellTones?.[0]).toEqual([null, "red", "red"]);
-    expect(above.cellSubs?.[0][1]).toBe("At or above the WHO guideline of 53 dB");
-    expect(above.cellSubs?.[0][2]).toBe("At or above the WHO guideline of 45 dB");
-
-    // Rail and airport at their own guidelines (rail
-    // 54/44, airport 45/40); "70 dB or more" is red
-    // everywhere.
-    const mixed = noiseTableOf(
-      withNoiseBands([
         {
           sourceKind: "rail",
           label: "Rail noise",
           dayBand: "Below 55 dB",
-          nightBand: "Below 45 dB",
+          nightBand: "Below 50 dB",
         },
         {
           sourceKind: "airport",
           label: "Airport noise",
-          dayBand: "Below 45 dB",
-          nightBand: "Below 40 dB",
+          dayBand: "Below 55 dB",
+          nightBand: "Below 50 dB",
         },
+      ]),
+    );
+    expect(lowest.cellTones?.[0]).toEqual([null, "green", "green"]);
+    expect(lowest.cellTones?.[1]).toEqual([null, "green", "green"]);
+    expect(lowest.cellTones?.[2]).toEqual([null, "green", "green"]);
+    expect(lowest.cellSubs?.[0][1]).toBe(quietest);
+    expect(lowest.cellSubs?.[2][2]).toBe(quietest);
+    expectNoOrange(lowest);
+
+    // Every higher band is red, with the WHO position
+    // words, at every source and hour (road 53/45, rail
+    // 54/44, airport 45/40).
+    const higher = noiseTableOf(
+      withNoiseBands([
+        { sourceKind: "road", label: "Road noise", dayBand: "55–59 dB", nightBand: "50–54 dB" },
+        { sourceKind: "rail", label: "Rail noise", dayBand: "55–59 dB", nightBand: "50–54 dB" },
+        {
+          sourceKind: "airport",
+          label: "Airport noise",
+          dayBand: "55–59 dB",
+          nightBand: "50–54 dB",
+        },
+      ]),
+    );
+    expect(higher.cellTones?.[0]).toEqual([null, "red", "red"]);
+    expect(higher.cellTones?.[1]).toEqual([null, "red", "red"]);
+    expect(higher.cellTones?.[2]).toEqual([null, "red", "red"]);
+    expect(higher.cellSubs?.[0][1]).toBe("At or above the WHO guideline of 53 dB");
+    expect(higher.cellSubs?.[0][2]).toBe("At or above the WHO guideline of 45 dB");
+    expect(higher.cellSubs?.[1][1]).toBe("At or above the WHO guideline of 54 dB");
+    expect(higher.cellSubs?.[1][2]).toBe("At or above the WHO guideline of 44 dB");
+    expect(higher.cellSubs?.[2][1]).toBe("At or above the WHO guideline of 45 dB");
+    expect(higher.cellSubs?.[2][2]).toBe("At or above the WHO guideline of 40 dB");
+    expectNoOrange(higher);
+
+    // "70 dB or more" is red everywhere.
+    const loud = noiseTableOf(
+      withNoiseBands([
         {
           sourceKind: "road",
           label: "Road noise",
@@ -551,11 +586,23 @@ describe("report — Section 4 health, air, noise & crime", () => {
         },
       ]),
     );
-    expect(mixed.cellTones?.[0]).toEqual([null, "orange", "orange"]);
-    expect(mixed.cellTones?.[1]).toEqual([null, "green", "green"]);
-    expect(mixed.cellTones?.[2]).toEqual([null, "red", "red"]);
-    expect(mixed.cellSubs?.[0][1]).toBe("Spanning the WHO guideline of 54 dB");
-    expect(mixed.cellSubs?.[1][1]).toBe("Below the WHO guideline of 45 dB");
+    expect(loud.cellTones?.[0]).toEqual([null, "red", "red"]);
+    expect(loud.cellSubs?.[0][1]).toBe("At or above the WHO guideline of 53 dB");
+    expectNoOrange(loud);
+
+    // Absence cells stay plain: no tone, no words.
+    const absent = noiseTableOf(
+      withNoiseBands([
+        {
+          sourceKind: "road",
+          label: "Road noise",
+          dayBand: "No modelled road noise",
+          nightBand: "No modelled road noise",
+        },
+      ]),
+    );
+    expect(absent.cellTones?.[0]).toEqual([null, null, null]);
+    expect(absent.cellSubs?.[0]).toEqual([null, null, null]);
   });
 
   it("crime carries the counts with the D39 calibration beside them (f)", () => {

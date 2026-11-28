@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import {
   PLACE_CHOICE_LINE,
   placeBridgeLine,
@@ -94,7 +96,15 @@ export default function PlaceChoice({
               // (.district-place__item), so the button
               // shows at every desktop width.
               <li key={district.outward} className="district-place__item">
-                <a className="district-place__row" href={widerAreaRoute(district.outward)}>
+                {/* BUG-402: client-side, so Back restores
+                    the place page from the router cache
+                    instead of re-rendering it behind its
+                    loading frame. */}
+                <Link
+                  className="district-place__row"
+                  href={widerAreaRoute(district.outward)}
+                  prefetch={false}
+                >
                   <span className="district-place__code">{district.outward}</span>
                   <span className="district-place__main">
                     {/* BUG-317: the row names the
@@ -106,7 +116,7 @@ export default function PlaceChoice({
                     <span className="district-place__label">{`${district.outward} — ${district.postTown ?? place}`}</span>
                     {description && <span className="district-place__detail">{description}</span>}
                   </span>
-                </a>
+                </Link>
                 <DistrictSaveButton outward={district.outward} />
               </li>
             );

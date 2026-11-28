@@ -13,6 +13,8 @@ import type { CategoryAnswer, NearbyBundle, NearbyCategory } from "../lib/nearby
 import { PAYMENT_ONE_PAYMENT_LINE } from "../lib/report-payment";
 import {
   airPillBand,
+  AIR_NOISE_UPSELL_DETAIL,
+  AIR_NOISE_UPSELL_LEAD,
   ARTICLE4_UNCHECKABLE_TEXT,
   BROADBAND_CAVEAT,
   BUY_BAR_BUTTON_LABEL,
@@ -1032,9 +1034,10 @@ describe("results — pill logic D75 (fold-in)", () => {
     // good, not concerning) and the air section serves a
     // well-within set (NO2 8, PM2.5 4, PM10 12 — all under
     // half the UK legal limits), so Air is a good
-    // factor. The good fill runs in the new D75 order —
-    // Flood, Crime, Air quality, Schools, Noise — and
-    // Deprivation, which held the fifth slot before
+    // factor. The good fill runs in the D75 order —
+    // Flood, Crime, Air quality, Noise, Schools
+    // (BUG-403: Noise fills fourth, ahead of Schools) —
+    // and Deprivation, which held the fifth slot before
     // BUG-164 moved Air up, is displaced out of the strip.
     const pills = summaryPills({
       nearby: nearbyWith({
@@ -1097,11 +1100,143 @@ describe("results — pill logic D75 (fold-in)", () => {
       "Flood · Very low",
       "Crime · Below England average",
       "Air quality · Well within UK legal limits",
-      "Schools · 0.4 / 0.9 mi",
       "Noise · Quiet",
+      "Schools · 0.4 / 0.9 mi",
     ]);
     // Air's colour is the BUG-151 air band's good dress.
     expect(pills?.[2].band).toBe("green");
+  });
+
+  it("BUG-403: a concerning Noise pill fills ahead of a concerning Schools pill — Noise is fourth", () => {
+    // Noise moves from sixth to fourth in the D75 order
+    // (founder ruling, 28 Nov 2026): below Air quality,
+    // above Schools. A loud road band (day 65–69 dB)
+    // makes Noise concerning; the secondary at 1.87 mi
+    // makes Schools concerning. Concerning-first in the
+    // new order puts Noise ahead of Schools; Flood,
+    // Crime and Air fill behind them as good.
+    const pills = summaryPills({
+      nearby: baseNearby as Extract<NearbyBundle, { kind: "distances" }>,
+      flood: floodBundle(noWarnings),
+      crime: crimeBundle(0.5),
+      sections: shortSections(),
+      area: d75Area({
+        noise: {
+          state: "served",
+          line: null,
+          bands: [
+            {
+              sourceKind: "road",
+              label: "road noise",
+              dayBand: "65–69 dB",
+              nightBand: "55–59 dB",
+              line: "road noise: 65–69 dB by day, 55–59 dB by night",
+            },
+            {
+              sourceKind: "rail",
+              label: "rail noise",
+              dayBand: "Below 55 dB",
+              nightBand: "Below 50 dB",
+              line: "rail noise: Below 55 dB by day, Below 50 dB by night",
+            },
+            {
+              sourceKind: "airport",
+              label: "airport noise",
+              dayBand: "Below 55 dB",
+              nightBand: "Below 50 dB",
+              line: "airport noise: Below 55 dB by day, Below 50 dB by night",
+            },
+          ],
+          headlineBand: { sourceKind: "road", dayBand: "65–69 dB" },
+          sourceLine: null,
+        },
+      }),
+    });
+    expect(pills?.map(pillText)).toEqual([
+      "Noise · Noisy",
+      "Schools · 0.4 / 1.9 mi",
+      "Flood · Very low",
+      "Crime · Below England average",
+      "Air quality · Well within UK legal limits",
+    ]);
+    expect(pills?.[0].band).toBe("orange");
+  });
+
+  it("BUG-403: Noise takes the third concerning slot ahead of Schools — the cap is three", () => {
+    // The "concerning facts come first" shape, with the
+    // noise override loud: four concerning facts (Flood,
+    // Crime, Noise, Schools) plus EPC D concerning. The
+    // cap takes the first three in priority order —
+    // Flood, Crime, Noise — and Schools is capped out
+    // with EPC. Good fill behind them: Air quality,
+    // then A&E.
+    const sections = shortSections({
+      flood: {
+        state: "served",
+        liveWarnings: null,
+        layers: [
+          floodLayer("flood_zone", "zone-1", null, "zone 1"),
+          floodLayer("rofrs", "inside", "Low", "a Low river band covers this point"),
+          floodLayer("rofsw", "inside", "Very low", "very low surface water"),
+        ],
+      },
+      epc: { state: "served", headlineBand: "D", headlineAssessmentLabel: "band D", line: "epc" },
+    });
+    const crimeHigh = {
+      rung: 1,
+      kind: "crime",
+      postcode: "CM3 2JT",
+      crime: {
+        state: "served",
+        total: 700,
+        perHead: { per1000: 120, line: "120 per 1,000", basisLine: "basis" },
+        englandFigure: { englandPer1000: 94.5, multiple: 1.3, line: "england" },
+      },
+    } as unknown as CrimeBundle;
+    const pills = summaryPills({
+      nearby: baseNearby as Extract<NearbyBundle, { kind: "distances" }>,
+      flood: floodBundle(noWarnings),
+      crime: crimeHigh,
+      sections,
+      area: d75Area({
+        noise: {
+          state: "served",
+          line: null,
+          bands: [
+            {
+              sourceKind: "road",
+              label: "road noise",
+              dayBand: "65–69 dB",
+              nightBand: "55–59 dB",
+              line: "road noise: 65–69 dB by day, 55–59 dB by night",
+            },
+            {
+              sourceKind: "rail",
+              label: "rail noise",
+              dayBand: "Below 55 dB",
+              nightBand: "Below 50 dB",
+              line: "rail noise: Below 55 dB by day, Below 50 dB by night",
+            },
+            {
+              sourceKind: "airport",
+              label: "airport noise",
+              dayBand: "Below 55 dB",
+              nightBand: "Below 50 dB",
+              line: "airport noise: Below 55 dB by day, Below 50 dB by night",
+            },
+          ],
+          headlineBand: { sourceKind: "road", dayBand: "65–69 dB" },
+          sourceLine: null,
+        },
+      }),
+    });
+    expect(pills?.map((pill) => pill.label)).toEqual([
+      "Flood",
+      "Crime",
+      "Noise",
+      "Air quality",
+      "A&E",
+    ]);
   });
 
   // The UK-limit-only air bands (founder ruling, 25 Nov
@@ -1728,15 +1863,15 @@ describe("results — pill logic D75 (fold-in)", () => {
     });
     // Concerning in priority order: Flood, Crime, Schools
     // (A&E at 4.21 mi is good, EPC D concerning but fourth —
-    // the cap is three). Good fill: Air quality, A&E
-    // (Noise is sixth and drops under the UK-limit-only
-    // air rule — founder ruling, 25 Nov 2026).
+    // the cap is three). Good fill: Air quality, Noise
+    // (BUG-403: Noise is fourth and takes the fifth slot;
+    // A&E drops out).
     expect(pills?.map((pill) => pill.label)).toEqual([
       "Flood",
       "Crime",
       "Schools",
       "Air quality",
-      "A&E",
+      "Noise",
     ]);
   });
 
@@ -2281,6 +2416,156 @@ describe("results — the built view", () => {
     expect(JSON.stringify(section(welsh, "neighbourhood", "air-noise").blocks)).toContain(
       "Wales is not covered",
     );
+  });
+
+  describe("results — air quality & noise upsell (founder-directed, 28 Nov 2026)", () => {
+    // The free page shows the exact air figures and noise
+    // bands but no colouring or verdict — the paid report
+    // adds the meaning. The strip speaks only where the
+    // section served real figures (the HCR-11 flood
+    // pattern); beside a not-covered line it would promise
+    // meaning for figures that do not exist. Copy decided
+    // by Muse on the founder's delegation — a
+    // founder-overrule option.
+    const servedAirNoiseArea = () => {
+      const base = areaBundle("served");
+      if (base.kind !== "area-bundle") throw new Error("expected an area-bundle fixture");
+      return {
+        ...base,
+        sections: {
+          ...base.sections,
+          air: {
+            state: "served",
+            line: null,
+            year: 2024,
+            no2: 21.71,
+            pm25: 9.94,
+            pm10: 16.97,
+            unit: "µg/m³",
+            headlineFigure: null,
+            yardsticks: null,
+            aqma: {
+              state: "none",
+              line: "No air quality management area is declared for this postcode point",
+              basisLine: null,
+              name: null,
+              authority: null,
+              pollutants: null,
+            },
+            sourceLine: "Defra air quality data",
+          },
+        },
+      } as unknown as AreaBundle;
+    };
+
+    const airNoiseUpsell = (view: ReturnType<typeof buildResultsView>) => {
+      const airNoise = section(view, "neighbourhood", "air-noise");
+      return airNoise.blocks.find((b) => b.type === "upsell") ?? null;
+    };
+
+    it("the strip stands with the exact lead and detail when air and noise figures are served", () => {
+      expect(AIR_NOISE_UPSELL_LEAD).toBe("Plus the verdict on each figure");
+      expect(AIR_NOISE_UPSELL_DETAIL).toBe(
+        "Every air figure coloured against the UK legal limits, every noise band coloured — green for the quietest, red against the WHO guidelines.",
+      );
+      const view = buildResultsView(input({ area: servedAirNoiseArea() }));
+      expect(airNoiseUpsell(view)).toEqual({
+        type: "upsell",
+        lead: AIR_NOISE_UPSELL_LEAD,
+        detail: AIR_NOISE_UPSELL_DETAIL,
+      });
+      // The section's own figures and fineprint are
+      // unchanged, and the strip stands last — after the
+      // Noise block, before the source line.
+      const airNoise = section(view, "neighbourhood", "air-noise");
+      const text = JSON.stringify(airNoise.blocks);
+      expect(text).toContain("Nitrogen dioxide (NO2) 21.71 µg/m³ a year.");
+      expect(text).toContain("PM2.5 9.94 µg/m³.");
+      expect(text).toContain("PM10 16.97 µg/m³.");
+      expect(text).toContain("Defra modelled background for this postcode, 2024.");
+      expect(text).toContain("Road noise day below 55 dB and night below 50 dB.");
+      expect(text).toContain("Defra modelled bands.");
+      expect(airNoise.blocks[airNoise.blocks.length - 1]).toEqual({
+        type: "upsell",
+        lead: AIR_NOISE_UPSELL_LEAD,
+        detail: AIR_NOISE_UPSELL_DETAIL,
+      });
+      // The strip renders through the same upsell surface
+      // as the other sections — lead, detail and the report
+      // link.
+      const html = renderToStaticMarkup(createElement(ResultsPage, { view }));
+      expect(html).toContain("Plus the verdict on each figure");
+      expect(html).toContain(
+        "Every air figure coloured against the UK legal limits, every noise band coloured — green for the quietest, red against the WHO guidelines.",
+      );
+      expect(html).toContain("Get the full report →");
+    });
+
+    it("no strip when air is not served, even with noise served", () => {
+      const view = buildResultsView(input({ area: areaBundle("served") }));
+      expect(airNoiseUpsell(view)).toBeNull();
+      // The short headline lines stand, not the strip.
+      expect(JSON.stringify(section(view, "neighbourhood", "air-noise").blocks)).toContain(
+        "Modelled nitrogen dioxide (NO₂) of 8.2 micrograms per cubic metre",
+      );
+    });
+
+    it("no strip when noise is not served, even with air served", () => {
+      const base = servedAirNoiseArea();
+      if (base.kind !== "area-bundle") throw new Error("expected an area-bundle fixture");
+      const area = {
+        ...base,
+        sections: {
+          ...base.sections,
+          noise: {
+            state: "not-filed",
+            line: "Modelled noise bands are not filed yet, so no noise answer can be given yet",
+            bands: [],
+            headlineBand: null,
+            sourceLine: null,
+          },
+        },
+      } as unknown as AreaBundle;
+      const view = buildResultsView(input({ area }));
+      expect(airNoiseUpsell(view)).toBeNull();
+      expect(JSON.stringify(section(view, "neighbourhood", "air-noise").blocks)).toContain(
+        "Modelled noise bands are not filed yet, so no noise answer can be given yet",
+      );
+    });
+
+    it("no strip when neither is served", () => {
+      const view = buildResultsView(input());
+      expect(airNoiseUpsell(view)).toBeNull();
+    });
+
+    it("no strip anywhere at rung 3", () => {
+      const widerShort: Extract<ShortBundle, { kind: "wider-area" }> = {
+        rung: 3,
+        kind: "wider-area",
+        sections: Object.fromEntries(
+          [
+            "soldPrices",
+            "flood",
+            "crime",
+            "epc",
+            "councilTax",
+            "constraints",
+            "heritage",
+            "nature",
+            "air",
+            "noise",
+            "broadband",
+            "nearby",
+          ].map((key) => [key, { state: "unavailable", reason: `${key} needs an exact postcode` }]),
+        ) as never,
+      };
+      const view = buildWiderAreaView(widerShort);
+      for (const tab of view.tabs)
+        for (const sec of tab.sections)
+          expect(sec.blocks.some((b) => b.type === "upsell")).toBe(false);
+      expect(view.reportHref).toBeNull();
+      expect(view.buyBar).toBeNull();
+    });
   });
 
   it("sold prices render the served facts only — no computed tiles (B7/D23)", () => {

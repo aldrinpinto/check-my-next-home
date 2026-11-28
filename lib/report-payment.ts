@@ -346,11 +346,14 @@ export const PAYMENT_GIFT_USE_DIFFERENT_EMAIL = "Use a different email";
 // BUG-398 (27 Nov 2026): the in-flight line — what
 // the tapped control says while the intent is being
 // created. "Starting…" is the checking screens' word
-// for exactly this phase (the intent is starting, the
-// card panel has not loaded yet — its own line,
-// "Loading the card panel...", stands after the intent
-// answers). The copy is the founder's to overrule, as
-// with the other lines.
+// for exactly this phase. BUG-398 follow-up (28 Nov
+// 2026): the line now stands from the tap until the
+// element reports ready — the panel's own line,
+// "Loading the card panel...", is gone, because it
+// vanished the moment the provider object resolved
+// while the element itself was still mounting. The
+// copy is the founder's to overrule, as with the
+// other lines.
 export const PAYMENT_STARTING_LINE = "Starting…";
 
 // The page's own failure lines (this build's copy, in

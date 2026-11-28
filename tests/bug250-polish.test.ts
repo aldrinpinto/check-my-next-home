@@ -85,9 +85,17 @@ describe("BUG-250 polish — CSS pins (app/globals.css)", () => {
     // The header cell carries the same close: the Remove
     // button sits 0.7rem under the sale line, and the
     // comparison keeps its 1.8rem gap above.
+    // BUG-400 (founder instruction, 28 Nov 2026) moves
+    // the 0.7rem from margin to padding: the actions take
+    // the free space above them (margin-top: auto) so
+    // Remove sits at the same height in every column, and
+    // the 0.7rem gap to the content above stands as
+    // padding even where the auto margin has no free space
+    // to absorb (the tallest column).
     expect(css).not.toContain(".shortlist-card {");
     const actions = css.match(/\.compare-table__actions \{[^}]*\}/)?.[0] ?? "";
-    expect(actions).toContain("margin: 0.7rem 0 0;");
+    expect(actions).toContain("padding-top: 0.7rem;");
+    expect(actions).toContain("margin-top: auto;");
     expect(css).toContain("margin-top: 1.8rem;");
   });
 

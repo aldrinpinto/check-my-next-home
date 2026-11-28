@@ -83,6 +83,9 @@ export const NOT_COVERED_LINE = "This check is not covered for this postcode.";
 // plain dress.
 export const AIR_NOT_SAVED_LINE = "Air quality is not in this saved snapshot.";
 
+/** The line a card saved before BUG-403 serves for the Noise row. */
+export const NOISE_NOT_SAVED_LINE = "Noise is not in this saved snapshot.";
+
 // ------------------------------------------------------------------
 // The record shape (pinned in tests/shortlist.test.ts)
 // ------------------------------------------------------------------
@@ -100,22 +103,24 @@ export const AIR_NOT_SAVED_LINE = "Air quality is not in this saved snapshot.";
 // derived at assembly from lib/results.ts's own band
 // functions — flood by floodPillBand, crime by
 // crimePillBand over the calibration pair, air quality by
-// airPillBand (BUG-164) — and absent wherever the verdict
-// cannot honestly be produced (a pre-calibration crime
-// snapshot carries no rate pair, so its cell stays plain;
-// no threshold is ever faked on the raw count). A pointer
-// cell carries nothing and is LEGACY: only cards saved
-// before that ruling hold one, and the renderer still
-// honours the shape so a saved list is never dropped for
-// its age — new assembly never produces one.
+// airPillBand (BUG-164), noise by the D75 noise verdict
+// (BUG-403, noisePillVerdict — the pill machinery, never
+// a second threshold set) — and absent wherever the
+// verdict cannot honestly be produced (a pre-calibration
+// crime snapshot carries no rate pair, so its cell stays
+// plain; no threshold is ever faked on the raw count). A
+// pointer cell carries nothing and is LEGACY: only cards
+// saved before that ruling hold one, and the renderer
+// still honours the shape so a saved list is never
+// dropped for its age — new assembly never produces one.
 //
 // A SEGMENTS cell (BUG-291, BUG-292, BUG-394): a line whose colour
 // belongs to the VALUES, not the whole line — each segment
 // is plain text or one banded value, so the labels stay
 // plain while the figures take the pill's dress. The
-// flood cell's two bands, the crime cell's verdict and the
-// air cell's verdict are segments; every other row stays a
-// plain line.
+// flood cell's two bands, the crime cell's verdict, the
+// air cell's verdict and the noise cell's verdict are
+// segments; every other row stays a plain line.
 export type ShortlistSegment = { text: string; band?: DistanceBand };
 
 export type ShortlistCell =
@@ -132,6 +137,7 @@ export type ComparisonRowKey =
   | "flood"
   | "crime"
   | "air"
+  | "noise"
   | "gp"
   | "ae"
   | "station"
@@ -142,11 +148,12 @@ export type ComparisonRowKey =
 // the D75 summary-pill priority order (founder's ruling,
 // 17 Nov 2026): Flood and Crime lead, Air quality follows
 // Crime (BUG-164's rank, founder ruling 22 Nov 2026),
-// then the schools (grammar grouped with them — it is a
-// row here though it is not a pill factor), A&E before
-// GP, then Vet, Station and Nursery in their pill order;
-// Council tax is not a pill factor at all and closes the
-// table as a cost fact. The family is the M7.4
+// Noise follows Air quality (BUG-403's rank, founder
+// ruling 28 Nov 2026), then the schools (grammar grouped
+// with them — it is a row here though it is not a pill
+// factor), A&E before GP, then Vet, Station and Nursery
+// in their pill order; Council tax is not a pill factor
+// at all and closes the table as a cost fact. The family is the M7.4
 // distance-colour family for the row's miles figure
 // (lib/results.ts's thresholds); rows without a family
 // never carry a distance cell in a form that colours
@@ -164,6 +171,10 @@ export const COMPARISON_ROWS: {
   { key: "flood", label: "Flood", family: null },
   { key: "crime", label: "Crime — 12-month total", family: null },
   { key: "air", label: "Air quality", family: null },
+  // BUG-403 (founder ruling 28 Nov 2026): Noise takes the
+  // same fourth rank in the table as in the D75 strip —
+  // after Air quality, ahead of the schools.
+  { key: "noise", label: "Noise", family: null },
   { key: "primary", label: "Nearest primary", family: "school" },
   { key: "secondary", label: "Nearest secondary", family: "school" },
   { key: "grammar", label: "Selective schools", family: "school" },
@@ -316,13 +327,18 @@ export function buildComparison(cards: ShortlistCard[]): ComparisonView {
       cells: cards.map((card) => {
         const cell = card.comparison[row.key];
         if (cell !== undefined) return cell;
-        // Only the Air quality row can be absent: a card
-        // saved before BUG-164 added the row holds no air
-        // cell (isCard below tolerates exactly that one
-        // gap), and the row serves the not-saved line for
-        // it rather than dropping the card or borrowing a
+        // Only the Air quality and Noise rows can be
+        // absent: a card saved before BUG-164 added the
+        // air row holds no air cell, and a card saved
+        // before BUG-403 holds no noise cell (isCard
+        // below tolerates exactly those two gaps), and
+        // the row serves its not-saved line for it
+        // rather than dropping the card or borrowing a
         // figure.
-        return { kind: "line", text: AIR_NOT_SAVED_LINE };
+        return {
+          kind: "line",
+          text: row.key === "noise" ? NOISE_NOT_SAVED_LINE : AIR_NOT_SAVED_LINE,
+        };
       }),
     })),
   };
@@ -453,6 +469,9 @@ export function isStaleShortlistCard(card: ShortlistCard): boolean {
   const flood = comparison.flood;
   if (flood?.kind === "line" && LEGACY_FLOOD_CELL_TEXT.test(flood.text)) return true;
   if (comparison.air === undefined) return true;
+  // BUG-403: a card saved before the Noise row existed
+  // holds no noise cell; a fresh derivation restores it.
+  if (comparison.noise === undefined) return true;
   const air = comparison.air;
   if (air?.kind === "line" && air.band !== undefined && air.text.startsWith("NO2 ")) return true;
   if (
@@ -587,13 +606,14 @@ function isCard(value: unknown): value is ShortlistCard {
   }
   if (typeof card.comparison !== "object" || card.comparison === null) return false;
   const comparison = card.comparison as Record<string, unknown>;
-  // The Air quality cell is the one tolerated gap
-  // (BUG-164): cards saved before the row existed hold no
-  // air cell at all, and the card survives — the stored
-  // record is never rewritten; buildComparison serves the
-  // not-saved line for that row instead.
+  // The Air quality and Noise cells are the two tolerated
+  // gaps (BUG-164, BUG-403): cards saved before the row
+  // existed hold no cell for it at all, and the card
+  // survives — the stored record is never rewritten;
+  // buildComparison serves the not-saved line for that
+  // row instead.
   return COMPARISON_ROWS.every((row) =>
-    row.key === "air"
+    row.key === "air" || row.key === "noise"
       ? comparison[row.key] === undefined || isCell(comparison[row.key])
       : isCell(comparison[row.key]),
   );

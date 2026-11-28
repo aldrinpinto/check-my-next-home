@@ -616,8 +616,8 @@ export const CHECK_PAGES: Record<string, CheckPageContent> = {
       {
         heading: "The yardsticks the bands are read against",
         paragraphs: [
-          "In the detailed report, each band carries its position against the World Health Organization's guideline in words, and the colour follows that guideline: a band entirely below it takes the green tint, a band spanning it takes the orange, and a band entirely at or above it takes the red. Defra's own levels — 55 dB by day and 50 dB by night, the levels the published bands themselves are cut at — do not colour the band.",
-          "The World Health Organization's environmental noise guidelines of 2018 differ by source: for road traffic 53 dB by day and 45 by night, for railways 54 by day and 44 by night, and for aircraft 45 by day and 40 by night. Those guidelines are long-term health-based values, and a 5 dB band can span one — where it does, the report's words say the band spans the guideline rather than placing it on either side, and the band takes the orange tint.",
+          "In the detailed report, the colour is two-way: the lowest published band — below 55 dB by day, below 50 dB by night — takes the green tint, as the lowest band Defra publishes for that source, and any band entirely at or above the World Health Organization's guideline for its source takes the red tint, with the words giving its position against that guideline. There is no middle tint.",
+          "The World Health Organization's environmental noise guidelines of 2018 differ by source: for road traffic 53 dB by day and 45 by night, for railways 54 by day and 44 by night, and for aircraft 45 by day and 40 by night. Those guidelines are long-term health-based values. Defra's own levels — 55 dB by day and 50 dB by night — are the levels the published bands themselves are cut at, so the lowest band is the band below them.",
         ],
       },
       {

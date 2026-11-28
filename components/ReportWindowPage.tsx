@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, type FormEvent } from "react";
 
 import { isEmailShape, normaliseEmail } from "../lib/gift";
@@ -130,7 +131,13 @@ export default function ReportWindowPage({
 
       <p className="journey-actions">
         <a href={view.sampleHref}>{view.sampleLabel}</a>{" "}
-        <a href={view.backHref}>{view.backLabel}</a>
+        {/* BUG-402: client-side, so the return to the
+            free check restores the rendered results from
+            the router cache instead of re-rendering them
+            behind the fallback. */}
+        <Link href={view.backHref} prefetch={false}>
+          {view.backLabel}
+        </Link>
       </p>
     </main>
   );

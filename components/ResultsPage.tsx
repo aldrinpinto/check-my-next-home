@@ -16,6 +16,8 @@ import {
   HOW_WE_CHECK_PATH,
   REPORT_PRICE_LABEL,
 } from "../lib/site";
+import Link from "next/link";
+
 import Calculators from "./Calculators";
 import { Notice, SummaryPill } from "./kit";
 import PostcodeBox from "./PostcodeBox";
@@ -748,7 +750,13 @@ export default function ResultsPage({
           rendered after the check pills below. */}
       {!district && (
         <p className="results-disclaimer-closing">
-          {DISCLAIMER_CLOSING_BLOCK} <a href={HOW_WE_CHECK_PATH}>{DISCLAIMER_CLOSING_LINK_LABEL}</a>
+          {DISCLAIMER_CLOSING_BLOCK}{" "}
+          {/* BUG-402: client-side, so Back restores this
+              page from the router cache instead of
+              re-rendering it behind the fallback. */}
+          <Link href={HOW_WE_CHECK_PATH} prefetch={false}>
+            {DISCLAIMER_CLOSING_LINK_LABEL}
+          </Link>
           .
         </p>
       )}
@@ -771,9 +779,18 @@ export default function ResultsPage({
           {view.bridge.links.length > 0 && (
             <div className="district-bridge__links">
               {view.bridge.links.map((link) => (
-                <a className="district-bridge__chip" key={link.href} href={link.href}>
+                // BUG-402: client-side, so Back restores
+                // the district page from the router cache
+                // instead of re-rendering it behind the
+                // fallback.
+                <Link
+                  className="district-bridge__chip"
+                  key={link.href}
+                  href={link.href}
+                  prefetch={false}
+                >
                   {link.label}
-                </a>
+                </Link>
               ))}
             </div>
           )}
@@ -831,9 +848,12 @@ export default function ResultsPage({
               // repeat an href (three sections share the
               // How-we-check page) under different labels.
               <li key={`${link.href}|${link.label}`}>
-                <a className="check-pills__pill" href={link.href}>
+                {/* BUG-402: client-side, so Back restores
+                    this page from the router cache instead
+                    of re-rendering it behind the fallback. */}
+                <Link className="check-pills__pill" href={link.href} prefetch={false}>
                   {link.label}
-                </a>
+                </Link>
               </li>
             ))}
           </ul>
@@ -860,7 +880,13 @@ export default function ResultsPage({
           <h4>Disclaimers</h4>
           <p>
             {DISCLAIMER_CLOSING_BLOCK}{" "}
-            <a href={HOW_WE_CHECK_PATH}>{DISCLAIMER_CLOSING_LINK_LABEL}</a>.
+            {/* BUG-402: client-side, so Back restores the
+                district page from the router cache instead
+                of re-rendering it behind the fallback. */}
+            <Link href={HOW_WE_CHECK_PATH} prefetch={false}>
+              {DISCLAIMER_CLOSING_LINK_LABEL}
+            </Link>
+            .
           </p>
         </div>
       )}

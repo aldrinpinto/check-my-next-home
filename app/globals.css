@@ -5237,8 +5237,56 @@ a.picker__row {
   margin: 0.35rem 0 0;
 }
 
+/* BUG-400 (founder instruction, 28 Nov 2026): the
+   header cell is a flex column that fills the cell, so
+   the Remove actions take the free space above them and
+   sit at the same height in every column — whether or
+   not the sale line (or the rung-3 facts line) is
+   there. The swipe table shares this head, so the fix
+   covers the phone form too; the stacked blocks are a
+   single-column stack, so no cross-block alignment
+   applies there. The cell carries a 1px height so the
+   head's 100% height resolves against the row's height
+   — a percentage height inside a table cell otherwise
+   resolves to content height, and the auto margin has
+   no free space to take. The row still grows to fit
+   the tallest head: 1px is a floor, never a cap. */
+.compare-table thead th {
+  height: 1px;
+}
+
+.compare-table__head {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
 .compare-table__actions {
-  margin: 0.7rem 0 0;
+  margin: 0;
+  padding-top: 0.7rem;
+  margin-top: auto;
+}
+
+/* BUG-401 (founder instruction, 28 Nov 2026): the
+   shortlist address re-runs the search for that home.
+   The link keeps the Final Sample Master's dress
+   (samples 14–16): it inherits the address's colour
+   with no underline and no link blue — the static
+   dress is unchanged. The affordance is the underline
+   on hover and keyboard focus only. The stacked
+   block's link keeps the same dress. */
+.compare-table__address,
+.shortlist-compare__address-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.compare-table__address:hover,
+.compare-table__address:focus-visible,
+.shortlist-compare__address-link:hover,
+.shortlist-compare__address-link:focus-visible {
+  color: inherit;
+  text-decoration: underline;
 }
 
 /* The sample's first-column measures: 30% for one home,

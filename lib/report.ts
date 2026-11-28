@@ -485,9 +485,10 @@ export type ReportBlock =
   // (the air and noise tables' yardstick cells — the air
   // table's UK-limit-only bands, green under half the
   // limit, orange at half or more within it, red over
-  // it; the noise table's WHO-guideline bands, green
-  // entirely below it, orange spanning it, red entirely
-  // at or above it (BUG-399); BUG-073 / BUG-076,
+  // it; the noise table's bands, green the lowest
+  // published band, red entirely at or above its WHO
+  // guideline, no orange (BUG-399 ruling change, 28 Nov
+  // 2026); BUG-073 / BUG-076,
   // succeeding print-check item 2's red-only alert) and a per-cell
   // second line (the figure's position against its
   // yardsticks, printed inside the table with its
@@ -2355,22 +2356,23 @@ function buildCategoryBars(served: ServedCrime): ReportBlock {
 }
 
 // The noise yardsticks (BUG-076, the founder's ruled
-// option C; BUG-399, founder ruling 27 Nov 2026): each
-// filed band is read against Defra's thresholds — 55 dB
-// by day, 50 dB by night, the levels the published bands
-// themselves are cut at, so a band never straddles them
-// — and against the World Health Organization's 2018
-// environmental noise guidelines for the band's own
-// source (road 53 by day / 45 by night, rail 54 / 44,
-// aircraft 45 / 40), which a band can straddle, and the
-// words say so where it does. Colour follows the WHO
-// guideline: green where the band sits entirely below
-// it, orange where it spans it, red where it sits
-// entirely at or above it. An absence cell ("No
-// modelled … noise") is a filed state, not a level: it
-// stays plain, with no colour and no position words.
-// Both yardsticks are explained on the noise
-// How-we-check page, which Section 10 links.
+// option C; BUG-399, founder ruling 27 Nov 2026, ruling
+// change 28 Nov 2026): the table is two-colour. Green is
+// the lowest published band — "Below 55 dB" by day,
+// "Below 50 dB" by night, the levels the published bands
+// themselves are cut at — the quietest band Defra
+// publishes for the source. Orange is removed. Red is
+// any band entirely at or above its World Health
+// Organization 2018 environmental noise guideline for
+// the band's own source (road 53 by day / 45 by night,
+// rail 54 / 44, aircraft 45 / 40). The collapse is
+// clean: with Defra's published bands the only band that
+// ever spanned a WHO guideline was the lowest band, so
+// green-lowest plus red-rest leaves nothing for orange
+// to cover. An absence cell ("No modelled … noise") is a
+// filed state, not a level: it stays plain, with no
+// colour and no position words. The rule is explained on
+// the noise How-we-check page, which Section 10 links.
 // BUG-112's context, given once for the whole noise
 // table: Defra publishes strategic noise in bands only —
 // no exact decibel figure exists in the source, and none
@@ -2402,36 +2404,41 @@ function noisePosition(
   span: { lo: number; hi: number },
   sourceKind: string,
   when: "day" | "night",
-): { tone: "green" | "orange" | "red"; words: string } {
-  // BUG-399 (founder ruling, 27 Nov 2026): the colour
-  // follows the WHO guideline, not the Defra threshold.
-  // A band entirely below its WHO guideline is green, a
-  // band spanning it is orange, a band entirely at or
-  // above it is red. The small print already said the
-  // position in exactly these three words; the tone now
-  // reads from the same position, so the two can never
-  // disagree. BUG-112's note still stands otherwise: the
+): { tone: "green" | "red"; words: string } {
+  // BUG-399 (founder ruling, 27 Nov 2026; ruling change,
+  // 28 Nov 2026): the table is two-colour — green is the
+  // lowest published band, orange is removed. A below-band
+  // (span.lo === 0: "Below 55 dB" by day, "Below 50 dB" by
+  // night) is green: it is the quietest band Defra
+  // publishes for the source, and its small print says so.
+  // Every other band is red, with the small print giving
+  // its position against its WHO guideline (road 53 by day
+  // / 45 by night, rail 54 / 44, aircraft 45 / 40). The
+  // collapse is clean: with Defra's published bands the
+  // only band that ever spanned a WHO guideline was the
+  // lowest band, so green-lowest plus red-rest leaves
+  // nothing for orange to cover. The tone reads from the
+  // same position as the words, so the two can never
+  // disagree — a green cell can no longer carry "spanning"
+  // words. BUG-112's note still stands otherwise: the
   // small print gives the position against the WHO
-  // guideline only, and the bands-are-modelled context
-  // stands once in the table's caption.
+  // guideline only for red bands, and the
+  // bands-are-modelled context stands once in the table's
+  // caption.
+  if (span.lo === 0) {
+    return {
+      tone: "green",
+      words: sentence("the quietest band Defra publishes for this source"),
+    };
+  }
   const who = NOISE_WHO_GUIDELINES[sourceKind]?.[when];
   if (who === undefined) {
-    // No WHO guideline for this source: no WHO verdict
-    // is possible, so the cell keeps the Defra tone it
-    // always had (green within 55 by day / 50 by night,
-    // red at or above) rather than inventing one.
-    const defra = when === "day" ? 55 : 50;
-    return { tone: span.hi <= defra ? ("green" as const) : ("red" as const), words: "" };
+    // No WHO guideline for this source: no WHO verdict is
+    // possible, so the cell takes the red tone with no
+    // position words rather than inventing one.
+    return { tone: "red", words: "" };
   }
-  const whoPart =
-    span.hi <= who
-      ? `below the WHO guideline of ${who} dB`
-      : span.lo >= who
-        ? `at or above the WHO guideline of ${who} dB`
-        : `spanning the WHO guideline of ${who} dB`;
-  const tone =
-    span.hi <= who ? ("green" as const) : span.lo >= who ? ("red" as const) : ("orange" as const);
-  return { tone, words: sentence(whoPart) };
+  return { tone: "red", words: sentence(`at or above the WHO guideline of ${who} dB`) };
 }
 
 // The regulated industrial sites (BUG-081): the block

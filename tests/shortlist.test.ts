@@ -13,6 +13,7 @@ import type { CategoryAnswer, NearbyBundle, NearbyCategory } from "../lib/nearby
 import {
   AIR_NOT_SAVED_LINE,
   COMPARISON_ROWS,
+  NOISE_NOT_SAVED_LINE,
   NOT_COVERED_LINE,
   SEE_THIS_HOMES_CHECK,
   SHORTLIST_EMPTY_HEADING,
@@ -281,6 +282,61 @@ function birkdaleNearby(): NearbyBundle {
   ]);
 }
 
+function areaWithNoise(
+  bands: { sourceKind: string; label: string; dayBand: string | null; nightBand: string | null }[],
+  state = "served",
+  line: string | null = null,
+): AreaBundle {
+  return {
+    rung: 1,
+    kind: "area-bundle",
+    postcode: "CM3 2JT",
+    sections: {
+      // The bundle carries its air section too — a real
+      // bundle always does, and airCell reads it.
+      air: { state: "served", line: null, year: 2024, no2: 8, pm25: 4, pm10: 12 },
+      noise: {
+        state,
+        line,
+        bands: bands.map((band) => ({
+          ...band,
+          line: `${band.label}: ${band.dayBand ?? "no band"} by day, ${band.nightBand ?? "no band"} by night`,
+        })),
+        headlineBand: null,
+        sourceLine: null,
+      },
+    },
+  } as unknown as AreaBundle;
+}
+
+const NOISE_BELOW_BAND = (sourceKind: string, label: string) => ({
+  sourceKind,
+  label,
+  dayBand: "Below 55 dB",
+  nightBand: "Below 50 dB",
+});
+
+const NOISE_QUIET_BANDS = [
+  NOISE_BELOW_BAND("road", "road noise"),
+  NOISE_BELOW_BAND("rail", "rail noise"),
+  NOISE_BELOW_BAND("airport", "airport noise"),
+];
+
+const NOISE_LOUD_ROAD_BANDS = [
+  { sourceKind: "road", label: "road noise", dayBand: "65–69 dB", nightBand: "55–59 dB" },
+  NOISE_BELOW_BAND("rail", "rail noise"),
+  NOISE_BELOW_BAND("airport", "airport noise"),
+];
+
+const NOISE_MID_BANDS = [
+  { sourceKind: "road", label: "road noise", dayBand: "55–59 dB", nightBand: "Below 50 dB" },
+  NOISE_BELOW_BAND("rail", "rail noise"),
+  NOISE_BELOW_BAND("airport", "airport noise"),
+];
+
+const NOISE_JOINED_QUIET =
+  "Road noise day below 55 dB and night below 50 dB; Rail noise day below 55 dB and night below 50 dB; Airport noise day below 55 dB and night below 50 dB";
+
 // ------------------------------------------------------------------
 // The contract pins
 // ------------------------------------------------------------------
@@ -377,6 +433,16 @@ describe("serialisation", () => {
     });
     expect(parseShortlistRecord(raw).cards.map((card) => card.id)).toEqual(["a", "b"]);
   });
+
+  it("reads a card saved before the Noise row existed — the missing noise cell is tolerated (BUG-403)", () => {
+    // The Air quality cell is the BUG-164 precedent: a
+    // card saved before the row existed holds no cell
+    // for it, and the card survives — buildComparison
+    // serves the not-saved line for that row instead.
+    const card = JSON.parse(JSON.stringify(makeCard("a"))) as ShortlistCard;
+    delete (card.comparison as Partial<Record<string, ShortlistCell>>).noise;
+    expect(parseShortlistRecord(JSON.stringify({ v: 1, cards: [card] })).cards).toEqual([card]);
+  });
 });
 
 // ------------------------------------------------------------------
@@ -447,6 +513,7 @@ describe("the comparison's construction", () => {
       "Flood",
       "Crime — 12-month total",
       "Air quality",
+      "Noise",
       "Nearest primary",
       "Nearest secondary",
       "Selective schools",
@@ -484,6 +551,15 @@ describe("the comparison's construction", () => {
     expect(view.rows.find((row) => row.key === "crime")?.cells[0]).toEqual({ kind: "pointer" });
     expect(parseShortlistRecord(serializeShortlistRecord({ v: 1, cards: [card] })).cards).toEqual([
       card,
+    ]);
+  });
+
+  it("serves the not-saved line for a card saved before the Noise row (BUG-403)", () => {
+    const card = JSON.parse(JSON.stringify(makeCard("a"))) as ShortlistCard;
+    delete (card.comparison as Partial<Record<string, ShortlistCell>>).noise;
+    const view = buildComparison([card]);
+    expect(view.rows.find((row) => row.key === "noise")?.cells).toEqual([
+      { kind: "line", text: NOISE_NOT_SAVED_LINE },
     ]);
   });
 });
@@ -567,6 +643,12 @@ describe("card assembly", () => {
       ],
     });
     expect(card?.comparison.crime).toEqual({ kind: "line", text: "330 crimes" });
+    // BUG-403: no area bundle reaches assembly here, so
+    // the Noise row falls back to the short projection —
+    // which carries no noise line — and reads the
+    // not-covered line, exactly as the Air quality cell
+    // does without its bundle.
+    expect(card?.comparison.noise).toEqual({ kind: "line", text: NOT_COVERED_LINE });
     expect(card?.comparison.councilTax).toEqual({
       kind: "line",
       text: "Band D averages £2,280.36 a year",
@@ -889,6 +971,7 @@ describe("card assembly", () => {
         nearby: { state: "unavailable", reason: "distances need an exact postcode" },
         flood: { state: "unavailable", reason: "Flood answers need an exact postcode" },
         air: { state: "unavailable", reason: "Air quality needs an exact postcode" },
+        noise: { state: "unavailable", reason: "Noise bands need an exact postcode" },
         councilTax: { state: "unavailable", reason: "Council tax needs an exact postcode" },
       },
     } as unknown as ShortBundle;
@@ -919,6 +1002,13 @@ describe("card assembly", () => {
     expect(card?.comparison.air).toEqual({
       kind: "line",
       text: "Air quality needs an exact postcode",
+    });
+    // BUG-403: Noise carries its own section's reason
+    // at rung 3, exactly as Air quality does — it is
+    // not a nearby-governed dash row.
+    expect(card?.comparison.noise).toEqual({
+      kind: "line",
+      text: "Noise bands need an exact postcode",
     });
     expect(card?.comparison.councilTax).toEqual({
       kind: "line",
@@ -1040,6 +1130,83 @@ describe("card assembly", () => {
       ],
     });
   });
+
+  it("BUG-403: the Noise row carries the pill verdict ahead of the joined bands — Noisy in orange", () => {
+    // A loud road band (day 65–69 dB) makes Noise
+    // concerning under the D75 verdict, which the row
+    // colours from the pill machinery — never a second
+    // threshold set. The verdict word takes the pill's
+    // dress (BUG-291/394: segments, not a banded line)
+    // and the joined bands stand beside it as plain
+    // text.
+    const card = buildShortlistCard({
+      resolution: birkdale,
+      nearby: birkdaleNearby(),
+      sold: birkdaleSold,
+      area: areaWithNoise(NOISE_LOUD_ROAD_BANDS),
+      short: shortWith(TAX_SERVED),
+    });
+    expect(card?.comparison.noise).toEqual({
+      kind: "segments",
+      segments: [
+        { text: "Noisy", band: "orange" },
+        {
+          text: " · Road noise day 65–69 dB and night 55–59 dB; Rail noise day below 55 dB and night below 50 dB; Airport noise day below 55 dB and night below 50 dB",
+        },
+      ],
+    });
+  });
+
+  it("BUG-403: the Noise row reads Quiet in green where road, rail and airport are all in the lowest bands", () => {
+    const card = buildShortlistCard({
+      resolution: birkdale,
+      nearby: birkdaleNearby(),
+      sold: birkdaleSold,
+      area: areaWithNoise(NOISE_QUIET_BANDS),
+      short: shortWith(TAX_SERVED),
+    });
+    expect(card?.comparison.noise).toEqual({
+      kind: "segments",
+      segments: [{ text: "Quiet", band: "green" }, { text: ` · ${NOISE_JOINED_QUIET}` }],
+    });
+  });
+
+  it("BUG-403: a mid-band home takes no noise verdict — the row is the plain joined line", () => {
+    // Road 55–59 dB by day is neither high (day ≥65)
+    // nor low (below 55), so the D75 verdict is
+    // "neither": no pill on the headline even at rank 4,
+    // and the shortlist row carries no band either —
+    // the row itself is what makes noise visible here.
+    const card = buildShortlistCard({
+      resolution: birkdale,
+      nearby: birkdaleNearby(),
+      sold: birkdaleSold,
+      area: areaWithNoise(NOISE_MID_BANDS),
+      short: shortWith(TAX_SERVED),
+    });
+    expect(card?.comparison.noise).toEqual({
+      kind: "line",
+      text: "Road noise day 55–59 dB and night below 50 dB; Rail noise day below 55 dB and night below 50 dB; Airport noise day below 55 dB and night below 50 dB",
+    });
+  });
+
+  it("BUG-403: noise not filed carries the section's own named line, never an invented band", () => {
+    const card = buildShortlistCard({
+      resolution: birkdale,
+      nearby: birkdaleNearby(),
+      sold: birkdaleSold,
+      area: areaWithNoise(
+        [],
+        "not-filed",
+        "Modelled noise bands are not filed yet, so no noise answer can be given yet",
+      ),
+      short: shortWith(TAX_SERVED),
+    });
+    expect(card?.comparison.noise).toEqual({
+      kind: "line",
+      text: "Modelled noise bands are not filed yet, so no noise answer can be given yet",
+    });
+  });
 });
 
 describe("BUG-309: the staleness test for a saved snapshot", () => {
@@ -1071,6 +1238,7 @@ describe("BUG-309: the staleness test for a saved snapshot", () => {
         nearby: { state: "unavailable", reason: "distances need an exact postcode" },
         flood: { state: "unavailable", reason: "Flood answers need an exact postcode" },
         air: { state: "unavailable", reason: "Air quality needs an exact postcode" },
+        noise: { state: "unavailable", reason: "Noise bands need an exact postcode" },
         councilTax: { state: "unavailable", reason: "Council tax needs an exact postcode" },
       },
     } as unknown as ShortBundle;
@@ -1117,6 +1285,16 @@ describe("BUG-309: the staleness test for a saved snapshot", () => {
   it("a missing air cell is stale", () => {
     const card = JSON.parse(JSON.stringify(currentRung1Card())) as ShortlistCard;
     delete (card.comparison as Partial<Record<string, ShortlistCell>>).air;
+    expect(isStaleShortlistCard(card)).toBe(true);
+  });
+
+  it("a missing noise cell is stale (BUG-403)", () => {
+    // Saved before the Noise row existed: the snapshot
+    // holds no noise fact, and a fresh derivation
+    // restores it — the same treatment as the missing
+    // air cell (BUG-164).
+    const card = JSON.parse(JSON.stringify(currentRung1Card())) as ShortlistCard;
+    delete (card.comparison as Partial<Record<string, ShortlistCell>>).noise;
     expect(isStaleShortlistCard(card)).toBe(true);
   });
 

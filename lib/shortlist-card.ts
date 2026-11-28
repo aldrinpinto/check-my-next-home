@@ -9,6 +9,8 @@ import {
   floodBandOf,
   floodPillBand,
   formatMiles,
+  noisePillVerdict,
+  noiseSingleLine,
   resultsScopeLabel,
 } from "./results";
 import type { ShortBundle, ShortCrime, ShortFlood } from "./short-bundle";
@@ -343,6 +345,59 @@ function airCell(input: ShortlistCardInput): ShortlistCell {
   return { kind: "line", text: NOT_COVERED_LINE };
 }
 
+// The Noise cell (BUG-403, founder ruling 28 Nov 2026):
+// composed from the same noise section the pill verdict
+// derives from — the joined band line (noiseSingleLine,
+// road/rail/airport order) — and coloured by the pill's
+// own verdict (noisePillVerdict) wherever that verdict
+// speaks. The colour comes from the pill machinery, never
+// a second threshold set: the alternative, the detailed
+// report's two-colour table rule (green the lowest
+// published band, red otherwise — BUG-399), was not used,
+// because the shortlist table takes the reports' colour
+// coding from the pill machinery, and the pill verdict is
+// what the headline shows. A mid-band home is "neither"
+// under that verdict — the row carries the plain joined
+// line, and the row itself is what makes noise visible
+// there. An unfiled section carries its own named line —
+// the table's existing not-served treatment. Where no
+// area bundle reaches assembly (an older caller), the
+// cell falls back to the short projection's line, plain:
+// the projection carries no bands to compose from.
+function noiseCell(input: ShortlistCardInput): ShortlistCell {
+  const { area, short } = input;
+  if (area && (area.rung === 1 || area.rung === 2)) {
+    const noise = area.sections.noise;
+    // A bundle that carries no noise section at all (an
+    // older caller, or a partial fixture) reads as
+    // not covered — never a crash on an absent section.
+    if (noise === undefined) return { kind: "line", text: NOT_COVERED_LINE };
+    if (noise.state === "served" && noise.bands.length > 0) {
+      const joined = noiseSingleLine(noise.bands);
+      if (joined === null) return { kind: "line", text: noise.line ?? NOT_COVERED_LINE };
+      const line = joined.replace(/\.$/, "");
+      const verdict = noisePillVerdict(noise.bands);
+      if (verdict === "neither") return { kind: "line", text: line };
+      return {
+        kind: "segments",
+        segments: [
+          {
+            text: verdict === "concerning" ? "Noisy" : "Quiet",
+            band: verdict === "concerning" ? "orange" : "green",
+          },
+          { text: ` · ${line}` },
+        ],
+      };
+    }
+    return { kind: "line", text: noise.line ?? NOT_COVERED_LINE };
+  }
+  if (short.kind === "short-bundle") {
+    const noise = short.sections.noise;
+    return { kind: "line", text: noise?.line ?? NOT_COVERED_LINE };
+  }
+  return { kind: "line", text: NOT_COVERED_LINE };
+}
+
 function rung1Card(input: ShortlistCardInput): ShortlistCard | null {
   const { resolution, nearby, sold, short } = input;
   if (resolution.rung !== 1 || short.kind !== "short-bundle" || !nearby || !sold) return null;
@@ -415,6 +470,7 @@ function rung1Card(input: ShortlistCardInput): ShortlistCard | null {
     flood: floodCell(short.sections.flood),
     crime: crimeCell(short.sections.crime),
     air: airCell(input),
+    noise: noiseCell(input),
     gp: distanceCell(categoryOf(nearby, "gp")),
     ae: distanceCell(categoryOf(nearby, "ae")),
     station: distanceCell(categoryOf(nearby, "station")),
@@ -474,6 +530,10 @@ function rung3Card(input: ShortlistCardInput): ShortlistCard | null {
       flood: reason("flood"),
       crime: reason("crime"),
       air: reason("air"),
+      // BUG-403: Noise carries its own section's reason
+      // at rung 3, exactly as Air quality does — it is
+      // not a nearby-governed dash row.
+      noise: reason("noise"),
       gp: dash,
       ae: dash,
       station: dash,

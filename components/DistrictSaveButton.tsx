@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import {
@@ -141,7 +142,13 @@ export default function DistrictSaveButton({ outward }: { outward: string }) {
   if (fullNotice && record && !saved && record.cards.length >= SHORTLIST_LIMIT) {
     return (
       <p className="shortlist-full-line" data-shortlist-state="full">
-        {SHORTLIST_FULL_LINE} <a href="/shortlist">See your shortlist</a>
+        {SHORTLIST_FULL_LINE}{" "}
+        {/* BUG-402: client-side, so Back restores the
+            district page from the router cache instead of
+            re-rendering it behind the fallback. */}
+        <Link href="/shortlist" prefetch={false}>
+          See your shortlist
+        </Link>
       </p>
     );
   }

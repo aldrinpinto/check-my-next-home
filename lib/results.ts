@@ -1380,6 +1380,7 @@ export function crimePillFigure(per1000: number | null, england: number | null):
 // coloured solely on the UK legal limits (NO2 40, PM2.5
 // 20, PM10 40) — founder ruling, 25 Nov 2026, superseding
 // the D75 middle-silence for air. Worst pollutant wins:
+// the D75 middle-silence for air. Worst pollutant wins:
 // green — all three under half the limit (NO2 <20,
 // PM2.5 <10, PM10 <20); orange — all three within the
 // limit with at least one at half the limit or more;
@@ -1410,11 +1411,14 @@ export function airPillBand(air: {
 // pills; a fact is concerning/good only across its real
 // threshold, and "neither" facts never take a pill. The
 // twelve factors in priority order: Flood, Crime, Air
-// quality, Schools (merged), A&E, Noise, Deprivation,
+// quality, Noise, Schools (merged), A&E, Deprivation,
 // EPC, Vet, Broadband, Train station, Nurseries.
 // (BUG-164, founder ruling 22 Nov 2026: Air quality's
 // rank moves to immediately after Crime; it stood fifth,
-// after A&E, until then.) Grammar-school distance and
+// after A&E, until then. BUG-403, founder ruling
+// 28 Nov 2026: Noise moves to immediately after Air
+// quality, ahead of Schools; it stood sixth, after A&E,
+// until then.) Grammar-school distance and
 // leisure/parks/shops are NOT pill-eligible.
 type PillVerdict = "concerning" | "good" | "neither";
 interface PillFactor {
@@ -1488,6 +1492,39 @@ function noiseBandLow(band: string | null, day: boolean): boolean {
   if (/^no modelled/i.test(band)) return true;
   const limit = day ? 55 : 50;
   return new RegExp(`below ${limit}|<\\s*${limit}`, "i").test(band);
+}
+
+// The D75 Noise verdict, shared by the pill and the
+// shortlist table's Noise row (BUG-403): one computation,
+// so the two can never drift. Thresholds unchanged
+// (founder ruling, 18 Nov 2026): concerning when any
+// filed band is day >=65 or night >=60; good when road,
+// rail AND airport are all in the lowest bands (the
+// below-range band, or "No modelled … noise"). The
+// mid-band home is "neither" — no pill, and the
+// shortlist row carries no band either.
+export function noisePillVerdict(
+  bands: { sourceKind: string; dayBand: string | null; nightBand: string | null }[],
+): PillVerdict {
+  const concerning = bands.some(
+    (band) => noiseBandHigh(band.dayBand, true) || noiseBandHigh(band.nightBand, false),
+  );
+  const road = bands.find((band) => band.sourceKind === "road");
+  const rail = bands.find((band) => band.sourceKind === "rail");
+  const airport = bands.find((band) => band.sourceKind === "airport");
+  const airportLow =
+    airport === undefined ||
+    (noiseBandLow(airport.dayBand, true) && noiseBandLow(airport.nightBand, false));
+  const good =
+    !concerning &&
+    road !== undefined &&
+    rail !== undefined &&
+    noiseBandLow(road.dayBand, true) &&
+    noiseBandLow(road.nightBand, false) &&
+    noiseBandLow(rail.dayBand, true) &&
+    noiseBandLow(rail.nightBand, false) &&
+    airportLow;
+  return concerning ? "concerning" : good ? "good" : "neither";
 }
 
 export function summaryPills(input: SummaryPillsInput): SummaryPill[] | null {
@@ -1609,7 +1646,38 @@ export function summaryPills(input: SummaryPillsInput): SummaryPill[] | null {
     }
   }
 
-  // 4 Schools (primary + secondary MERGED) — concerning if
+  // 4 Noise (BUG-403, founder ruling 28 Nov 2026: the
+  // rank moves from sixth to immediately after Air
+  // quality, ahead of Schools) — the verdict is
+  // noisePillVerdict's, the one computation the
+  // shortlist table's Noise row also colours by.
+  // Good if road, rail AND airport are all in the
+  // lowest modelled bands (day <55 dB, night <50 dB —
+  // the below-range band, or "No modelled … noise", the
+  // no-contribution state noiseBandLow also accepts);
+  // concerning if day >=65 or night >=60 on any filed
+  // band. The founder ruled (18 Nov 2026) that airport
+  // counts toward the pill like road and rail: the
+  // concerning scan already read every filed band, and
+  // the good test now reads the airport band too — a
+  // filed airport band that is not low blocks the
+  // "Quiet" pill. Where no airport band is filed the
+  // airport leg passes (the loader files absence itself
+  // as a "No modelled airport noise" band, which is
+  // low); road and rail stay required, as before.
+  {
+    const noise = areaSections?.noise;
+    if (noise && noise.state === "served" && noise.bands.length > 0) {
+      const verdict = noisePillVerdict(noise.bands);
+      add(verdict, {
+        label: "Noise",
+        figure: verdict === "concerning" ? "Noisy" : "Quiet",
+        band: verdict === "concerning" ? "orange" : "green",
+      });
+    }
+  }
+
+  // 5 Schools (primary + secondary MERGED) — concerning if
   // nearest primary >1 mi OR nearest secondary >1.5 mi;
   // good only if primary <=0.5 AND secondary <=1.
   {
@@ -1635,55 +1703,12 @@ export function summaryPills(input: SummaryPillsInput): SummaryPill[] | null {
     }
   }
 
-  // 5 A&E — concerning >7 mi; good <=5 mi.
+  // 6 A&E — concerning >7 mi; good <=5 mi.
   {
     const ae = nearestOf(categoryOf(nearby, "ae"));
     if (ae) {
       const verdict: PillVerdict = ae.miles > 7 ? "concerning" : ae.miles <= 5 ? "good" : "neither";
       add(verdict, verdictMilesPill("A&E", verdict, ae.miles));
-    }
-  }
-
-  // 6 Noise — good if road, rail AND airport are all in
-  // the lowest modelled bands (day <55 dB, night <50 dB —
-  // the below-range band, or "No modelled … noise", the
-  // no-contribution state noiseBandLow also accepts);
-  // concerning if day >=65 or night >=60 on any filed
-  // band. The founder ruled (18 Nov 2026) that airport
-  // counts toward the pill like road and rail: the
-  // concerning scan already read every filed band, and
-  // the good test now reads the airport band too — a
-  // filed airport band that is not low blocks the
-  // "Quiet" pill. Where no airport band is filed the
-  // airport leg passes (the loader files absence itself
-  // as a "No modelled airport noise" band, which is
-  // low); road and rail stay required, as before.
-  {
-    const noise = areaSections?.noise;
-    if (noise && noise.state === "served" && noise.bands.length > 0) {
-      const concerning = noise.bands.some(
-        (band) => noiseBandHigh(band.dayBand, true) || noiseBandHigh(band.nightBand, false),
-      );
-      const road = noise.bands.find((band) => band.sourceKind === "road");
-      const rail = noise.bands.find((band) => band.sourceKind === "rail");
-      const airport = noise.bands.find((band) => band.sourceKind === "airport");
-      const airportLow =
-        airport === undefined ||
-        (noiseBandLow(airport.dayBand, true) && noiseBandLow(airport.nightBand, false));
-      const good =
-        !concerning &&
-        road !== undefined &&
-        rail !== undefined &&
-        noiseBandLow(road.dayBand, true) &&
-        noiseBandLow(road.nightBand, false) &&
-        noiseBandLow(rail.dayBand, true) &&
-        noiseBandLow(rail.nightBand, false) &&
-        airportLow;
-      add(concerning ? "concerning" : good ? "good" : "neither", {
-        label: "Noise",
-        figure: concerning ? "Noisy" : "Quiet",
-        band: concerning ? "orange" : "green",
-      });
     }
   }
 
@@ -1954,6 +1979,14 @@ export const BUY_BAR_ONE_PAYMENT_LINE = "One payment, no subscription, nothing f
 export const FLOOD_UPSELL_LEAD = "Plus the flood findings in full";
 export const FLOOD_UPSELL_DETAIL =
   "The defences near this home, and how the picture changes in the years ahead.";
+// The air quality & noise upsell (founder-directed, 28 Nov
+// 2026; copy decided by Muse on the founder's delegation
+// — a founder-overrule option): the free page shows the
+// exact air figures and noise bands but no colouring or
+// verdict; the paid report adds the meaning.
+export const AIR_NOISE_UPSELL_LEAD = "Plus the verdict on each figure";
+export const AIR_NOISE_UPSELL_DETAIL =
+  "Every air figure coloured against the UK legal limits, every noise band coloured — green for the quietest, red against the WHO guidelines.";
 // D77(c) absence/failure copy, pinned.
 export const COULD_NOT_PULL_LINE =
   "We couldn't pull this just now — the rest of your check is below. Try again in a little while.";
@@ -2639,6 +2672,7 @@ export function buildResultsView(input: ResultsInput): ResultsView {
     // full air section (the short projection carries only
     // the headline figure).
     const airFull = areaSections?.air ?? null;
+    let airServed = false;
     if (
       airFull &&
       airFull.state === "served" &&
@@ -2665,6 +2699,7 @@ export function buildResultsView(input: ResultsInput): ResultsView {
         tag: "MODELLED",
         tagTone: "grey",
       });
+      airServed = true;
     } else {
       if (air.headlineFigure) blocks.push({ type: "line", text: air.headlineFigure.line });
       if (air.line) blocks.push({ type: "line", text: air.line });
@@ -2672,6 +2707,7 @@ export function buildResultsView(input: ResultsInput): ResultsView {
         blocks.push({ type: "line", text: "Air quality is not covered for this postcode." });
     }
     let noisePushed = false;
+    let noiseServed = false;
     if (areaSections?.noise) {
       const noise = areaSections.noise;
       if (noise.state === "served") {
@@ -2694,6 +2730,7 @@ export function buildResultsView(input: ResultsInput): ResultsView {
             tagTone: "grey",
           });
           noisePushed = true;
+          noiseServed = true;
         } else if (noise.line) {
           blocks.push({ type: "line", text: noise.line });
           noisePushed = true;
@@ -2705,6 +2742,20 @@ export function buildResultsView(input: ResultsInput): ResultsView {
     }
     if (!noisePushed)
       blocks.push({ type: "line", text: "Noise bands are not covered for this postcode." });
+    // The upsell (founder-directed, 28 Nov 2026): the
+    // free page shows the exact figures but no colouring
+    // or verdict — the paid report adds the meaning.
+    // HCR-11: the strip stands only where the section
+    // served real figures — both the air figures and the
+    // noise bands, since the copy promises both — beside
+    // a not-covered line it would promise meaning for
+    // figures that do not exist.
+    if (airServed && noiseServed)
+      blocks.push({
+        type: "upsell",
+        lead: AIR_NOISE_UPSELL_LEAD,
+        detail: AIR_NOISE_UPSELL_DETAIL,
+      });
     let sourceLine: string | null = null;
     if (areaSections?.noise) sourceLine = areaSections.noise.sourceLine;
     if (area.kind === "area-bundle" && area.sections.air.sourceLine)

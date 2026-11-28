@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
@@ -162,6 +163,8 @@ function PaySection({
   view,
   payLabel,
   consented,
+  starting,
+  onElementReady,
   orderRef,
   preferredMethod,
   onPaid,
@@ -175,6 +178,18 @@ function PaySection({
   // disagree about what the order is.
   payLabel: string;
   consented: boolean;
+  // BUG-398 follow-up: the intent's in-flight state,
+  // handed down so the panel carries it until the
+  // element reports ready — the panel's Pay button
+  // stays disabled on it, and the panel says so,
+  // instead of standing blank with a live Pay button
+  // while the element still loads.
+  starting: boolean;
+  // BUG-398 follow-up: fired by the element once it
+  // is mounted and usable — the parent clears the
+  // starting state on it, and on nothing else, once
+  // a payment has started.
+  onElementReady: () => void;
   // BUG-367: the method the buyer tapped on the
   // method rows, or null where no row was tapped
   // (Pay itself carries no preference) — handed
@@ -286,6 +301,17 @@ function PaySection({
     <form ref={formRef} onSubmit={onSubmit} noValidate>
       <PaymentElement
         options={paymentElementOptions}
+        onReady={() => {
+          // BUG-398 follow-up: the element is mounted
+          // and usable — the fields are on screen now
+          // — so the starting state leaves. This is
+          // the only signal that ends it once a
+          // payment has started: the intent's own
+          // settlement is too early (the element
+          // still has to load), and nothing else
+          // knows the fields are actually there.
+          onElementReady();
+        }}
         onChange={(event) => {
           // BUG-341: the change event carries no error
           // — only empty, complete, collapsed and value
@@ -331,17 +357,28 @@ function PaySection({
           with no message — while the provider is
           still loading, the panel says so. */}
       {cardError && <p className="field__message field__message--error">{cardError}</p>}
-      {!stripe && (
+      {/* BUG-398 follow-up: while the provider is
+          still loading, the panel says so — and the
+          line is the starting line itself, not a
+          second loading line: "Starting…" stands from
+          the tap until the element reports ready, so
+          the panel never stands blank with a live Pay
+          button. The old "Loading the card panel..."
+          line is gone — it vanished the moment the
+          provider object resolved, while the element
+          itself was still mounting, which was the
+          dead window. */}
+      {starting && (
         <p className="field__message" role="status">
-          Loading the card panel...
+          {PAYMENT_STARTING_LINE}
         </p>
       )}
       <button
         type="submit"
         className="btn btn--brass report-payment__pay"
-        disabled={!stripe || busy || !consented}
+        disabled={!stripe || busy || !consented || starting}
       >
-        {payLabel}
+        {starting ? PAYMENT_STARTING_LINE : payLabel}
       </button>
       <p className="report-payment__smallprint">{view.closingLine}</p>
     </form>
@@ -411,13 +448,16 @@ export default function ReportPaymentPage({
   // fetch was in flight, and the second tap hit the
   // creatingFor guard — a silent no-op — so it looked
   // like the second click did it. Set beside
-  // creatingFor once the guards pass, cleared in the
-  // finally beside it, so the state can never stick
-  // past the intent's settlement — including the
-  // BUG-325 gift-lost reconcile and a failed start.
-  // The one-payment-per-attempt rule is unchanged:
-  // the creatingFor guard stays first, and this state
-  // mirrors it, never replaces it.
+  // creatingFor once the guards pass. BUG-398
+  // follow-up: it clears at the intent's settlement
+  // ONLY where no payment was started — a payment
+  // that stands keeps it until its element reports
+  // ready (onElementReady), its load fails (the
+  // watcher below), or the payment is retired before
+  // ready (the guard below). The one-payment-per-
+  // attempt rule is unchanged: the creatingFor guard
+  // stays first, and this state mirrors it, never
+  // replaces it.
   const [starting, setStarting] = useState(false);
   // BUG-325: the visit's gift, lost at intent time —
   // the server answered a payment for a gift visit, so
@@ -546,10 +586,17 @@ export default function ReportPaymentPage({
     let live = true;
     stripePromise
       .then((stripe) => {
-        if (live) setStripeFailed(stripe === null);
+        if (!live) return;
+        setStripeFailed(stripe === null);
+        // BUG-398 follow-up: a failed load can never
+        // leave the page stuck on "Starting…" — no
+        // element mounts, so no ready event comes.
+        if (stripe === null) setStarting(false);
       })
       .catch(() => {
-        if (live) setStripeFailed(true);
+        if (!live) return;
+        setStripeFailed(true);
+        setStarting(false);
       });
     return () => {
       live = false;
@@ -561,9 +608,38 @@ export default function ReportPaymentPage({
     // — the dead promise is dropped from the per-key
     // cache first, and the attempt count re-keys the
     // memo above so a fresh loadStripe runs.
+    // BUG-398 follow-up: the retry loads the element
+    // again, so the starting state stands again
+    // until it reports ready — the retry's own load
+    // has the same dead window the first load had.
+    // A second failure clears it through the watcher
+    // above, so the retry can never stick it either.
     if (elementKey) stripePromises.delete(elementKey);
     setStripeFailed(false);
+    setStarting(true);
     setStripeLoadAttempt((value) => value + 1);
+  }
+
+  // BUG-398 follow-up: a payment retired before its
+  // element is ready unmounts the panel, so no ready
+  // event can ever come — the buyer edits the email
+  // or unticks the consent while the element still
+  // loads, and the payment stops counting (the
+  // derivation above). Without this guard the rows
+  // would stand disabled on "Starting…" with no way
+  // back. The creatingFor check spares the intent
+  // flight itself, where no payment stands yet and
+  // the fetch is still the thing in flight.
+  useEffect(() => {
+    if (starting && activeIntent === null && !creatingFor.current) setStarting(false);
+  }, [starting, activeIntent]);
+
+  // BUG-398 follow-up: the element is mounted and
+  // usable — the fields are on screen now — so the
+  // starting state leaves. The only signal that ends
+  // it once a payment has started.
+  function onElementReady() {
+    setStarting(false);
   }
 
   // BUG-335: the paid flow starts ONLY here, on the
@@ -588,6 +664,14 @@ export default function ReportPaymentPage({
     creatingFor.current = `${normalised}|${consentTimestamp}`;
     setStarting(true);
     setAttempt((value) => value + 1);
+    // BUG-398 follow-up: whether this start produced
+    // a payment — the finally below clears the
+    // starting state only where it did not. A payment
+    // that stands keeps the state until its element
+    // reports ready; a failed start, a gift-gone
+    // reconcile and the gifted redirect clear it here,
+    // at the intent's settlement, as before.
+    let paymentStarted = false;
     try {
       const response = await fetch("/api/payments/intent", {
         method: "POST",
@@ -657,6 +741,7 @@ export default function ReportPaymentPage({
           publishableKey: data.publishableKey ?? null,
           intentId: data.intentId ?? "",
         });
+        paymentStarted = true;
         // The funnel's second step: a payment stands
         // started for this page (M9.6, Amendment B).
         fireJourneyEvent("checkout_started");
@@ -671,7 +756,15 @@ export default function ReportPaymentPage({
       setNotice(PAYMENT_START_FAILED_LINE);
     } finally {
       creatingFor.current = null;
-      setStarting(false);
+      // BUG-398 follow-up: see the flag above — the
+      // state clears here only where no payment was
+      // started. Where one stands, only the
+      // element-ready event clears it (onElementReady,
+      // below), the failed-load watcher, or the
+      // retirement guard — never the intent's own
+      // settlement, which lands before the element
+      // has loaded.
+      if (!paymentStarted) setStarting(false);
     }
   }
 
@@ -1018,7 +1111,16 @@ export default function ReportPaymentPage({
                 {declined && (
                   <p className="field__message field__message--error" role="alert">
                     {PAYMENT_DECLINED_LINE}{" "}
-                    {postcode && <a href={homeRoute(postcode, homeKey)}>Back to your free check</a>}
+                    {postcode && (
+                      // BUG-402: client-side, so the return
+                      // to the free check restores the
+                      // rendered results from the router
+                      // cache instead of re-rendering them
+                      // behind the fallback.
+                      <Link href={homeRoute(postcode, homeKey)} prefetch={false}>
+                        Back to your free check
+                      </Link>
+                    )}
                   </p>
                 )}
                 {activeIntent && stripePromise ? (
@@ -1083,6 +1185,8 @@ export default function ReportPaymentPage({
                         view={view}
                         payLabel={payLabel}
                         consented={consentAt !== null}
+                        starting={starting}
+                        onElementReady={onElementReady}
                         orderRef={activeIntent.intentId || null}
                         preferredMethod={preferredMethod}
                         onPaid={() => {

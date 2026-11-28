@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import type { ReportPaymentFailedView } from "../lib/report-payment-failed";
 import PostcodeBox from "./PostcodeBox";
 
@@ -56,8 +58,16 @@ export default function ReportPaymentFailedPage({ view }: { view: ReportPaymentF
       </section>
 
       <p className="journey-actions report-failed__links">
-        <a href={view.backHref}>← {view.backLabel}</a>
-        <a href={view.shortlistHref}>{view.shortlistLabel}</a>
+        {/* BUG-402: client-side, so the return to the
+            free check restores the rendered results from
+            the router cache instead of re-rendering them
+            behind the fallback. */}
+        <Link href={view.backHref} prefetch={false}>
+          ← {view.backLabel}
+        </Link>
+        <Link href={view.shortlistHref} prefetch={false}>
+          {view.shortlistLabel}
+        </Link>
       </p>
     </main>
   );

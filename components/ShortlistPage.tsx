@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { homeRoute } from "../lib/journey";
 import { REPORT_ROUTE, formatMiles, reportRoute, type DistanceFamily } from "../lib/results";
 import { REPORT_PRICE_LABEL } from "../lib/site";
 import {
@@ -171,6 +172,27 @@ function CompareCell({
   );
 }
 
+// BUG-401 (founder instruction, 28 Nov 2026): the
+// address re-runs the search for that home — the same
+// flow the search box performs for a picked home
+// (homeRoute, postcode + home key, same tab), landing
+// on /search/home, whose checking screen advances to
+// the headline report. A rung-3 card holds an area, not
+// a home — no home key — so its address stays plain.
+// The link keeps the Master's dress (samples 14–16):
+// it inherits the address's colour with no underline;
+// the underline appears on hover and keyboard focus
+// only (see app/globals.css). Shared by the table head
+// and the stacked block, so the two heads cannot drift.
+function ShortlistAddress({ card, className }: { card: ShortlistCard; className: string }) {
+  if (card.rung !== 1 || !card.homeKey) return <>{card.addressLine}</>;
+  return (
+    <a className={className} href={homeRoute(card.postcode, card.homeKey)}>
+      {card.addressLine}
+    </a>
+  );
+}
+
 // BUG-304 (founder ruling, 25 Nov 2026): a column's
 // header cell IS the card now. The tiles row above the
 // table is gone — its own 3-column grid never lined up
@@ -186,6 +208,14 @@ function CompareCell({
 // home, at its column's foot (founder's ruling, 17 Nov
 // 2026). Shared by the desktop table, the phone swipe
 // table and (in kind, below) the stacked blocks.
+//
+// BUG-400 (founder instruction, 28 Nov 2026): the
+// head is a flex column that fills the cell, so the
+// Remove actions take the free space above them and
+// sit at the same height in every column — whether or
+// not the sale line (or the rung-3 facts line) is
+// there. The swipe table shares this head, so the fix
+// covers the phone form too.
 function CompareColumnHead({
   card,
   onRemove,
@@ -195,8 +225,8 @@ function CompareColumnHead({
 }) {
   const saleLine = cardLastSaleLine(card);
   return (
-    <>
-      {card.addressLine}
+    <div className="compare-table__head">
+      <ShortlistAddress card={card} className="compare-table__address" />
       {saleLine && <p className="compare-table__sale">{saleLine}</p>}
       {card.rung === 3 && card.factsLine && (
         <p className="compare-table__facts">{card.factsLine}</p>
@@ -214,7 +244,7 @@ function CompareColumnHead({
           Remove
         </button>
       </p>
-    </>
+    </div>
   );
 }
 
@@ -540,11 +570,15 @@ export default function ShortlistPage() {
                 // them in the two table forms. A home with
                 // no recorded sale shows the address and
                 // Remove only; at rung 3 the facts line
-                // stands here too.
+                // stands here too. BUG-401: the address
+                // is the same search-flow control as the
+                // table head (ShortlistAddress).
                 const saleLine = cardLastSaleLine(card);
                 return (
                   <div className="shortlist-compare__column" key={card.id} data-rung={card.rung}>
-                    <h3 className="shortlist-compare__address">{card.addressLine}</h3>
+                    <h3 className="shortlist-compare__address">
+                      <ShortlistAddress card={card} className="shortlist-compare__address-link" />
+                    </h3>
                     {saleLine && <p className="shortlist-compare__sale">{saleLine}</p>}
                     {card.rung === 3 && card.factsLine && (
                       <p className="shortlist-compare__facts">{card.factsLine}</p>
